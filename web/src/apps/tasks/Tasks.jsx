@@ -563,6 +563,21 @@ export default function Tasks() {
               <option value="none">None</option>
             </select>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { important: true } }, (n) => `${nTasks(n)} marked important`)}>★ Important</button>
+            {(() => { // a tag for them all (one used here, or a new one); one some of them have, taken off
+              const used = [...new Set((tasks || []).flatMap((t) => t.tags || []))].sort();
+              const onPicked = [...new Set((tasks || []).filter((t) => picked.has(t.id)).flatMap((t) => t.tags || []))].sort();
+              return (<>
+                <select aria-label="Tag the selected tasks" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (v === '__new__') setDialog('tagnew'); else if (v) batch({ change: { add_tag: v } }, (n) => `${nTasks(n)} tagged #${v}`); }}>
+                  <option value="">Tag…</option>
+                  {used.map((t) => <option key={t} value={t}>#{t}</option>)}
+                  <option value="__new__">+ New tag…</option>
+                </select>
+                {onPicked.length > 0 && <select aria-label="Take a tag off the selected tasks" value="" onChange={(e) => { const v = e.target.value; if (v) batch({ change: { remove_tag: v } }, (n) => `#${v} taken off ${nTasks(n)}`); }}>
+                  <option value="">Remove tag…</option>
+                  {onPicked.map((t) => <option key={t} value={t}>#{t}</option>)}
+                </select>}
+              </>);
+            })()}
             {!virtual && sections.length > 0 && <select aria-label="Put the selected tasks in a section" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (v) batch({ change: { section_id: v === '__none__' ? null : v } }, (n) => (v === '__none__' ? `${nTasks(n)}: no section` : `${nTasks(n)} put in ${sections.find((x) => x.id === v)?.name}`)); }}>
               <option value="">Section…</option>
               {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -707,6 +722,13 @@ export default function Tasks() {
       {/* "Move to… → + New list…": a list made with a name, the tasks selected moved into it (this list stays open) */}
       {dialog === 'movenew' && <PromptModal title={`Move ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and move" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await newList(name); await batch({ change: { list_id: r.id } }, (n) => `${nTasks(n)} moved to ${r.name}`); loadLists(); }} />}
+      {dialog === 'tagnew' && <PromptModal title={`Tag ${nTasks(picked.size)}`} label="Tag (a word, like client)" confirm="Tag them" onClose={() => setDialog(null)}
+        onSubmit={async (tag) => {
+          const t = tag.replace(/^#+/, '').trim().toLowerCase();
+          const ids = [...picked];
+          await post('/tasks/tasks/batch', { ids, change: { add_tag: t } }); // an error (not a word) shows here
+          toast(`${nTasks(ids.length)} tagged #${t}`); setPicked(new Set()); loadTasks();
+        }} />}
       {dialog === 'copynew' && <PromptModal title={`Copy ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and copy" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await newList(name); await copyPicked(r.id, r.name); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}

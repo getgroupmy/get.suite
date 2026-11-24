@@ -9856,6 +9856,25 @@ test('Tasks: several at once (tick off, due date, star, move, delete); all check
   assert.equal((await batch(a, { ids: [t1.id], change: { title: 'Sneaky' } })).status, 400, 'only the batch changes');
   assert.equal((await batch(a, { ids: [], change: { done: true } })).status, 400);
 
+  // A tag added to each, or taken off each; their other tags stay.
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { tags: ['design'] })).status, 200);
+  r = await batch(a, { ids: [t1.id, t2.id], change: { add_tag: '#Client' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.tasks.map((t) => t.tags), [['client'], ['design', 'client']]);
+  assert.deepEqual((await batch(a, { ids: [t1.id], change: { add_tag: 'client' } })).body.tasks[0].tags, ['client'], 'not twice');
+  r = await batch(a, { ids: [t1.id, t2.id, t3.id], change: { remove_tag: 'CLIENT' } });
+  assert.deepEqual(r.body.tasks.map((t) => t.tags), [[], ['design'], []]);
+  assert.equal((await batch(a, { ids: [t1.id], change: { add_tag: 'two words' } })).status, 400);
+  assert.equal((await batch(a, { ids: [t1.id], change: { add_tag: '' } })).status, 400);
+  assert.equal((await batch(a, { ids: [t1.id, theirs.id], change: { add_tag: 'x' } })).status, 404, 'someone else\'s task');
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t1.id).tags, [], 'nothing changed');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { tags: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10'] })).status, 200);
+  r = await batch(a, { ids: [t2.id, t1.id], change: { add_tag: 'more' } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Write copy.*10 tags/);
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t2.id).tags, ['design'], 'checked first');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { tags: [] })).status, 200);
+
   // Ticking off a repeating task brings the next one, as one at a time does.
   r = await batch(a, { ids: [t2.id, t3.id], change: { done: true } });
   assert.equal(r.status, 200);

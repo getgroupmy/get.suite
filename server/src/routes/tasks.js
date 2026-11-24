@@ -1308,9 +1308,23 @@ export default function taskRoutes() {
       return res.json({ deleted: found.length });
     }
     const b = Object.fromEntries(Object.entries(req.body?.change || {}).filter(([k]) => BATCH_KEYS.includes(k)));
-    if (!Object.keys(b).length) throw bad('Nothing to change');
-    const plans = ids.map((id) => planUpdate(id, b, req.user));
-    res.json({ tasks: plans.map((p) => applyUpdate(p, b, req.user)) });
+    // A tag added to each, or taken off each (the others they have stay).
+    const tagIn = (v) => { const t = JSON.parse(tagsOf([v]) || '[]')[0]; if (!t) throw bad('Name the tag'); return t; };
+    const addTag = req.body?.change?.add_tag !== undefined ? tagIn(req.body.change.add_tag) : null;
+    const removeTag = req.body?.change?.remove_tag !== undefined ? tagIn(req.body.change.remove_tag) : null;
+    if (!Object.keys(b).length && !addTag && !removeTag) throw bad('Nothing to change');
+    const each = ids.map((id) => {
+      if (!addTag && !removeTag) return b;
+      const t = q('SELECT title, tags, list_id FROM tasks WHERE id = ?').get(id);
+      if (!t) throw notFound('Task not found');
+      loadList(t.list_id, req.user); // yours to change, before anything about it is said
+      let tags = t.tags ? JSON.parse(t.tags) : [];
+      if (removeTag) tags = tags.filter((x) => x !== removeTag);
+      if (addTag && !tags.includes(addTag)) { if (tags.length >= 10) throw bad(`“${t.title}” has 10 tags already`); tags = [...tags, addTag]; }
+      return { ...b, tags };
+    });
+    const plans = ids.map((id, i) => planUpdate(id, each[i], req.user));
+    res.json({ tasks: plans.map((p, i) => applyUpdate(p, each[i], req.user)) });
   });
 
   // A task's checklist: add a step, change one (title, done, or its place), or remove one.
