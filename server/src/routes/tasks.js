@@ -1156,14 +1156,14 @@ export default function taskRoutes() {
   });
 
   // For the calendar: open tasks due between two dates (YYYY-MM-DD, both included) that are yours:
-  // given to you, or given to nobody on a list of your own.
+  // given to you, or given to nobody on a list of your own; not on lists you've hidden from the left.
   r.get('/due', (req, res) => {
     const from = dueOf(String(req.query.from || '')), to = dueOf(String(req.query.to || ''));
     if (!from || !to) throw bad('from and to are required');
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.due >= ? AND t.due <= ?
-                AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
-                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me).map(shape));
+                AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?)) AND ${NOT_HIDDEN}
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me, me).map(shape));
   });
 
   // Today, for Home: open tasks in your My Day first (marked my_day), then the ones for you that are due today

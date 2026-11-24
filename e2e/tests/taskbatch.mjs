@@ -348,6 +348,14 @@ await step('List actions → Hide from the left: out of the lists, under Hidden 
     return page.getByText('Due on a list to hide', { exact: true }).count();
   };
   if (!(await inPlanned())) throw new Error('not in Planned at first');
+  const inbox0 = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.inbox);
+  await api(page, 'POST', `/tasks/lists/${inbox0.id}/tasks`, { title: 'Due on a shown list', due: ymd(new Date()) });
+  const onCalendar = async () => {
+    await page.goto(`${B}/calendar`);
+    await page.getByText('Due on a shown list').first().waitFor(); // the calendar's tasks have loaded
+    return page.getByText('Due on a list to hide').count();
+  };
+  if (!(await onCalendar())) throw new Error('not on the calendar at first');
   await page.goto(`${B}/tasks/${later}`);
   await page.getByRole('heading', { name: 'Later' }).waitFor();
   await page.getByRole('button', { name: 'List actions' }).click();
@@ -364,6 +372,7 @@ await step('List actions → Hide from the left: out of the lists, under Hidden 
   if ((await side()).includes('Later')) throw new Error('back after reload');
   await page.screenshot({ path: `${SP}/shots/taskbatch-hidden.png` });
   if (await inPlanned()) throw new Error('a hidden list’s task is still in Planned');
+  if (await onCalendar()) throw new Error('a hidden list’s task is still on the calendar');
   // The list Add to Tasks puts things in can't be hidden.
   const inbox = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.inbox);
   await page.goto(`${B}/tasks/${inbox.id}`);
