@@ -19,7 +19,7 @@ import TasksAbout from '../../components/TasksAbout.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
-import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
+import { Modal, useToast, Empty, Menu, PromptModal, ConfirmModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText, taskHoursByDay, deltaText } from './insights.js';
@@ -369,6 +369,17 @@ function Calendar({ acting = null, managed = [], onPick }) {
 
   // Searching: the results replace Upcoming; opening one goes to its day and opens it.
   const [found, setFound] = useState(null); // { q, list }
+  const [picking, setPicking] = useState(null); // search results ticked to delete together (a Set of ids), or null
+  const [deletingFound, setDeletingFound] = useState(false);
+  const deleteFound = async () => {
+    const ids = [...picking];
+    const r = await post('/events/delete-many', { ids });
+    setPicking(null); load(); runSearch(found?.q);
+    const back = r.undo || [];
+    toast(`${r.deleted === 1 ? 'Event' : `${r.deleted} events`} deleted`, 'info', back.length ? { action: { label: back.length === r.deleted ? 'Undo' : `Undo (${back.length} without guests)`, onClick: async () => {
+      try { for (const u of back) await post(`/events/trash/${u}/restore`); load(); runSearch(found?.q); } catch (e) { toast(e.message, 'error'); }
+    } } } : undefined);
+  };
   const runSearch = async (q) => {
     const text = String(q || '').trim();
     if (!text) { setFound(null); return; }
@@ -546,11 +557,20 @@ function Calendar({ acting = null, managed = [], onPick }) {
           <input name="q" type="search" placeholder="Search events" aria-label="Search events" onChange={(e) => { if (!e.target.value) setFound(null); }} />
         </form>
         {found ? <>
-          <h3 className="subnav-title row">Results<span className="grow" /><button type="button" className="link-btn small" onClick={() => setFound(null)}>Clear</button></h3>
+          <h3 className="subnav-title row">Results<span className="grow" />
+            {found.list.some((r) => r.role === 'organizer') && <button type="button" className="link-btn small" aria-pressed={!!picking} onClick={() => setPicking(picking ? null : new Set())}>{picking ? 'Done' : 'Select'}</button>}
+            <button type="button" className="link-btn small" onClick={() => { setFound(null); setPicking(null); }}>Clear</button></h3>
+          {picking && <div className="row" role="toolbar" aria-label="Change the selected events">
+            <span className="muted small grow" aria-live="polite">{picking.size} selected</span>
+            <button type="button" className="btn small danger" disabled={!picking.size} onClick={() => setDeletingFound(true)}><Icon name="trash" size={16} /> Delete</button>
+          </div>}
           {found.list.length === 0 && <p className="muted small">No events match “{found.q}”</p>}
           <ul className="cal-results" aria-label="Search results">
             {found.list.map((r) => (
-              <li key={`${r.id}:${r.start}`}>
+              <li key={`${r.id}:${r.start}`} className={picking ? 'row' : undefined}>
+                {picking && (r.role === 'organizer'
+                  ? <input type="checkbox" aria-label={`Select: ${r.title}`} checked={picking.has(r.id)} onChange={(e) => { const n = new Set(picking); e.target.checked ? n.add(r.id) : n.delete(r.id); setPicking(n); }} />
+                  : <span className="muted small" title="An invitation: only its organizer deletes it" style={{ width: 13 }} />)}
                 <button type="button" className={`upcoming ${r.upcoming ? '' : 'past'}`} onClick={() => openFound(r)}>
                   <span className="dot" style={{ background: r.color || COLORS[0] }} />
                   <span>
@@ -616,6 +636,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
             locations={locations} onLocation={(d, place) => (place === 'other' ? setOtherFor(d) : setLocation(d, place))} />
         )}
       </section>
+      {deletingFound && picking && <ConfirmModal title={`Delete ${picking.size === 1 ? 'this event' : `${picking.size} events`}?`} confirm="Delete"
+        message="Guests are told they're cancelled. Events without guests can be put back with Undo." onClose={() => setDeletingFound(false)}
+        onConfirm={deleteFound} />}
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
       {roomsNow && <RoomsNow onClose={() => setRoomsNow(false)} />}

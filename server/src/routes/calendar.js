@@ -1135,6 +1135,22 @@ export default function calendarRoutes() {
     touch(people);
     res.json({ ok: true, undo });
   });
+  // Several of your own events deleted at once (from search results): every one checked first; guests are told
+  // as for one. undo: the ones that can come back (as for one: not those with guests, who were told).
+  r.post('/delete-many', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some events');
+    if (ids.length > 100) throw bad('100 events at a time at most');
+    const evs = ids.map((id) => { const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(id, req.user.id); if (!ev) throw notFound('Only your own events can be deleted here'); return ev; });
+    const undo = [];
+    for (const ev of evs) {
+      const people = peopleOf(ev.calendar_id);
+      if (keepForUndo(ev, req.user.id)) undo.push(ev.id);
+      removeEvent(req, ev);
+      touch(people);
+    }
+    res.json({ deleted: evs.length, undo });
+  });
   // Undo a delete (within a day): the event comes back as it was.
   r.post('/trash/:id/restore', (req, res) => {
     const t = q('SELECT * FROM event_trash WHERE id = ? AND owner_id = ? AND deleted_at >= ?').get(String(req.params.id), req.user.id, Date.now() - EVENT_UNDO_MS);

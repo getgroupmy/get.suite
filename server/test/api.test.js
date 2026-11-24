@@ -3829,6 +3829,22 @@ test('calendar search: words in title, place or notes; your events and invitatio
   assert.deepEqual(asGuest.map((e) => [e.title, e.role]), [['Budget review', 'guest']]);
   assert.deepEqual((await a('GET', '/api/events/search?q=')).body, []);
   assert.deepEqual((await a('GET', '/api/events/search?q=100%25')).body, []);
+
+  // Several found deleted at once: only your own (not an invitation, not someone else's); all checked first; each can come back.
+  const review = found[1], old = found[2];
+  assert.equal((await b('POST', '/api/events/delete-many', { ids: [review.id] })).status, 404, 'a guest can\'t');
+  assert.equal((await a('POST', '/api/events/delete-many', { ids: [] })).status, 400);
+  const secret = (await c('GET', '/api/events/search?q=secret')).body[0];
+  assert.equal((await a('POST', '/api/events/delete-many', { ids: [old.id, secret.id] })).status, 404);
+  assert.equal((await a('GET', '/api/events/search?q=budget')).body.length, 3, 'nothing deleted');
+  const r = await a('POST', '/api/events/delete-many', { ids: [review.id, old.id] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.deleted, 2);
+  assert.deepEqual((await a('GET', '/api/events/search?q=budget')).body.map((e) => e.title), ['Standup']);
+  assert.deepEqual((await b('GET', '/api/events/search?q=review')).body, [], 'gone for the guest too');
+  assert.deepEqual(r.body.undo, [old.id], 'the one with a guest (told it was cancelled) can\'t come back');
+  for (const u of r.body.undo) assert.equal((await a('POST', `/api/events/trash/${u}/restore`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/events/search?q=budget')).body.map((e) => e.title), ['Standup', 'Old budget talk'], 'back');
 });
 
 test('file requests: people send files into a folder without seeing it; the owner is told', async () => {

@@ -79,6 +79,26 @@ await step('Clear brings back Upcoming; no match says so', async () => {
   await page.getByRole('button', { name: 'Clear' }).click();
   await page.getByText('Upcoming').waitFor();
 });
+await step('Select results and delete them together; Undo puts them back', async () => {
+  await page.getByLabel('Search events').fill('budget');
+  await page.getByLabel('Search events').press('Enter');
+  const list = page.getByRole('list', { name: 'Search results' });
+  await list.getByText('Old budget talk').waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected events' });
+  await bar.getByText('0 selected').waitFor();
+  await page.getByLabel('Select: Old budget talk').check();
+  await page.getByLabel('Select: Budget review').check();
+  await bar.getByRole('button', { name: 'Delete' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Delete 2 events?' });
+  await dlg.getByRole('button', { name: 'Delete' }).click();
+  await page.locator('.toast', { hasText: '2 events deleted' }).last().waitFor();
+  await until(async () => (await list.locator('strong').allInnerTexts()).join('|') === 'Standup');
+  await page.locator('.toast', { hasText: '2 events deleted' }).last().getByRole('button', { name: 'Undo' }).click();
+  await until(async () => (await list.locator('strong').allInnerTexts()).join('|') === 'Standup|Budget review|Old budget talk');
+  const back = (await api(page, 'GET', '/events/search?q=budget')).body.map((e) => e.title);
+  if (back.length !== 3) throw new Error(back.join());
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
