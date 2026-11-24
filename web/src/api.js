@@ -60,6 +60,15 @@ export async function api(method, url, body, opts = {}) {
 const lastUserId = () => { try { return JSON.parse(localStorage.getItem('nw-last-user') || 'null')?.id || 'anon'; } catch { return 'anon'; } };
 
 export const get = (url) => api('GET', url);
+/** A text answer (an export, say) instead of JSON; errors as api() gives them. */
+export async function getText(url) {
+  const res = await fetch(`/api${url}`, { credentials: 'same-origin', headers: HEADERS });
+  if (!res.ok) {
+    const data = (res.headers.get('content-type') || '').includes('json') ? await res.json().catch(() => null) : null;
+    throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
+  }
+  return res.text();
+}
 export const post = (url, body = {}, opts) => api('POST', url, body, opts);
 export const patch = (url, body) => api('PATCH', url, body);
 export const put = (url, body) => api('PUT', url, body);

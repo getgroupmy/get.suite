@@ -18,7 +18,8 @@ import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, no
 import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilFor, untilText, unreachableText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
+import { get, getText, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
+import { printHtml } from '../mail/mailprint.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { muteChoices } from './mute.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
@@ -997,6 +998,10 @@ export default function Chat() {
                 } catch (e) { toast(e.message, 'error'); }
               }}><Icon name="calendar" /></button>}
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="Download conversation" title="Download this conversation" {...p}><Icon name="download" /></button>} items={[
+              { label: 'Print…', icon: 'print', onClick: async () => { // the web-page version, on paper (or as a PDF)
+                try { printHtml(await getText(`/chat/channels/${current.id}/export?format=html&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`)); }
+                catch (e) { toast(e.message, 'error'); }
+              } },
               { label: 'As a web page (.html)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=html&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
               { label: 'As plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=txt&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
               { label: 'With its files (.zip)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=zip&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },

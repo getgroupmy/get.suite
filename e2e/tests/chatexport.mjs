@@ -69,6 +69,16 @@ await step('Download with its files (.zip): the page and the files shared in it'
   if (await zip.file('Files/agenda.txt')?.async('string') !== 'Item one') throw new Error(Object.keys(zip.files).join());
   if (!/The agenda/.test(await zip.file('launch.html').async('string'))) throw new Error('page');
 });
+await step('Print…: the conversation as on the web page, sent to the printer', async () => {
+  await page.goto(`${B}/chat/${ch}`);
+  await page.getByText('Ship on Friday?').waitFor();
+  await page.getByRole('button', { name: 'Download conversation' }).click();
+  await page.getByRole('menuitem', { name: 'Print…' }).click();
+  const frame = page.locator('iframe.print-frame').last();
+  await frame.waitFor({ state: 'attached' });
+  const html = await frame.getAttribute('srcdoc');
+  if (!html.includes('<h1>#launch</h1>') || !html.includes('Ship on Friday?') || !html.includes('Yes, Friday works')) throw new Error(html.slice(0, 300));
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
