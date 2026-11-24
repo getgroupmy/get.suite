@@ -124,6 +124,22 @@ await step('Download responses: the picked forms\' responses as CSV files in one
   await page.getByLabel('Select: Lunch order').uncheck();
   await page.getByLabel('Select: Team offsite').uncheck();
 });
+await step('Recently deleted: tick several and restore them together', async () => {
+  const mk = async (title) => (await api(page, 'POST', '/forms', { title })).body.id;
+  const ids = [await mk('Gone one'), await mk('Gone two'), await mk('Gone three')];
+  for (const id of ids) await api(page, 'DELETE', `/forms/${id}`);
+  await page.goto(`${B}/forms`);
+  await page.getByRole('button', { name: 'Recently deleted' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Recently deleted forms' });
+  await dlg.getByLabel('Select Gone one').check();
+  await dlg.getByLabel('Select Gone three').check();
+  await dlg.getByRole('button', { name: 'Restore 2' }).click();
+  await page.locator('.toast', { hasText: '2 forms are back' }).last().waitFor();
+  const titles = (await api(page, 'GET', '/forms')).body.map((f) => f.title);
+  if (!titles.includes('Gone one') || !titles.includes('Gone three') || titles.includes('Gone two')) throw new Error(titles.join('|'));
+  await page.goto(`${B}/forms`);
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor();
+});
 await step('Delete is off when a form shared with you is selected', async () => {
   const sam = (await api(page, 'POST', '/users', { local: 'sam', domain: 'acme.com', name: 'Sam Shared', password: 'password123' })).body;
   const ctx = await browser.newContext();
