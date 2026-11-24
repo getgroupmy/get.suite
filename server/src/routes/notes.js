@@ -841,9 +841,14 @@ export default function noteRoutes() {
   // card. Only for its owner and the people it's shared with; a note in the trash counts as gone.
   // One note as a Markdown file (works in any text editor, Obsidian, GitHub…).
   // Several notes as one .zip of Markdown files (?ids=a,b,c), named by title ("Shopping.md", a second one "Shopping (2).md").
+  // Or ?label=Recipes: every note with that label you can open (archived ones too), the zip named after it.
   r.get('/export.zip', async (req, res) => {
-    const ids = [...new Set(String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean))];
-    if (!ids.length) throw bad('No notes selected');
+    const label = req.query.label !== undefined ? String(req.query.label).trim().slice(0, 50) : null;
+    const ids = label !== null
+      ? q(`SELECT id, labels FROM notes WHERE trashed_at IS NULL AND (owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) ORDER BY updated_at DESC`).all(req.user.id, req.user.id)
+        .filter((n) => JSON.parse(n.labels || '[]').includes(label)).map((n) => n.id)
+      : [...new Set(String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    if (!ids.length) throw label !== null ? notFound('No notes with that label') : bad('No notes selected');
     if (ids.length > 2000) throw bad('Up to 2,000 notes at a time');
     const notes = ids.map((id) => load(id, req.user)).filter((n) => !n.trashed_at);
     if (!notes.length) throw notFound('Note not found');
@@ -853,7 +858,7 @@ export default function noteRoutes() {
     for (const e of await notesZipEntries(notes)) zip.file(e.path, e.data, { binary: typeof e.data !== 'string' });
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="notes.zip"; filename*=UTF-8''${encodeURIComponent(`Notes (${notes.length}).zip`)}`);
+    res.setHeader('Content-Disposition', `attachment; filename="notes.zip"; filename*=UTF-8''${encodeURIComponent(label !== null ? `${label}.zip` : `Notes (${notes.length}).zip`)}`);
     res.end(buf);
   });
   r.get('/:id/export.md', (req, res) => {

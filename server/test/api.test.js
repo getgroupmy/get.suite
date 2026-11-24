@@ -14656,6 +14656,17 @@ test('notes: several as one .zip of Markdown files, named by title (repeats numb
   assert.deepEqual((await a('GET', `/api/notes/export.zip?ids=${one}&check=1`)).body, { notes: 1 });
   assert.equal((await b('GET', `/api/notes/export.zip?ids=${one}`)).status, 404, 'not someone else’s');
   assert.equal((await a('GET', '/api/notes/export.zip?ids=')).status, 400);
+  // ?label=: every note with that label you can open (archived too, not trashed), the zip named after it.
+  await a('PATCH', `/api/notes/${one}`, { labels: ['Errands'] });
+  await a('PATCH', `/api/notes/${three}`, { labels: ['Errands', 'Writing'], archived: true });
+  const gone = await mk({ title: 'Old errand', labels: ['Errands'] });
+  await a('DELETE', `/api/notes/${gone}`);
+  const byLabel = await a('GET', '/api/notes/export.zip?label=Errands', undefined, { binary: true });
+  assert.equal(byLabel.status, 200);
+  assert.match(byLabel.headers.get('content-disposition'), /filename\*=UTF-8''Errands\.zip/);
+  assert.deepEqual(Object.keys((await JSZip.loadAsync(byLabel.body)).files).sort(), ['Ideas plans.md', 'Shopping.md']);
+  assert.equal((await a('GET', '/api/notes/export.zip?label=Nothing%20here')).status, 404);
+  assert.equal((await b('GET', '/api/notes/export.zip?label=Errands')).status, 404, 'not someone else’s notes');
 });
 
 test('notes: import a .zip (a downloaded .zip of notes, or Google Keep’s Takeout): the notes in it, Takeout’s own files left out', async () => {

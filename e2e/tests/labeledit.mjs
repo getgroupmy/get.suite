@@ -91,6 +91,20 @@ await step('Move up and Move down put labels on the left in your own order', asy
   await page.locator('.note-label-row', { hasText: 'charlie' }).waitFor();
   if ((await order()).join() !== 'alpha,charlie,bravo') throw new Error(`after reload: ${(await order()).join()}`);
 });
+await step('Download its notes: every note with the label as Markdown, in a .zip named after it', async () => {
+  await api(page, 'POST', '/notes', { title: 'Second A', body: 'more', labels: ['alpha'] });
+  await page.goto(`${B}/notes`);
+  const row = page.locator('.note-label-row', { hasText: 'alpha' });
+  await row.waitFor();
+  await row.hover();
+  await row.getByRole('button', { name: 'Edit label alpha' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download its notes (.zip)' }).click()]);
+  if (dl.suggestedFilename() !== 'alpha.zip') throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const fs = await import('node:fs');
+  const names = Object.keys((await JSZip.loadAsync(fs.readFileSync(await dl.path()))).files).sort();
+  if (names.join() !== 'A.md,Second A.md') throw new Error(names.join());
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
