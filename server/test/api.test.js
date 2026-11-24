@@ -7875,6 +7875,19 @@ test('calendar feeds: subscribe by address; private addresses refused; events re
     assert.equal((await bob('GET', `/api/events?from=${from}&to=${to}`)).body.filter?.((e) => e.role === 'feed').length ?? 0, 0, 'only for who subscribed');
     assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: 'Holidays' })).body.name, 'Holidays');
     assert.equal((await owner('POST', `/api/events/feeds/${f.body.id}/refresh`)).body.error, null);
+    // In your own order: the ids given first, then the rest; a new one after; renaming keeps the place.
+    const g = (await owner('POST', '/api/events/feeds', { url: `${url}/holidays.ics`, name: 'Second' })).body;
+    const names = async () => (await owner('GET', '/api/events/feeds')).body.map((x) => x.name);
+    assert.deepEqual(await names(), ['Holidays', 'Second']);
+    assert.deepEqual((await owner('PUT', '/api/events/feeds/order', { ids: [g.id] })).body.map((x) => x.name), ['Second', 'Holidays']);
+    const other = client();
+    assert.equal((await owner('POST', '/api/users', { local: 'feedother', domain: 'acme.com', name: 'Fe Other', password: 'password123' })).status, 201);
+    await login(other, 'feedother@acme.com');
+    assert.equal((await other('PUT', '/api/events/feeds/order', { ids: [g.id] })).status, 404, 'only your own');
+    await owner('PATCH', `/api/events/feeds/${g.id}`, { name: 'Second one' });
+    const h = (await owner('POST', '/api/events/feeds', { url: `${url}/holidays.ics`, name: 'Third' })).body;
+    assert.deepEqual(await names(), ['Second one', 'Holidays', 'Third']);
+    for (const x of [g, h]) await owner('DELETE', `/api/events/feeds/${x.id}`);
     assert.equal((await owner('DELETE', `/api/events/feeds/${f.body.id}`)).status, 200);
     assert.equal((await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').length, 0);
   } finally { delete process.env.CALENDAR_FEEDS_ALLOW_PRIVATE; srv.close(); }

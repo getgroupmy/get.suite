@@ -61,6 +61,26 @@ await step('its events show, read-only', async () => {
   if (await d.getByRole('button', { name: 'Save' }).count()) throw new Error('editable');
   await page.keyboard.press('Escape');
 });
+await step('subscribed calendars in your own order: Move up / Move down in a calendar’s options', async () => {
+  for (const name of ['Team rota', 'School terms']) if ((await api(page, 'POST', '/events/feeds', { url: feed, name })).status !== 201) throw new Error('add ' + name);
+  await page.reload();
+  const list = page.getByRole('list', { name: 'Subscribed calendars' });
+  const names = () => list.locator('li .grow').allTextContents();
+  await until(async () => (await names()).join('|') === 'Office holidays|Team rota|School terms');
+  await page.getByRole('button', { name: 'Options for School terms' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('down from the last');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await names()).join('|') === 'Office holidays|School terms|Team rota');
+  await page.getByRole('button', { name: 'Options for Office holidays' }).click();
+  await page.getByRole('menuitem', { name: 'Move down' }).click();
+  await until(async () => (await names()).join('|') === 'School terms|Office holidays|Team rota');
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'School terms|Office holidays|Team rota');
+  await page.screenshot({ path: `${SP}/shots/feeds-order.png` });
+  for (const f of (await api(page, 'GET', '/events/feeds')).body.filter((x) => x.name !== 'Office holidays')) await api(page, 'DELETE', `/events/feeds/${f.id}`);
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'Office holidays');
+});
 await step('unsubscribe removes them', async () => {
   await page.getByRole('button', { name: 'Options for Office holidays' }).click();
   await page.getByRole('menuitem', { name: 'Unsubscribe' }).click();

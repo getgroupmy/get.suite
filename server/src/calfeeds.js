@@ -5,8 +5,8 @@
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
-import { q } from './db.js';
-import { uid, bad } from './util.js';
+import { q, tx } from './db.js';
+import { uid, bad, notFound } from './util.js';
 import { splitCalendar } from './calimport.js';
 import { parseIcsEvent, zoneOrUtc } from './ics.js';
 import { isPrivateAddress, publicLookup } from './mail/unsubscribe.js';
@@ -23,6 +23,8 @@ q(`CREATE TABLE IF NOT EXISTS calendar_feeds (
   error TEXT,
   created_at INTEGER NOT NULL
 )`).run();
+// Your own order for your subscribed calendars (PUT /api/events/feeds/order); new ones come after.
+if (!q('PRAGMA table_info(calendar_feeds)').all().some((c) => c.name === 'position')) q('ALTER TABLE calendar_feeds ADD COLUMN position INTEGER').run();
 
 export const MAX_FEEDS = 20, MAX_FEED_BYTES = 5 * 1024 * 1024, MAX_FEED_EVENTS = 5000, REFRESH_MS = 6 * 3600e3;
 const allowPrivate = () => process.env.CALENDAR_FEEDS_ALLOW_PRIVATE === '1';
@@ -109,7 +111,7 @@ export const feedOf = (id) => {
   const { events, user_id, ...rest } = f;
   return { ...rest, events: JSON.parse(events).length };
 };
-export const feedsOf = (userId) => q('SELECT id FROM calendar_feeds WHERE user_id = ? ORDER BY created_at').all(userId).map((f) => feedOf(f.id));
+export const feedsOf = (userId) => q('SELECT id FROM calendar_feeds WHERE user_id = ? ORDER BY position IS NULL, position, created_at').all(userId).map((f) => feedOf(f.id));
 
 /** The feeds' events that might fall between from and to (repeating ones whole; the browser expands them). */
 export function feedEvents(userId, from, to) {
@@ -139,7 +141,7 @@ export async function refreshDueFeeds(now = Date.now()) {
 
 /** Your calendar subscriptions for Download your data: name, address and colour (the events are fetched again from the address). Null when none. */
 export function feedsJson(userId) {
-  const list = q('SELECT name, url, color FROM calendar_feeds WHERE user_id = ? ORDER BY created_at').all(userId);
+  const list = q('SELECT name, url, color FROM calendar_feeds WHERE user_id = ? ORDER BY position IS NULL, position, created_at').all(userId);
   return list.length ? `${JSON.stringify(list.map((f) => ({ ...f })), null, 2)}\n` : null;
 }
 /** Subscribes again to calendars from Download your data: one already subscribed to (same address) is left as it is, and a
@@ -157,4 +159,14 @@ export function importFeeds(userId, list) {
     added++;
   }
   return { added, skipped };
+}
+
+/** Put a person's subscribed calendars in their order: the ids given first, then the rest as they were. */
+export function orderFeeds(userId, given) {
+  const ids = [...new Set((Array.isArray(given) ? given : []).map(String))];
+  const mine = feedsOf(userId).map((f) => f.id);
+  if (ids.some((id) => !mine.includes(id))) throw notFound('Calendar not found');
+  const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+  tx(() => order.forEach((id, i) => q('UPDATE calendar_feeds SET position = ? WHERE id = ?').run(i + 1, id)));
+  return feedsOf(userId);
 }

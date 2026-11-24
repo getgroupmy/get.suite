@@ -2524,6 +2524,13 @@ function Feeds({ onChanged }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const loadFeeds = useCallback(() => get('/events/feeds').then(setFeeds).catch(() => {}), []);
+  // Swap a subscribed calendar with the one above or below it (your own order).
+  const orderFeed = async (k, by) => {
+    const ids = feeds.map((x) => x.id), j = k + by;
+    if (j < 0 || j >= ids.length) return;
+    [ids[k], ids[j]] = [ids[j], ids[k]];
+    try { setFeeds(await put('/events/feeds/order', { ids })); } catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => { loadFeeds(); }, [loadFeeds]);
   const changed = () => { loadFeeds(); onChanged(); };
   const add = async (e) => {
@@ -2539,12 +2546,14 @@ function Feeds({ onChanged }) {
         <button type="button" className="icon-btn" aria-label="Subscribe to a calendar" title="Add a calendar by its address (public holidays, a published team calendar…)" onClick={() => setAdding(true)}><Icon name="plus" size={16} /></button></div>
       {feeds.length > 0 && (
         <ul className="cal-feed-list" aria-label="Subscribed calendars">
-          {feeds.map((f) => (
+          {feeds.map((f, k) => (
             <li key={f.id} className="row" title={f.error ? `Couldn't update: ${f.error}` : `Updated ${f.fetched_at ? new Date(f.fetched_at).toLocaleString() : 'never'}`}>
               <span className="cal-feed-dot" style={{ background: f.color }} aria-hidden="true" />
               <span className="grow ellipsis small">{f.name}{f.error ? ' ⚠' : ''}</span>
               <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
                 { label: 'Update now', icon: 'restore', onClick: async () => { try { const r = await post(`/events/feeds/${f.id}/refresh`); toast(r.error ? `Couldn't update: ${r.error}` : `${r.name} is up to date`, r.error ? 'error' : 'info'); changed(); } catch (e) { toast(e.message, 'error'); } } },
+                ...(k > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderFeed(k, -1) }] : []),
+                ...(k < feeds.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderFeed(k, 1) }] : []),
                 { label: 'Unsubscribe', icon: 'trash', danger: true, onClick: async () => { try { await del(`/events/feeds/${f.id}`); toast(`Removed ${f.name}`); changed(); } catch (e) { toast(e.message, 'error'); } } },
               ]} />
             </li>

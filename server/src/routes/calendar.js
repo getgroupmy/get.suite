@@ -22,7 +22,7 @@ import { importCalendar, exportCalendar, exportCalendarCsv } from '../calimport.
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
-import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed } from '../calfeeds.js';
+import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed, orderFeeds } from '../calfeeds.js';
 import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn, shareOf, setMembers, peopleOf, membersOf } from '../mycalendars.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
@@ -799,6 +799,7 @@ export default function calendarRoutes() {
     await refreshFeed(f);
     res.json(feedOf(f.id));
   });
+  r.put('/feeds/order', (req, res) => { const list = orderFeeds(req.user.id, req.body?.ids); touch([req.user.id]); res.json(list); });
   r.patch('/feeds/:id', (req, res) => {
     const f = q('SELECT id FROM calendar_feeds WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
     if (!f) throw notFound();
