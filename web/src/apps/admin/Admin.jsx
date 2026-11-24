@@ -5,6 +5,7 @@ import MigrationAdmin from './MigrationAdmin.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import { matchesFilter } from '../contacts/contactfilter.js';
 import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { inactive, lastActiveText } from './lastactive.js';
@@ -321,12 +322,16 @@ function Users({ orgId, setOrgId }) {
       setPicked(new Set()); load();
     } catch (e) { toast(e.message, 'error'); }
   };
-  const shown = users?.filter((u) => !inactiveOnly || inactive(u)) || [];
+  // Find people: words of their name, address, job title or department, in any order (accents aside).
+  const [find, setFind] = useState('');
+  const fits = (u) => matchesFilter({ name: u.name, username: u.username, job_title: u.job_title || '', department: u.department || '' }, find);
+  const shown = users?.filter((u) => (!inactiveOnly || inactive(u)) && fits(u)) || [];
 
   return <>
     <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Their data to bring in" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; restore(f); }} />
     <div className="row wrap">
       {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
+      <input type="search" aria-label="Find people" placeholder="Find people" value={find} onChange={(e) => setFind(e.target.value)} />
       <label className="check"><input type="checkbox" checked={inactiveOnly} onChange={(e) => setInactiveOnly(e.target.checked)} /> Only people inactive for 90 days or more</label>
       <div className="grow" />
       <button className="btn" onClick={() => setDialog({ type: 'import' })}><Icon name="upload" size={18} /> Import from CSV</button>
@@ -353,7 +358,8 @@ function Users({ orgId, setOrgId }) {
         onChange={(e) => setPicked(e.target.checked ? new Set(shown.map((u) => u.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th className="hide-sm">Last active</th><th aria-label="Actions" /></tr></thead>
       <tbody>
         {inactiveOnly && users && !users.some((u) => inactive(u)) && <tr><td colSpan={8} className="muted">Everyone has used their account in the last 90 days.</td></tr>}
-        {users?.filter((u) => !inactiveOnly || inactive(u)).map((u) => (
+        {users && find.trim() && !shown.length && <tr><td colSpan={8} className="muted">Nobody fits “{find.trim()}”.</td></tr>}
+        {shown.map((u) => (
           <tr key={u.id} className={`${u.disabled ? 'dim' : ''} ${picked.has(u.id) ? 'selected' : ''}`}>
             <td className="check-col"><input type="checkbox" aria-label={`Select ${u.name}`} checked={picked.has(u.id)} onChange={() => toggle(u.id)} /></td>
             <td className="name"><Avatar name={u.name} size={28} userId={u.id} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>

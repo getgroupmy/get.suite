@@ -69,6 +69,26 @@ await step('an admin sets managers in Admin → Users → Job and manager', asyn
   await page.getByText(/That would make a loop/).waitFor();
   await d.getByRole('button', { name: 'Cancel' }).click();
 });
+await step('Admin → Users: Find people by name, address, job title or department', async () => {
+  await page.goto(`${B}/admin`);
+  const box = page.getByLabel('Find people');
+  const rows = page.locator('table.files tbody tr');
+  await box.fill('head product');
+  await until(async () => (await rows.count()) === 1);
+  await rows.first().getByText('Max Lee').waitFor();
+  await box.fill('kim');
+  await rows.first().getByText('Kim Park').waitFor();
+  if ((await rows.count()) !== 1) throw new Error('more than Kim');
+  await box.fill('no such person');
+  await page.getByText('Nobody fits “no such person”.').waitFor();
+  // Select everyone shown takes just those found.
+  await box.fill('lee');
+  await until(async () => (await rows.count()) === 1);
+  await page.getByLabel('Select everyone shown').check();
+  await page.getByRole('toolbar', { name: 'Selected people' }).getByText('1 selected').waitFor();
+  await page.getByRole('toolbar', { name: 'Selected people' }).getByRole('button', { name: 'Clear' }).click();
+  await box.fill('');
+});
 await step('Reports to: shows who it is now, an unknown name is refused, and an empty box is nobody', async () => {
   await page.getByRole('button', { name: 'Actions for Kim Park' }).click();
   await page.getByRole('menuitem', { name: 'Job and manager' }).click();
