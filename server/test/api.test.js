@@ -11630,6 +11630,12 @@ test('drive: labels of your own on files and folders', async () => {
   assert.deepEqual((await b('PUT', `/api/files/${doc.id}/labels`, { labels: ['From Ann'] })).body, { labels: ['From Ann'] });
   assert.deepEqual((await b('GET', '/api/files/labels')).body, [{ name: 'From Ann', count: 1 }]);
   assert.deepEqual((await a('GET', '/api/files/labels')).body.map((l) => l.name), ['Invoices', 'Taxes 2026'], 'Ann’s are unchanged');
+  // Your own order for them on the left; Ben's are his own.
+  assert.equal((await a('PUT', '/api/files/labels/order', { labels: ['Taxes 2026', 'Invoices'] })).status, 200);
+  assert.deepEqual((await a('GET', '/api/files/labels')).body.map((l) => l.name), ['Taxes 2026', 'Invoices']);
+  assert.deepEqual((await b('GET', '/api/files/labels')).body.map((l) => l.name), ['From Ann']);
+  await a('PUT', '/api/files/labels/order', { labels: [] });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body.map((l) => l.name), ['Invoices', 'Taxes 2026'], 'back to by name');
   assert.equal((await x('PUT', `/api/files/${doc.id}/labels`, { labels: ['Mine'] })).status, 404);
   // Trashed files leave the counts; an empty list takes them off.
   await a('DELETE', `/api/files/${sheet.id}`);

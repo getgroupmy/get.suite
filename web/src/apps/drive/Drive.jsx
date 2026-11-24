@@ -181,6 +181,13 @@ export default function Drive() {
   // Your labels (with how many files have each), for the sidebar.
   const [myLabels, setMyLabels] = useState([]);
   const loadLabels = useCallback(() => get('/files/labels').then(setMyLabels).catch(() => {}), []);
+  // A label one place up (by -1) or down (by 1) on the left: your own order from then on.
+  const orderLabels = async (i, by) => {
+    const next = [...myLabels];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    setMyLabels(next);
+    try { await put('/files/labels/order', { labels: next.map((l) => l.name) }); } catch { loadLabels(); }
+  };
   useEffect(() => { loadLabels(); }, [loadLabels]);
   // Starred folders in the sidebar, a click away (brought up to date whenever the list shown changes: starring one, say).
   const [starredFolders, setStarredFolders] = useState([]);
@@ -701,12 +708,13 @@ export default function Drive() {
           {starredFolders.map((f) => <NavLink key={f.id} to={`/drive/folder/${f.id}`} className={() => `subnav-item ${route.folderId === f.id ? 'active' : ''}`}><Icon name="folder" style={f.color ? { color: f.color } : undefined} /><span className="grow ellipsis">{f.name}</span></NavLink>)}
         </div>}
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
-        {myLabels.map((l) => (
+        {myLabels.map((l, i) => (
           <div key={l.name} className="drive-label-row">
             <NavLink to={`/drive/label/${encodeURIComponent(l.name)}`} className="subnav-item" aria-label={`Label ${l.name}, ${l.count}`}>
               {l.color ? <span className="drive-label-dot" style={{ background: l.color }} aria-hidden="true" /> : <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span>}<span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
             <Menu align="right" trigger={(p) => <button type="button" className="icon-btn drive-label-menu" aria-label={`Edit label ${l.name}`} title="Rename or delete" {...p}><Icon name="more" size={16} /></button>}
               items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${l.color === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l.name, c) })), { label: 'No colour', onClick: () => setLabelColor(l.name, null) }, '-',
+                ...(i > 0 ? [{ label: 'Move up', onClick: () => orderLabels(i, -1) }] : []), ...(i < myLabels.length - 1 ? [{ label: 'Move down', onClick: () => orderLabels(i, 1) }] : []),
                 { label: 'Rename label…', onClick: () => setDialog({ type: 'label-rename', label: l.name }) }, { label: 'Delete label', danger: true, onClick: () => setDialog({ type: 'label-delete', label: l.name }) }]} />
           </div>
         ))}

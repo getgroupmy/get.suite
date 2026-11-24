@@ -484,6 +484,12 @@ q(`CREATE TABLE IF NOT EXISTS file_labels (
 )`).run();
 export const MAX_FILE_LABELS = 10;
 // A colour for each of your labels (yours alone), from the same set as Notes.
+q(`CREATE TABLE IF NOT EXISTS file_label_order (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (user_id, label)
+)`).run();
 q(`CREATE TABLE IF NOT EXISTS file_label_colors (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   label TEXT NOT NULL,
@@ -774,6 +780,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       const c = q('SELECT color FROM file_label_colors WHERE user_id = ? AND label = ?').get(req.user.id, from);
       if (c) q('INSERT INTO file_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO NOTHING').run(req.user.id, to, c.color);
       q('DELETE FROM file_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, from);
+      if (!q('SELECT 1 FROM file_label_order WHERE user_id = ? AND label = ?').get(req.user.id, to)) q('UPDATE file_label_order SET label = ? WHERE user_id = ? AND label = ?').run(to, req.user.id, from); // keeps its place
+      else q('DELETE FROM file_label_order WHERE user_id = ? AND label = ?').run(req.user.id, from);
     }
     res.json({ label: to, files: files.length });
   });
@@ -803,6 +811,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const label = String(req.body?.label || '');
     const n = q('DELETE FROM file_labels WHERE user_id = ? AND label = ?').run(req.user.id, label).changes;
     q('DELETE FROM file_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
+    q('DELETE FROM file_label_order WHERE user_id = ? AND label = ?').run(req.user.id, label);
     res.json({ files: n });
   });
 
@@ -820,7 +829,18 @@ export default function fileRoutes({ maxUploadBytes }) {
     const counts = new Map();
     for (const x of rows) counts.set(x.label, (counts.get(x.label) || 0) + 1);
     const colors = new Map(q('SELECT label, color FROM file_label_colors WHERE user_id = ?').all(req.user.id).map((x) => [x.label, x.color]));
-    res.json([...counts].map(([name, count]) => ({ name, count, ...(colors.has(name) && { color: colors.get(name) }) })).sort((a, b) => a.name.localeCompare(b.name)));
+    const pos = new Map(q('SELECT label, position FROM file_label_order WHERE user_id = ?').all(req.user.id).map((x) => [x.label, x.position]));
+    res.json([...counts].map(([name, count]) => ({ name, count, ...(colors.has(name) && { color: colors.get(name) }) }))
+      .sort((a, b) => (pos.get(a.name) ?? Infinity) - (pos.get(b.name) ?? Infinity) || a.name.localeCompare(b.name)));
+  });
+  // Your labels in the order given ({ labels }): Move up / Move down on the left. Never placed ones come after, by name.
+  r.put('/labels/order', (req, res) => {
+    const labels = [...new Set((Array.isArray(req.body?.labels) ? req.body.labels : []).map((l) => String(l)).filter(Boolean))].slice(0, 500);
+    tx(() => {
+      q('DELETE FROM file_label_order WHERE user_id = ?').run(req.user.id);
+      labels.forEach((l, i) => q('INSERT INTO file_label_order (user_id, label, position) VALUES (?, ?, ?)').run(req.user.id, l.slice(0, 60), i + 1));
+    });
+    res.json({ ok: true });
   });
   r.put('/labels/color', (req, res) => {
     const label = String(req.body?.label || '');

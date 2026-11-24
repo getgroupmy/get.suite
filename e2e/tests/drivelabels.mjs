@@ -116,6 +116,24 @@ await step('label several files at once from the selection bar', async () => {
   await page.getByRole('link', { name: 'Label Q1, 2' }).waitFor();
   await page.locator('tr', { hasText: 'Tax sums' }).locator('.file-label', { hasText: /^Q1$/ }).waitFor();
 });
+await step('Move up and Move down put labels on the left in your own order', async () => {
+  const files = (await api(page, 'GET', '/files')).body;
+  const id = (files.files || files).find((f) => f.name === 'March invoice').id;
+  for (const label of ['Alpha', 'Zeta']) await api(page, 'POST', '/files/labels/add', { ids: [id], label });
+  await page.goto(`${B}/drive`);
+  const order = () => page.locator('.drive-label-row .subnav-item .grow').allInnerTexts();
+  await page.locator('.drive-label-row', { hasText: 'Zeta' }).waitFor();
+  if ((await order()).join() !== 'Alpha,Q1,Zeta') throw new Error((await order()).join());
+  const row = page.locator('.drive-label-row', { hasText: 'Zeta' });
+  await row.hover();
+  await row.getByRole('button', { name: 'Edit label Zeta' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('the last one offered Move down');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await order()).join() === 'Alpha,Zeta,Q1');
+  await page.reload();
+  await page.locator('.drive-label-row', { hasText: 'Zeta' }).waitFor();
+  if ((await order()).join() !== 'Alpha,Zeta,Q1') throw new Error(`after reload: ${(await order()).join()}`);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
