@@ -102,6 +102,22 @@ await step('Pin, colour and label them together', async () => {
   n = await notes();
   if (n.Ideas.color !== '#e2f6d3' || n.Trip.color !== '#e2f6d3' || n.Ideas.labels.join() !== 'Work' || n.Groceries.labels.join() !== 'Work' || n.Trip.labels.length) throw new Error(JSON.stringify(n));
 });
+await step('Remove label…: offers the labels the picked notes have, and takes one off them all', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected notes' });
+  for (const t of ['Trip']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  if (await bar.getByLabel('Take a label off the selected notes').count()) throw new Error('offered for a note without labels');
+  for (const t of ['Ideas', 'Groceries']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  const opts = await bar.getByLabel('Take a label off the selected notes').locator('option').allTextContents();
+  if (opts.join('|') !== 'Remove label…|Work') throw new Error(opts.join('|'));
+  await bar.getByLabel('Take a label off the selected notes').selectOption({ label: 'Work' });
+  await page.locator('.toast', { hasText: 'Work taken off 3 notes' }).last().waitFor();
+  const n = await notes();
+  if (n.Ideas.labels.length || n.Groceries.labels.length || n.Trip.labels.length) throw new Error(JSON.stringify(n));
+  // Put back for the steps after.
+  await api(page, 'POST', '/notes/batch', { ids: [n.Ideas.id, n.Groceries.id], change: { label: 'Work' } });
+  await page.reload();
+  await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
+});
 await step('a printed note shows its pictures', async () => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const ideas = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Ideas');

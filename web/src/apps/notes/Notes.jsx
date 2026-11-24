@@ -336,6 +336,15 @@ export default function Notes() {
                 {labels.map((l) => <option key={l} value={l}>{l}</option>)}
                 <option value="+new">New label…</option>
               </select>
+              {(() => { // the labels some of the picked notes have, to take off them all
+                const on = [...new Set([...pinned, ...others].filter((x) => picked.has(x.id)).flatMap((x) => x.labels || []))].sort((x, y) => x.localeCompare(y));
+                return on.length > 0 && (
+                  <select aria-label="Take a label off the selected notes" value="" onChange={(e) => { const l = e.target.value; if (l) many({ change: { unlabel: l } }, (r) => `${l} taken off ${nNotes(r.notes.length)}`); }}>
+                    <option value="">Remove label…</option>
+                    {on.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                );
+              })()}
               <button type="button" className="btn small" onClick={() => many({ change: { archived: !where.archived } }, (r) => `${nNotes(r.notes.length)} ${where.archived ? 'back in Notes' : 'archived'}`)}><Icon name="archive" size={16} /> {where.archived ? 'Unarchive' : 'Archive'}</button>
               {mail?.enabled && <button type="button" className="btn small" title="A new email with the picked notes in it" onClick={() => {
                 try { localStorage.setItem(DRAFT_KEY, JSON.stringify(notesEmail([...pinned, ...others].filter((x) => picked.has(x.id)), noteLink))); } catch { toast('Your browser’s storage is off', 'error'); return; }

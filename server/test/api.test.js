@@ -9963,6 +9963,18 @@ test('Notes: several at once (colour, pin, archive, label, trash); all checked f
   r = await batch(a, { ids: [n1.id], change: { label: 'Ideas' } });
   assert.deepEqual((await mine()).One.labels, ['Ideas'], 'no label twice');
 
+  // A label taken off them: capitals aside; a note without it is left alone, other labels stay.
+  r = await batch(a, { ids: [n1.id], change: { label: 'Work' } });
+  const t2 = (await mine()).Two.updated_at;
+  r = await batch(a, { ids: [n1.id, n2.id, n3.id], change: { unlabel: 'IDEAS' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  m = await mine();
+  assert.deepEqual([m.One.labels, m.Two.labels, m.Three.labels], [['Work'], [], []]);
+  assert.ok(m.Two.updated_at >= t2);
+  assert.equal((await batch(a, { ids: [n1.id], change: { unlabel: '  ' } })).status, 400);
+  assert.equal((await batch(a, { ids: [theirs.id], change: { unlabel: 'Work' } })).status, 404);
+  r = await batch(a, { ids: [n1.id, n2.id], change: { label: 'Ideas' } });
+
   assert.equal((await batch(a, { ids: [n1.id, theirs.id], change: { color: '#faafa8' } })).status, 404, 'someone else\'s note');
   assert.equal((await mine()).One.color, '#fff8b8', 'nothing changed');
   assert.equal((await batch(a, { ids: [n1.id], change: { color: 'hotpink' } })).status, 400);
