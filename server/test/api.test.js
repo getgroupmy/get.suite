@@ -5398,6 +5398,33 @@ test('forms: archive a form (owner only): out of the way and closed, until broug
   assert.equal((await b('GET', `/api/public/forms/${f.token}`)).body.accepting, true, 'back: open again');
 });
 
+test('forms: several at once from the list (stop or start accepting; delete, owner only, with undo)', async () => {
+  const own = client(); const ed = client(); const other = client();
+  for (const [local, name] of [['fba', 'Fb Owner'], ['fbb', 'Fb Editor'], ['fbc', 'Fb Other']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(own, 'fba@acme.com'); await login(ed, 'fbb@acme.com'); await login(other, 'fbc@acme.com');
+  const mk = async (title) => (await own('POST', '/api/forms', { title })).body;
+  const f1 = await mk('Batch one'), f2 = await mk('Batch two'), f3 = await mk('Batch three');
+  const theirs = (await other('POST', '/api/forms', { title: 'Not yours' })).body;
+  await own('POST', `/api/forms/${f1.id}/editors`, { email: 'fbb@acme.com' });
+  const acc = async (id) => (await own('GET', `/api/forms/${id}`)).body.accepting;
+  let r = await own('POST', '/api/forms/batch', { ids: [f1.id, f2.id], action: 'close' });
+  assert.deepEqual(r.body, { changed: 2 });
+  assert.deepEqual([await acc(f1.id), await acc(f2.id), await acc(f3.id)], [false, false, true]);
+  assert.deepEqual((await own('POST', '/api/forms/batch', { ids: [f1.id, f3.id], action: 'close' })).body, { changed: 1 }, 'one was closed already');
+  assert.deepEqual((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'open' })).body, { changed: 1 }, 'an editor may');
+  assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id, theirs.id], action: 'open' })).status, 404);
+  assert.equal(await acc(f2.id), false, 'nothing changed');
+  assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'delete' })).status, 403, 'only the owner deletes');
+  assert.equal((await own('POST', '/api/forms/batch', { ids: [f1.id], action: 'burn' })).status, 400);
+  assert.equal((await own('POST', '/api/forms/batch', { ids: [], action: 'close' })).status, 400);
+  r = await own('POST', '/api/forms/batch', { ids: [f2.id, f3.id], action: 'delete' });
+  assert.equal(r.body.deleted, 2);
+  const left = (await own('GET', '/api/forms')).body.map((x) => x.title).filter((t) => t.startsWith('Batch'));
+  assert.deepEqual(left, ['Batch one']);
+  for (const b of r.body.bin_ids) assert.equal((await own('POST', `/api/forms/bin/${b}/restore`)).status, 200);
+  assert.deepEqual((await own('GET', '/api/forms')).body.map((x) => x.title).filter((t) => t.startsWith('Batch')).sort(), ['Batch one', 'Batch three', 'Batch two']);
+});
+
 test('forms: editors, closing date and response limit', async () => {
   const own = client(); const ed = client(); const visitor = client();
   for (const [local, name] of [['fea', 'Fay Owner'], ['feb', 'Eddie Editor']]) {

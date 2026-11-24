@@ -46,6 +46,14 @@ function FormList() {
     && (!find.trim() || has(f.title, find.trim())));
   const [templates, setTemplates] = useState([]);
   const [bin, setBin] = useState(false);
+  // Several at once: Select puts a box by each form; the bar stops or starts responses, or deletes yours.
+  const [picked, setPicked] = useState(null); // a Set of ids while selecting, or null
+  const [deletingMany, setDeletingMany] = useState(false);
+  const chosen = (forms || []).filter((f) => picked?.has(f.id));
+  const reload = () => get('/forms').then(setForms).catch(() => {});
+  const many = async (action, say) => {
+    try { const r = await post('/forms/batch', { ids: [...picked], action }); toast(say(r)); setPicked(new Set()); reload(); return r; } catch (e) { toast(e.message, 'error'); return null; }
+  };
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
   // One new form per press: pressed again while the first is on its way, nothing more is made.
   const creating = useRef(false);
@@ -83,11 +91,28 @@ function FormList() {
             <option value="all">All forms</option><option value="open">Taking responses</option><option value="closed">Closed</option>
             <option value="shared">Shared with me</option><option value="archived">Archived ({forms.filter((f) => f.archived_at).length})</option>
           </select>
+          <button type="button" className={`btn small ${picked ? 'primary' : ''}`} aria-pressed={!!picked} onClick={() => setPicked(picked ? null : new Set())}>{picked ? 'Done selecting' : 'Select'}</button>
         </div>
+        {picked && (
+          <div className="row wrap" role="toolbar" aria-label="Change the selected forms" style={{ gap: 8, margin: '8px 0' }}>
+            <strong className="small" aria-live="polite">{picked.size} selected</strong>
+            <button type="button" className="link-btn small" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all shown</button>
+            <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('close', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} no longer accepting responses`)}>Stop accepting</button>
+            <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('open', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} accepting responses again`)}>Accept again</button>
+            <button type="button" className="btn small danger" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner deletes it' : ''} onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
+          </div>
+        )}
+        {deletingMany && <ConfirmModal title={`Delete ${picked.size === 1 ? '1 form' : `${picked.size} forms`}?`} confirm="Delete" message="Their links stop working. You can put them back, with their responses, from Recently deleted for 30 days."
+          onClose={() => setDeletingMany(false)} onConfirm={async () => {
+            const r = await post('/forms/batch', { ids: [...picked], action: 'delete' }); // an error shows in the dialog
+            setPicked(new Set()); reload();
+            toast(`${r.deleted === 1 ? '1 form' : `${r.deleted} forms`} deleted`, 'info', { action: { label: 'Undo', onClick: async () => { try { for (const b of r.bin_ids) await post(`/forms/bin/${b}/restore`); reload(); } catch (e) { toast(e.message, 'error'); } } } });
+          }} />}
         {!shown.length && <p className="muted">{show === 'archived' ? 'Nothing archived. A form’s ⋮ → Archive puts it here.' : 'No forms match.'}</p>}
         <ul className="form-list" aria-label="Your forms">
           {shown.map((f) => (
-            <li key={f.id}>
+            <li key={f.id} className={picked ? 'row' : undefined}>
+              {picked && <input type="checkbox" aria-label={`Select: ${f.title}`} checked={picked.has(f.id)} onChange={(e) => { const n = new Set(picked); e.target.checked ? n.add(f.id) : n.delete(f.id); setPicked(n); }} />}
               <button type="button" className="form-row" onClick={() => navigate(`/forms/${f.id}`)}>
                 <Icon name="form" />
                 <span className="grow"><span className="form-row-title">{f.title}</span>

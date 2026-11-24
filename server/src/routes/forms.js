@@ -965,6 +965,32 @@ export default function formRoutes() {
     q('UPDATE forms SET archived_at = ? WHERE id = ?').run(at, f.id);
     res.json({ archived_at: at, closed: closedReason({ ...f, archived_at: at }) });
   });
+  // Several forms at once (from the list): stop or start accepting responses (owner or editor), or delete
+  // (owner only; each can be put back from Recently deleted). Every form checked before any changes.
+  r.post('/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some forms');
+    if (ids.length > 200) throw bad('200 forms at a time at most');
+    const action = String(req.body?.action || '');
+    if (!['close', 'open', 'delete'].includes(action)) throw bad('Unknown action');
+    const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: action === 'delete' }));
+    if (action === 'delete') {
+      const bins = [];
+      for (const f of forms) {
+        const team = teamOf(f);
+        const bin = binAndDelete('form', f.id, { ownerId: req.user.id, name: f.title, by: req.user.id });
+        noticeAfterUndo(bin, team.filter((x) => x !== req.user.id), { kind: 'share', title: `${req.user.name} deleted the form “${f.title}”`, body: 'Its link no longer works. They can put it back, with its responses, from Recently deleted in Forms for 30 days.', actor: req.user.name });
+        sendTo(team.filter((x) => x !== req.user.id), { type: 'form-changed', form_id: f.id, deleted: true });
+        bins.push(bin);
+      }
+      return res.json({ deleted: forms.length, bin_ids: bins });
+    }
+    const to = action === 'open' ? 1 : 0;
+    const changing = forms.filter((f) => !!f.accepting !== !!to);
+    tx(() => { for (const f of changing) q('UPDATE forms SET accepting = ?, updated_at = ? WHERE id = ?').run(to, now(), f.id); });
+    for (const f of changing) sendTo(teamOf(f), { type: 'form-changed', form_id: f.id });
+    res.json({ changed: changing.length });
+  });
   r.delete('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user, { ownerOnly: true });
     const team = teamOf(f);
