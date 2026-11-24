@@ -199,5 +199,34 @@ await step('folders-in-your-own-order', async () => {
   for (const name of ['Ord A', 'Ord B']) await api(page, 'DELETE', `/mail/folders?path=${encodeURIComponent(name)}`);
 });
 
+await step('mark-a-folder-read-from-its-menu', async () => {
+  await api(page, 'POST', '/mail/folders', { name: 'Newsletters' });
+  for (const subject of ['Weekly digest one', 'Weekly digest two']) await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', subject, text: 'x' });
+  let inbox = [];
+  for (let i = 0; i < 40 && inbox.filter((m) => /^Weekly digest/.test(m.subject)).length < 2; i++) {
+    await page.waitForTimeout(500);
+    inbox = (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages;
+  }
+  const uids = inbox.filter((m) => /^Weekly digest/.test(m.subject)).map((m) => m.uid);
+  if (uids.length !== 2) throw new Error('mail did not arrive');
+  await api(page, 'POST', '/mail/messages/move', { folder: 'INBOX', uids, to: 'Newsletters' });
+  await page.goto(`${B}/mail`);
+  const row = page.locator('.folder-row', { hasText: 'Newsletters' });
+  await row.locator('.count', { hasText: '2' }).waitFor();
+  await row.hover();
+  await page.getByRole('button', { name: 'Options for Newsletters' }).click();
+  await page.getByRole('menuitem', { name: 'Mark all as read (2)' }).click();
+  await page.locator('.toast', { hasText: '2 in Newsletters marked as read' }).waitFor();
+  await row.locator('.count').waitFor({ state: 'detached' });
+  const f = (await api(page, 'GET', '/mail/folders')).body.find((x) => x.path === 'Newsletters');
+  if (f.unseen !== 0) throw new Error(JSON.stringify(f));
+  // With nothing unread, it isn't offered.
+  await row.hover();
+  await page.getByRole('button', { name: 'Options for Newsletters' }).click();
+  if (await page.getByRole('menuitem', { name: /Mark all as read/ }).count()) throw new Error('offered with none unread');
+  await page.keyboard.press('Escape');
+  await api(page, 'DELETE', '/mail/folders?path=Newsletters');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

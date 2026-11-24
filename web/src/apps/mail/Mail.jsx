@@ -541,6 +541,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               </button>
               {(followable || (!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED)) && (
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+                  ...(f.unseen > 0 && f.specialUse !== '\\Drafts' ? [{ label: `Mark all as read (${f.unseen})`, icon: 'check', onClick: async () => {
+                    try { const r = await post('/mail/messages/read-all', { folder: f.path }); toast(`${r.marked} in ${f.name} marked as read`); loadFolders(); if (f.path === folder) refresh(); }
+                    catch (e) { toast(e.message, 'error'); }
+                  } }] : []),
                   ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => downloadZip(`/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`) }] : []),
