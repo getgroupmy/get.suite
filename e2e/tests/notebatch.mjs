@@ -152,6 +152,20 @@ await step('Make copies: a copy of each picked note, at the top', async () => {
   await page.reload();
   await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
 });
+await step('Remind me…: one reminder for the picked notes, then none', async () => {
+  for (const t of ['Trip', 'Groceries']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  const bar = page.getByRole('toolbar', { name: 'Change the selected notes' });
+  await bar.getByLabel('Remind me about the selected notes').selectOption({ label: 'Next week' });
+  await page.locator('.toast', { hasText: '2 notes: reminder' }).last().waitFor();
+  let n = await notes();
+  if (!n.Trip.remind_at || n.Trip.remind_at !== n.Groceries.remind_at || n.Ideas.remind_at) throw new Error(JSON.stringify([n.Trip.remind_at, n.Groceries.remind_at, n.Ideas.remind_at]));
+  if (new Date(n.Trip.remind_at).getDay() !== 1 || new Date(n.Trip.remind_at).getHours() !== 8) throw new Error('not Monday 8:00');
+  for (const t of ['Trip', 'Groceries']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  await bar.getByLabel('Remind me about the selected notes').selectOption({ label: 'No reminder' });
+  await page.locator('.toast', { hasText: '2 notes: no reminder' }).last().waitFor();
+  n = await notes();
+  if (n.Trip.remind_at || n.Groceries.remind_at) throw new Error('still set');
+});
 await step('a printed note shows its pictures', async () => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const ideas = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Ideas');

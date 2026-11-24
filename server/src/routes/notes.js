@@ -947,6 +947,13 @@ export default function noteRoutes() {
     if (b.color !== undefined) { if (b.color && !COLORS.includes(b.color)) throw bad('Unknown colour'); set.color = b.color || null; }
     if (b.pinned !== undefined) set.pinned = b.pinned ? 1 : 0;
     if (b.archived !== undefined) { set.archived = b.archived ? 1 : 0; if (b.archived) set.pinned = 0; }
+    if (b.remind_at !== undefined) { // one reminder time for them all, or none (which ends any repeating)
+      if (b.remind_at === null || b.remind_at === '') { set.remind_at = null; set.remind_repeat = null; } else {
+        const t = Number(b.remind_at);
+        if (!Number.isFinite(t) || t < now() - 60e3) throw bad('Pick a time in the future for the reminder');
+        set.remind_at = Math.round(t);
+      }
+    }
     const label = b.label !== undefined ? cleanLabels([b.label])[0] : undefined;
     if (b.label !== undefined && !label) throw bad('Name the label');
     // A label taken off (capitals aside): the notes without it are left as they are.

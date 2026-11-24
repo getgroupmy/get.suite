@@ -332,6 +332,11 @@ export default function Notes() {
                 <option value="x" disabled>Colour…</option>
                 {COLORS.map(([v, name]) => <option key={name} value={v}>{name}</option>)}
               </select>
+              <select aria-label="Remind me about the selected notes" value="" onChange={(e) => { const v = e.target.value; if (!v) return; const t = v === 'none' ? null : Number(v); many({ change: { remind_at: t } }, (r) => (t ? `${nNotes(r.notes.length)}: reminder ${reminderText(t)}` : `${nNotes(r.notes.length)}: no reminder`)); }}>
+                <option value="">Remind me…</option>
+                {quickTimes().map(([label, t]) => <option key={label} value={t}>{label}</option>)}
+                <option value="none">No reminder</option>
+              </select>
               <select aria-label="Label the selected notes" value="" onChange={(e) => { if (e.target.value === '+new') setNewLabel(true); else if (e.target.value) many({ change: { label: e.target.value } }, (r) => `${nNotes(r.notes.length)} labelled ${e.target.value}`); }}>
                 <option value="">Label…</option>
                 {labels.map((l) => <option key={l} value={l}>{l}</option>)}

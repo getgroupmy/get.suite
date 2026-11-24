@@ -10051,6 +10051,17 @@ test('Notes: several at once (colour, pin, archive, label, trash); all checked f
   assert.equal((await batch(a, { ids: [n1.id], change: { color: 'hotpink' } })).status, 400);
   assert.equal((await batch(a, { ids: [n1.id], change: {} })).status, 400);
 
+  // One reminder for several; then none. Not in the past.
+  const soon = Date.now() + 3600e3;
+  r = await batch(a, { ids: [n1.id, n2.id], change: { remind_at: soon } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  m = await mine();
+  assert.deepEqual([m.One.remind_at, m.Two.remind_at, m.Three.remind_at ?? null], [soon, soon, null]);
+  assert.equal((await batch(a, { ids: [n1.id], change: { remind_at: Date.now() - 86400e3 } })).status, 400);
+  r = await batch(a, { ids: [n1.id, n2.id], change: { remind_at: null } });
+  m = await mine();
+  assert.deepEqual([m.One.remind_at, m.Two.remind_at], [null, null]);
+
   // A copy of each, yours, at the top in the order picked; one shared with you is copied as yours too.
   r = await batch(a, { ids: [n1.id, n3.id], copy: true });
   assert.equal(r.status, 201, JSON.stringify(r.body));
