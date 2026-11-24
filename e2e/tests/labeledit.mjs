@@ -73,6 +73,24 @@ await step('delete a label: off its notes, the notes stay', async () => {
   await page.locator('article.note-card', { hasText: 'Plan' }).waitFor(); // back to all notes
   if (await page.locator('.note-chip').count()) throw new Error('chips left');
 });
+await step('Move up and Move down put labels on the left in your own order', async () => {
+  await api(page, 'POST', '/notes', { title: 'A', labels: ['alpha'] });
+  await api(page, 'POST', '/notes', { title: 'B', labels: ['bravo'] });
+  await api(page, 'POST', '/notes', { title: 'C', labels: ['charlie'] });
+  await page.goto(`${B}/notes`);
+  const order = () => page.locator('.note-label-row .subnav-item .grow').allInnerTexts();
+  await page.locator('.note-label-row', { hasText: 'charlie' }).waitFor();
+  if ((await order()).join() !== 'alpha,bravo,charlie') throw new Error((await order()).join());
+  const row = page.locator('.note-label-row', { hasText: 'charlie' });
+  await row.hover();
+  await row.getByRole('button', { name: 'Edit label charlie' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('the last one offered Move down');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await order()).join() === 'alpha,charlie,bravo');
+  await page.reload();
+  await page.locator('.note-label-row', { hasText: 'charlie' }).waitFor();
+  if ((await order()).join() !== 'alpha,charlie,bravo') throw new Error(`after reload: ${(await order()).join()}`);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

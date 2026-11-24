@@ -692,6 +692,22 @@ export default function noteRoutes() {
     sendTo([...people], { type: 'notes-changed' });
     return rows.length;
   };
+  // Your own order for your labels on the left (Move up / Move down); labels never placed come after, by name.
+  q(`CREATE TABLE IF NOT EXISTS note_label_order (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (user_id, label)
+  )`).run();
+  r.put('/labels/order', (req, res) => {
+    const labels = [...new Set((Array.isArray(req.body?.labels) ? req.body.labels : []).map((l) => String(l).trim()).filter(Boolean))].slice(0, 500);
+    tx(() => {
+      q('DELETE FROM note_label_order WHERE user_id = ?').run(req.user.id);
+      labels.forEach((l, i) => q('INSERT INTO note_label_order (user_id, label, position) VALUES (?, ?, ?)').run(req.user.id, l.slice(0, 50), i + 1));
+    });
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.json({ ok: true });
+  });
   r.post('/labels/rename', (req, res) => {
     const from = str(req.body?.from, { required: true, max: 50, name: 'Label' });
     const to = str(req.body?.to, { required: true, max: 40, name: 'New name' }).trim();
@@ -701,6 +717,8 @@ export default function noteRoutes() {
       const c = q('SELECT color FROM note_label_colors WHERE user_id = ? AND label = ?').get(req.user.id, from);
       if (c) q('INSERT INTO note_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO NOTHING').run(req.user.id, to, c.color);
       q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, from);
+      if (!q('SELECT 1 FROM note_label_order WHERE user_id = ? AND label = ?').get(req.user.id, to)) q('UPDATE note_label_order SET label = ? WHERE user_id = ? AND label = ?').run(to, req.user.id, from); // keeps its place
+      else q('DELETE FROM note_label_order WHERE user_id = ? AND label = ?').run(req.user.id, from);
     }
     res.json({ label: to, notes });
   });
@@ -708,6 +726,7 @@ export default function noteRoutes() {
     const label = str(req.body?.label, { required: true, max: 50, name: 'Label' });
     const notes = relabel(req.user, label, (ls) => ls.filter((l) => l !== label));
     q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
+    q('DELETE FROM note_label_order WHERE user_id = ? AND label = ?').run(req.user.id, label);
     res.json({ notes });
   });
 
@@ -730,7 +749,8 @@ export default function noteRoutes() {
     for (const n of q('SELECT labels FROM notes WHERE owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)').all(req.user.id, req.user.id)) {
       for (const l of JSON.parse(n.labels || '[]')) all.add(l);
     }
-    res.json([...all].sort((a, b) => a.localeCompare(b)));
+    const pos = new Map(q('SELECT label, position FROM note_label_order WHERE user_id = ?').all(req.user.id).map((x) => [x.label, x.position]));
+    res.json([...all].sort((a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity) || a.localeCompare(b)));
   });
 
   // Import notes from Markdown or text files, from Evernote (.enex, many notes each), or from Google Keep (the .json files in Google Takeout's Keep folder,

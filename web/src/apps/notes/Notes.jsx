@@ -105,6 +105,13 @@ export default function Notes() {
   }, []);
   const [notes, setNotes] = useState(null);
   const [labels, setLabels] = useState([]);
+  // A label one place up (by -1) or down (by 1) on the left: your own order from then on.
+  const orderLabels = async (i, by) => {
+    const next = [...labels];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    setLabels(next);
+    try { await put('/notes/labels/order', { labels: next }); } catch { get('/notes/labels').then(setLabels).catch(() => {}); }
+  };
   const [labelColors, setLabelColors] = useState({}); // your colour for each label
   const setLabelColor = async (label, color) => { try { await put('/notes/label-colors', { label, color }); setLabelColors((c) => { const n = { ...c }; if (color) n[label] = color; else delete n[label]; return n; }); } catch (e) { toast(e.message, 'error'); } };
   // /notes?reminders=1 (from Home's Note reminders) opens on Reminders.
@@ -257,11 +264,11 @@ export default function Notes() {
         <button type="button" className={`subnav-item ${!where.archived && !where.label && !where.reminders && !where.shared && !where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false })}><Icon name="note" /><span className="grow">Notes</span></button>
         <button type="button" className={`subnav-item ${where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: true })}><Icon name="bell" /><span className="grow">Reminders</span></button>
         <button type="button" className={`subnav-item ${where.shared ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, shared: true })}><Icon name="share" /><span className="grow">Shared with me</span></button>
-        {labels.map((l) => (
+        {labels.map((l, i) => (
           <div key={l} className="note-label-row">
           <button type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}>{labelColors[l] ? <span className="note-label-dot" style={{ background: labelColors[l] }} aria-hidden="true" /> : <span className="note-label-icon" aria-hidden="true">🏷</span>}<span className="grow ellipsis">{l}</span></button>
           <Menu align="right" trigger={(p) => <button type="button" className="icon-btn note-label-color" aria-label={`Edit label ${l}`} title="Colour, rename or delete" {...p}>●</button>}
-            items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${labelColors[l] === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l, c) })), '-', { label: 'No colour', onClick: () => setLabelColor(l, null) }, '-', { label: 'Rename label…', onClick: () => setLabelEdit({ rename: l }) }, { label: 'Delete label', danger: true, onClick: () => setLabelEdit({ remove: l }) }]} />
+            items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${labelColors[l] === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l, c) })), '-', { label: 'No colour', onClick: () => setLabelColor(l, null) }, '-', ...(i > 0 ? [{ label: 'Move up', onClick: () => orderLabels(i, -1) }] : []), ...(i < labels.length - 1 ? [{ label: 'Move down', onClick: () => orderLabels(i, 1) }] : []), { label: 'Rename label…', onClick: () => setLabelEdit({ rename: l }) }, { label: 'Delete label', danger: true, onClick: () => setLabelEdit({ remove: l }) }]} />
           </div>
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>

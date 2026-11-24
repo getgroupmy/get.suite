@@ -13002,6 +13002,13 @@ test('notes: rename, merge and delete a label everywhere', async () => {
   assert.deepEqual((await b('GET', '/api/notes/labels')).body, ['Work'], 'the shared note changed for Ben too');
   assert.deepEqual((await c('GET', '/api/notes/labels')).body, ['Wrok'], 'someone else’s own notes are theirs');
   assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, { Work: '#1a73e8' }, 'the colour goes with it');
+  // Your own order: Work before Home; it's yours alone, and a renamed label keeps its place.
+  assert.equal((await a('PUT', '/api/notes/labels/order', { labels: ['Work', 'Home'] })).status, 200);
+  assert.deepEqual((await a('GET', '/api/notes/labels')).body, ['Work', 'Home']);
+  assert.deepEqual((await b('GET', '/api/notes/labels')).body, ['Work'], 'Ben’s own');
+  await a('POST', '/api/notes/labels/rename', { from: 'Work', to: 'Wrk' });
+  assert.deepEqual((await a('GET', '/api/notes/labels')).body, ['Wrk', 'Home'], 'still first');
+  await a('POST', '/api/notes/labels/rename', { from: 'Wrk', to: 'Work' });
   // Renaming to one that exists merges them, without doubles.
   await a('POST', '/api/notes/labels/rename', { from: 'Home', to: 'Work' });
   const mine = (await a('GET', '/api/notes')).body;
