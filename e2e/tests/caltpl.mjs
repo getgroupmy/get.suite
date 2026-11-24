@@ -98,6 +98,23 @@ await step('Export templates gives a file; Import templates… adds the ones not
   await len.getByLabel('Import event templates').setInputFiles({ name: 'Calendar templates.json', mimeType: 'application/json', buffer: buf });
   await len.getByText('Those templates are all here already').waitFor();
 });
+await step('with several templates, the ones you used last come first in From a template…', async () => {
+  for (const name of ['Alpha review', 'Board prep', 'Zebra sync']) await api(page, 'POST', '/events/templates', { name, event: { title: name, minutes: 30 } });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'From a template…' }).click();
+  await page.getByRole('menuitem', { name: 'Zebra sync' }).click();
+  await page.getByRole('dialog', { name: 'New event from “Zebra sync”' }).waitFor();
+  await page.keyboard.press('Escape');
+  await until(async () => (await api(page, 'GET', '/events/templates')).body.find((t) => t.name === 'Zebra sync').used_at);
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'From a template…' }).click();
+  const names = (await page.getByRole('menuitem').allInnerTexts()).map((x) => x.trim());
+  // Zebra just now, Supplier call earlier; then the rest by name.
+  if (names.slice(0, 2).join() !== 'Zebra sync,Supplier call' || names.indexOf('Alpha review') > names.indexOf('Board prep')) throw new Error(names.join('|'));
+  await page.keyboard.press('Escape');
+  const file = (await api(page, 'GET', '/events/templates')).body;
+  if (!file.every((t) => 'used_at' in t)) throw new Error('used_at listed');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -11805,6 +11805,12 @@ test('calendar: event templates, each person’s own', async () => {
   assert.deepEqual([t.body.title, t.body.minutes, t.body.guests, t.body.reminders, t.body.all_day], ['Call with client', 30, ['kim@example.com'], [10], 0]);
   assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Client call']);
   assert.deepEqual((await b('GET', '/api/events/templates')).body, [], 'Ben has his own');
+  // Used to start an event: when is kept (the menu shows the latest first); your own only.
+  assert.equal((await a('GET', '/api/events/templates')).body[0].used_at, null);
+  assert.equal((await b('POST', `/api/events/templates/${t.body.id}/used`)).status, 404);
+  const usedFrom = Date.now();
+  assert.equal((await a('POST', `/api/events/templates/${t.body.id}/used`)).status, 200);
+  assert.ok((await a('GET', '/api/events/templates')).body[0].used_at >= usedFrom);
   // Same name: replaced, not doubled.
   const again = await a('POST', '/api/events/templates', { name: 'client call', event: { title: 'Call', minutes: 45 } });
   assert.equal(again.status, 200);

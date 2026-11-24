@@ -598,6 +598,8 @@ q(`CREATE TABLE IF NOT EXISTS event_templates (
   created_at INTEGER NOT NULL
 )`).run();
 export const MAX_EVENT_TEMPLATES = 30;
+// When each was last used to start an event (the menu offers the latest first).
+if (!q("SELECT 1 FROM pragma_table_info('event_templates') WHERE name = 'used_at'").get()) q('ALTER TABLE event_templates ADD COLUMN used_at INTEGER').run();
 /** What a template keeps, cleaned: { title, minutes, all_day, location, description, color, guests, reminders, calendar_id }. */
 export function cleanTemplate(e) {
   if (!e || typeof e !== 'object') throw bad('Nothing to keep');
@@ -640,7 +642,12 @@ export default function calendarRoutes() {
   const r = Router();
 
   r.get('/templates', (req, res) => {
-    res.json(q('SELECT id, name, data FROM event_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map((t) => ({ id: t.id, name: t.name, ...JSON.parse(t.data) })));
+    res.json(q('SELECT id, name, data, used_at FROM event_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map((t) => ({ id: t.id, name: t.name, used_at: t.used_at ?? null, ...JSON.parse(t.data) })));
+  });
+  // A template was used to start an event: your own only.
+  r.post('/templates/:id/used', (req, res) => {
+    if (!q('UPDATE event_templates SET used_at = ? WHERE id = ? AND user_id = ?').run(Date.now(), String(req.params.id), req.user.id).changes) throw notFound('Template not found');
+    res.json({ ok: true });
   });
   r.post('/templates', (req, res) => {
     const name = str(req.body?.name, { required: true, name: 'Template name', max: 60 });

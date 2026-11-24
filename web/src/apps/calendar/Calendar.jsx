@@ -117,7 +117,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   // Moving event templates between servers: Export gives Calendar templates.json (as Download your data does), Import reads one back.
   const tplFileRef = useRef(null);
   const exportTemplates = () => {
-    const url = URL.createObjectURL(new Blob([`${JSON.stringify(templates.map(({ id, ...t }) => t), null, 2)}\n`], { type: 'application/json' })); // eslint-disable-line no-unused-vars
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(templates.map(({ id, used_at, ...t }) => t), null, 2)}\n`], { type: 'application/json' })); // eslint-disable-line no-unused-vars
     const a = document.createElement('a'); a.href = url; a.download = 'Calendar templates.json'; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -136,6 +136,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
   /** A new event from a template: its details, starting at the next full hour (or today, all day). */
   const fromTemplate = (t) => {
+    if (t.id) post(`/events/templates/${t.id}/used`).then(loadTemplates).catch(() => {});
     const at = new Date(); at.setMinutes(0, 0, 0); at.setHours(at.getHours() + 1);
     const start = t.all_day ? startOfDay(new Date()).getTime() : at.getTime();
     setEditing({ title: t.title, location: t.location, description: t.description, color: t.color || COLORS[0], all_day: t.all_day, start, end: t.all_day ? start + DAY - 1 : start + t.minutes * 60e3,
@@ -488,7 +489,12 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {view === 'week' && <button type="button" className="subnav-item" onClick={() => setCopyWeek(startOfDay(days[0]).getTime())} title="Copy your own one-off events of this week to later weeks"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>⧉</span><span className="grow">Copy this week…</span></button>}
         {!acting && <Menu trigger={(p) => <button type="button" className="subnav-item" {...p}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📋</span><span className="grow">{templates.length ? 'From a template…' : 'Templates…'}</span></button>}
           items={[
-            ...templates.map((t) => ({ label: t.name, onClick: () => fromTemplate(t) })),
+            // With several, the three you used last come first (then the rest, by name).
+            ...(() => {
+              const recent = templates.length > 3 ? templates.filter((t) => t.used_at).sort((x, y) => y.used_at - x.used_at).slice(0, 3) : [];
+              const item = (t) => ({ label: t.name, onClick: () => fromTemplate(t) });
+              return recent.length ? [...recent.map(item), '-', ...templates.filter((t) => !recent.includes(t)).map(item)] : templates.map(item);
+            })(),
             ...(templates.length ? ['-', { label: 'Export templates', icon: 'download', onClick: exportTemplates }] : []),
             { label: 'Import templates…', icon: 'upload', onClick: () => tplFileRef.current?.click() },
           ]} />}
