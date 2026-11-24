@@ -63,6 +63,8 @@ function FormList() {
     creating.current = true;
     try { navigate(`/forms/${(await post('/forms', template ? { template } : { title: 'Untitled form' })).id}`); } catch (e) { toast(e.message, 'error'); } finally { creating.current = false; }
   };
+  // The three templates you started from last come first (newest first), then the rest in their usual order.
+  const lately = templates.filter((t) => t.used_at).sort((a, b) => b.used_at - a.used_at).slice(0, 3);
   return (
     <div className="page">
       <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={18} /> Recently deleted</button><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
@@ -73,7 +75,7 @@ function FormList() {
           <h2 className="small muted">Start a new form</h2>
           <ul>
             <li><button type="button" className="form-tpl blank" onClick={() => create()}><span className="form-tpl-mark" aria-hidden="true">＋</span><strong>Blank form</strong><span className="muted small">Your own questions</span></button></li>
-            {templates.map((t) => (
+            {[...lately, ...templates.filter((t) => !lately.includes(t))].map((t) => (
               <li key={t.id}><button type="button" className="form-tpl" aria-label={`Start from the ${t.title} template`} onClick={() => create(t.id)}>
                 <span className="form-tpl-mark" aria-hidden="true">{{ event: '📅', feedback: '⭐', rsvp: '✉️', contact: '👤', job: '💼', quiz: '❓', timeoff: '🌴', order: '🛒' }[t.id] || '📝'}</span>
                 <strong>{t.title}</strong><span className="muted small">{t.blurb}</span>

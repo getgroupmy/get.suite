@@ -34,6 +34,13 @@ import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayloa
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 import { csvCell as csvCellOf } from '../csvcell.js';
 
+// When each person last started a form from each ready-made template: those come first in the gallery.
+q(`CREATE TABLE IF NOT EXISTS form_template_uses (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL,
+  used_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, template_id)
+)`).run();
 q(`CREATE TABLE IF NOT EXISTS forms (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -747,7 +754,11 @@ export default function formRoutes() {
   });
 
   // Forms to start from: the gallery under New form.
-  r.get('/templates', (req, res) => res.json(templateList()));
+  // Each template with when you last started a form from it (used_at, or null), for the gallery's order.
+  r.get('/templates', (req, res) => {
+    const used = new Map(q('SELECT template_id, used_at FROM form_template_uses WHERE user_id = ?').all(req.user.id).map((x) => [x.template_id, x.used_at]));
+    res.json(templateList().map((t) => ({ ...t, used_at: used.get(t.id) ?? null })));
+  });
   // Several forms' responses at once (?ids=a,b,…): a .zip with each form's responses as a spreadsheet file
   // (CSV, the same as one form's download), named by the form's title. Forms you own or edit.
   r.get('/responses.zip', async (req, res) => {
@@ -786,6 +797,7 @@ export default function formRoutes() {
         const st = tpl.settings || {};
         q('UPDATE forms SET description = ?, confirmation = ?, quiz = ?, show_score = ?, one_per_person = ? WHERE id = ?')
           .run(tpl.description || '', tpl.confirmation || '', st.quiz ? 1 : 0, st.show_score === false ? 0 : 1, st.one_per_person ? 1 : 0, id);
+        q('INSERT INTO form_template_uses (user_id, template_id, used_at) VALUES (?, ?, ?) ON CONFLICT (user_id, template_id) DO UPDATE SET used_at = excluded.used_at').run(req.user.id, tpl.id, Date.now());
       }
     });
     res.status(201).json(ownForm(id, req.user));

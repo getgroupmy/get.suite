@@ -10223,6 +10223,17 @@ test('Forms: templates to start from, each a valid form with its settings', asyn
   }
   const named = (await fa('POST', '/api/forms', { template: 'rsvp', title: 'Summer party' })).body;
   assert.equal(named.title, 'Summer party', 'a title of your own wins');
+  // When you last started from each: yours alone; a blank form isn't one.
+  const usedAt = async (cl) => Object.fromEntries((await cl('GET', '/api/forms/templates')).body.map((t) => [t.id, t.used_at]));
+  const u1 = await usedAt(fa);
+  assert.ok(FORM_TEMPLATES.every((t) => typeof u1[t.id] === 'number'));
+  assert.ok(u1.rsvp >= Math.max(...Object.values(u1)), 'the latest is the one used last');
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tplother', domain: 'acme.com', name: 'Otto Other', password: 'password123' })).status, 201);
+  await login(other, 'tplother@acme.com');
+  await other('POST', '/api/forms', {});
+  assert.ok(Object.values(await usedAt(other)).every((v) => v === null), 'someone else’s, and blank, aren’t counted');
+  assert.equal((await fa('POST', '/api/forms', { template: 'nope' })).status, 404);
   assert.equal((await fa('POST', '/api/forms', { template: 'nope' })).status, 404);
 });
 

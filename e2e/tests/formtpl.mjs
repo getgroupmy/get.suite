@@ -69,6 +69,18 @@ await step('A quiz from its template is scored', async () => {
   await page.getByRole('list', { name: 'Your forms' }).getByText('Quiz').waitFor();
   await page.getByRole('list', { name: 'Your forms' }).getByText('Event sign-up').waitFor();
 });
+await step('The templates you started from last come first in the gallery (after Blank)', async () => {
+  await page.goto(`${B}/forms`);
+  const g = page.getByRole('region', { name: 'Start a new form' });
+  await g.getByRole('button', { name: 'Start from the Quiz template' }).waitFor();
+  const order = await g.locator('button.form-tpl strong').allTextContents();
+  const all = (await api(page, 'GET', '/forms/templates')).body;
+  if (order[0] !== 'Blank form' || order[1] !== 'Quiz' || order[2] !== 'Event sign-up') throw new Error(order.join('|'));
+  if (order.length !== all.length + 1 || new Set(order).size !== order.length) throw new Error('each once: ' + order.join('|'));
+  const rest = all.filter((t) => !['Quiz', 'Event sign-up'].includes(t.title)).map((t) => t.title);
+  if (order.slice(3).join('|') !== rest.join('|')) throw new Error('the rest as usual: ' + order.join('|'));
+  await page.screenshot({ path: `${SP}/shots/formtpl-lately.png` });
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
