@@ -583,10 +583,11 @@ export default function Tasks() {
                 </select>}
               </>);
             })()}
-            {!virtual && sections.length > 0 && <select aria-label="Put the selected tasks in a section" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (v) batch({ change: { section_id: v === '__none__' ? null : v } }, (n) => (v === '__none__' ? `${nTasks(n)}: no section` : `${nTasks(n)} put in ${sections.find((x) => x.id === v)?.name}`)); }}>
+            {!virtual && <select aria-label="Put the selected tasks in a section" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (v === '__new__') setDialog('secnew'); else if (v) batch({ change: { section_id: v === '__none__' ? null : v } }, (n) => (v === '__none__' ? `${nTasks(n)}: no section` : `${nTasks(n)} put in ${sections.find((x) => x.id === v)?.name}`)); }}>
               <option value="">Section…</option>
               {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-              <option value="__none__">No section</option>
+              {sections.length > 0 && <option value="__none__">No section</option>}
+              <option value="__new__">+ New section…</option>
             </select>}
             <select aria-label="Move the selected tasks to" value="" disabled={!picked.size} onChange={(e) => { const to = e.target.value; if (to === '__new__') setDialog('movenew'); else if (to) batch({ change: { list_id: to } }, (n) => `${nTasks(n)} moved to ${lists.find((l) => l.id === to)?.name}`); }}>
               <option value="">Move to…</option>
@@ -734,6 +735,8 @@ export default function Tasks() {
           await post('/tasks/tasks/batch', { ids, change: { add_tag: t } }); // an error (not a word) shows here
           toast(`${nTasks(ids.length)} tagged #${t}`); setPicked(new Set()); loadTasks();
         }} />}
+      {dialog === 'secnew' && list && <PromptModal title={`Put ${nTasks(picked.size)} in a new section`} label="Section name" confirm="Make it and put them there" onClose={() => setDialog(null)}
+        onSubmit={async (name) => { const sec = await post(`/tasks/lists/${list.id}/sections`, { name }); await batch({ change: { section_id: sec.id } }, (n) => `${nTasks(n)} put in ${sec.name || name}`); get(`/tasks/lists/${list.id}/sections`).then(setSections).catch(() => {}); }} />}
       {dialog === 'copynew' && <PromptModal title={`Copy ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and copy" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await newList(name); await copyPicked(r.id, r.name); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
