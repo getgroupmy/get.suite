@@ -320,6 +320,23 @@ await step('Move dates…: each selected task\'s own due date moved; one without
   const due = Object.fromEntries((await tasksOf(tl)).map((t) => [t.title, t.due || '']));
   if (due['Pay rent'] !== '2027-04-06' || due['Renew passport'] !== '2027-04-09' || due['Someday thing']) throw new Error(JSON.stringify(due));
 });
+await step('List actions → Move up / down on the left: your own order for the lists', async () => {
+  const names = async () => (await api(page, 'GET', '/tasks/lists')).body.lists.map((l) => l.name);
+  const before = await names();
+  const i = before.indexOf('Later');
+  if (i < 1) throw new Error(before.join('|'));
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByRole('heading', { name: 'Later' }).waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Move up on the left' }).click();
+  await until(async () => (await names()).indexOf('Later') === i - 1);
+  const side = await page.locator('.subnav .subnav-item .grow').allInnerTexts();
+  if (side.indexOf('Later') > side.indexOf(before[i - 1])) throw new Error(`side: ${side.join('|')}`);
+  await page.reload();
+  await page.getByRole('heading', { name: 'Later' }).waitFor();
+  const after = await page.locator('.subnav .subnav-item .grow').allInnerTexts();
+  if (after.indexOf('Later') > after.indexOf(before[i - 1])) throw new Error(`after reload: ${after.join('|')}`);
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

@@ -53,6 +53,13 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
   updated_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
+// Each person's own order for their lists on the left.
+q(`CREATE TABLE IF NOT EXISTS task_list_order (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (user_id, list_id)
+)`).run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
 for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER'], ['priority', 'INTEGER'], ['nonbillable', 'INTEGER NOT NULL DEFAULT 0']]) { // priority: 1 low, 2 medium, 3 high, or null; // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
@@ -493,6 +500,17 @@ export function importGoogleTasks(user, data) {
 export default function taskRoutes() {
   const r = Router();
 
+  // Your own order for the lists on the left (Move up / Move down): { ids }; lists never placed come after.
+  r.put('/lists/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))].slice(0, 500);
+    for (const id of ids) loadList(id, req.user); // each one you're on
+    tx(() => {
+      q('DELETE FROM task_list_order WHERE user_id = ?').run(req.user.id);
+      ids.forEach((id, i) => q('INSERT INTO task_list_order (user_id, list_id, position) VALUES (?, ?, ?)').run(req.user.id, id, i + 1));
+    });
+    sendTo([req.user.id], { type: 'tasks-changed' });
+    res.json({ ok: true });
+  });
   r.get('/lists', (req, res) => {
     const me = req.user.id;
     // Everyone starts with a list of their own.
@@ -501,7 +519,8 @@ export default function taskRoutes() {
                        (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open
                      FROM task_lists l JOIN users u ON u.id = l.owner_id
                      WHERE l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)
-                     ORDER BY l.owner_id != ?, l.created_at`).all(me, me, me);
+                     ORDER BY (SELECT o.position FROM task_list_order o WHERE o.user_id = ? AND o.list_id = l.id) IS NULL,
+                              (SELECT o.position FROM task_list_order o WHERE o.user_id = ? AND o.list_id = l.id), l.owner_id != ?, l.created_at`).all(me, me, me, me, me);
     const members = q(`SELECT m.list_id, u.id, u.name, u.username FROM task_list_members m JOIN users u ON u.id = m.user_id
                        WHERE m.list_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(lists.map((l) => l.id)));
     const assigned = q('SELECT COUNT(*) AS n FROM tasks WHERE assignee_id = ? AND done_at IS NULL').get(me).n;

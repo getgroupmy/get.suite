@@ -1823,6 +1823,25 @@ test('chat mentions: counted per conversation until read', async () => {
   assert.equal((await of(b)).mentions, 0);
 });
 
+test('tasks: your own order for the lists on the left; a colleague’s list placed too', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['tloa', 'Tlo Ann'], ['tlob', 'Tlo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tloa@acme.com');
+  const bid = (await login(b, 'tlob@acme.com')).id;
+  const names = async (who) => (await who('GET', '/api/tasks/lists')).body.lists.map((l) => l.name);
+  await names(a);
+  const work = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
+  const home = (await a('POST', '/api/tasks/lists', { name: 'Home' })).body.id;
+  const bens = (await b('POST', '/api/tasks/lists', { name: 'Shared by Ben' })).body.id;
+  await b('PUT', `/api/tasks/lists/${bens}/members`, { user_ids: [(await a('GET', '/api/auth/me')).body.user.id] });
+  assert.deepEqual(await names(a), ['My tasks', 'Work', 'Home', 'Shared by Ben'], 'yours first, then shared, by when made');
+  assert.equal((await a('PUT', '/api/tasks/lists/order', { ids: [bens, home] })).status, 200);
+  assert.deepEqual(await names(a), ['Shared by Ben', 'Home', 'My tasks', 'Work'], 'placed ones first; the rest as before');
+  assert.deepEqual(await names(b), ['Shared by Ben'], 'Ben’s own lists, untouched by Ann’s order');
+  assert.equal((await b('PUT', '/api/tasks/lists/order', { ids: [work] })).status, 404, 'not one he’s on');
+  assert.ok(bid);
+});
+
 test('tasks: lists, ordering, due dates, done, sharing and assigning', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['taska', 'Task Ann'], ['taskb', 'Task Ben'], ['taskc', 'Task Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

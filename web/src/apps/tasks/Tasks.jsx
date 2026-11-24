@@ -120,6 +120,15 @@ export default function Tasks() {
     try { await post(`/tasks/tasks/${t.id}/myday`, { today: localToday(), on }); loadMyDay(); if (listId === MYDAY) loadTasks(); toast(on ? `“${t.title}” added to My Day` : 'Taken off My Day'); }
     catch (e) { toast(e.message, 'error'); }
   };
+  // This list one place up (by -1) or down (by 1) among your lists on the left: your own order from then on.
+  const orderList = async (by) => {
+    const ids = lists.map((l) => l.id);
+    const i = ids.indexOf(listId);
+    [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
+    setLists((ls) => ids.map((id) => ls.find((l) => l.id === id)));
+    try { await put('/tasks/lists/order', { ids }); } catch (e) { toast(e.message, 'error'); }
+    loadLists();
+  };
   const loadLists = useCallback(() => {
     loadMyDay();
     get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
@@ -497,6 +506,8 @@ export default function Tasks() {
           {list && (
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }, { label: 'Colour and emoji…', icon: 'star', onClick: () => setDialog('look') }] : []),
+              ...(lists.findIndex((l) => l.id === list.id) > 0 ? [{ label: 'Move up on the left', icon: 'move', onClick: () => orderList(-1) }] : []),
+              ...(lists.findIndex((l) => l.id === list.id) < lists.length - 1 ? [{ label: 'Move down on the left', icon: 'move', onClick: () => orderList(1) }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               ...(list.members.length ? [{ label: 'Workload…', icon: 'people', onClick: () => setDialog('workload') }] : []),
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
