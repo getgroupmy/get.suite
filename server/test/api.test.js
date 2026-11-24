@@ -4365,6 +4365,15 @@ test('other contacts: people you email are remembered and suggested; not colleag
   assert.equal((await a('DELETE', `/api/contacts/other/${encodeURIComponent('sue@initech.example.com')}`)).status, 200);
   assert.deepEqual((await a('GET', '/api/contacts/other')).body, []);
   assert.equal((await a('DELETE', '/api/contacts/other/nobody%40x.com')).status, 404);
+  // Several at once: added to your contacts (each leaves Other contacts), or forgotten.
+  recordSent(user, [{ name: 'Tom One', address: 'tom@one.example.com' }, { name: 'Uma Two', address: 'uma@two.example.com' }, { address: 'vic@three.example.com' }]);
+  const added = (await a('POST', '/api/contacts/add-people', { people: [{ name: 'Tom One', email: 'tom@one.example.com' }, { name: 'Uma Two', email: 'uma@two.example.com' }] })).body;
+  assert.equal(added.added, 2);
+  assert.deepEqual((await a('GET', '/api/contacts/other')).body.map((x) => x.email), ['vic@three.example.com']);
+  recordSent(user, [{ address: 'wen@four.example.com' }]);
+  assert.deepEqual((await a('POST', '/api/contacts/other/forget', { emails: ['VIC@three.example.com', 'wen@four.example.com', 'nobody@x.com'] })).body, { forgotten: 2 });
+  assert.deepEqual((await a('GET', '/api/contacts/other')).body, []);
+  assert.equal((await a('POST', '/api/contacts/other/forget', { emails: [] })).status, 400);
 });
 
 test('tasks: a due time on the due date; cleared with the date; kept on the next repeat', async () => {

@@ -494,8 +494,16 @@ function ContactsTrash({ filter, onRestored }) {
 function OtherContacts({ filter, onAdded }) {
   const toast = useToast();
   const [list, setList] = useState(null);
+  const [pickedO, setPickedO] = useState(() => new Set()); // addresses ticked to add or forget together
   const load = () => get('/contacts/other').then(setList).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const addMany = async () => {
+    const people = (list || []).filter((c) => pickedO.has(c.email)).map((c) => ({ name: c.name || c.email.split('@')[0], email: c.email }));
+    try { const r = await post('/contacts/add-people', { people }); toast(`${nPeople(r.added)} added to your contacts`); setPickedO(new Set()); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const forgetMany = async () => {
+    try { const r = await post('/contacts/other/forget', { emails: [...pickedO] }); toast(`${r.forgotten === 1 ? '1 address' : `${r.forgotten} addresses`} forgotten`); setPickedO(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   if (!list) return null;
   if (!list.length) return <Empty icon="person" title="No other contacts">People you email who aren't in your contacts show up here, and are suggested when you write.</Empty>;
   const f = filter.toLowerCase();
@@ -506,10 +514,19 @@ function OtherContacts({ filter, onAdded }) {
   const forget = async (c) => { try { await del(`/contacts/other/${encodeURIComponent(c.email)}`); load(); } catch (e) { toast(e.message, 'error'); } };
   return (
     <table className="files">
-      <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
+      {pickedO.size > 0 && (
+        <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected other contacts">
+          <strong className="small" aria-live="polite">{pickedO.size} selected</strong>
+          <button type="button" className="btn small" onClick={addMany}>Add to contacts</button>
+          <button type="button" className="btn small" title="Take them off Other contacts (they come back if you email them again)" onClick={forgetMany}>Forget</button>
+          <button type="button" className="link-btn small" onClick={() => setPickedO(new Set())}>Clear</button>
+        </div></caption>
+      )}
+      <thead><tr><th className="pick-col"><input type="checkbox" aria-label="Select all other contacts shown" checked={shown.length > 0 && shown.every((c) => pickedO.has(c.email))} onChange={(e) => setPickedO(e.target.checked ? new Set(shown.map((c) => c.email)) : new Set())} /></th><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
       <tbody>
         {shown.map((c) => (
           <tr key={c.email}>
+            <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.email}`} checked={pickedO.has(c.email)} onChange={(e) => { const n = new Set(pickedO); e.target.checked ? n.add(c.email) : n.delete(c.email); setPickedO(n); }} /></td>
             <td className="name"><Avatar name={c.name || c.email} size={28} email={c.email} /><span>{c.name || c.email}</span></td>
             <td className="hide-sm"><a href={`mailto:${c.email}`}>{c.email}</a></td>
             <td className="hide-sm muted">{c.times === 1 ? 'once' : `${c.times} times`}, last {new Date(c.last_at).toLocaleDateString()}</td>

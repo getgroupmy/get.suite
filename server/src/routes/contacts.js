@@ -452,6 +452,15 @@ export default function contactRoutes() {
   r.get('/frequent', (req, res) => res.json(frequentOf(req.user)));
   // Forget who you write to: one person (?email=) or everyone. Also what "Include …?" in Mail suggests.
   r.delete('/frequent', (req, res) => res.json({ forgotten: forgetSent(req.user, req.query.email ? String(req.query.email) : null) }));
+  // Several forgotten from Other contacts at once ({ emails }): how many were there.
+  r.post('/other/forget', (req, res) => {
+    const emails = [...new Set((Array.isArray(req.body?.emails) ? req.body.emails : []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+    if (!emails.length) throw bad('Choose some people');
+    if (emails.length > 1000) throw bad('1000 at a time at most');
+    let n = 0;
+    tx(() => { for (const e of emails) n += forgetOther(req.user.id, e); });
+    res.json({ forgotten: n });
+  });
   r.delete('/other/:email', (req, res) => {
     if (!forgetOther(req.user.id, req.params.email)) throw notFound();
     res.json({ ok: true });

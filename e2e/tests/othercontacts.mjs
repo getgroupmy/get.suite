@@ -85,6 +85,34 @@ await step('Add to contacts moves them to My contacts', async () => {
   await page.getByRole('tab', { name: 'My contacts' }).click();
   await page.locator('tbody tr', { hasText: 'raj@globex.example.com' }).waitFor();
 });
+await step('tick several Other contacts to add to My contacts, or forget them', async () => {
+  await page.goto(`${B}/mail`);
+  await page.getByRole('button', { name: 'Compose' }).waitFor();
+  await page.waitForTimeout(800); // a draft left open earlier comes back in its window
+  if (!(await page.getByRole('dialog', { name: 'New message' }).count())) await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('To', { exact: true }).fill('ann@one.example.com, bo@two.example.com, cy@three.example.com');
+  await page.getByLabel('Subject').fill('Hello all');
+  await page.getByRole('textbox', { name: 'Message' }).click();
+  await page.keyboard.type('Hi.');
+  await page.getByRole('dialog', { name: 'New message' }).getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Sent to 3 recipients').waitFor({ timeout: 20000 });
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Other contacts' }).click();
+  await page.getByLabel('Select ann@one.example.com').check();
+  await page.getByLabel('Select cy@three.example.com').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected other contacts' });
+  await bar.getByText('2 selected').waitFor();
+  await bar.getByRole('button', { name: 'Add to contacts' }).click();
+  await page.locator('.toast', { hasText: '2 contacts added to your contacts' }).last().waitFor();
+  await page.locator('tbody tr', { hasText: 'ann@one.example.com' }).waitFor({ state: 'detached' });
+  await page.getByLabel('Select all other contacts shown').check();
+  await bar.getByRole('button', { name: 'Forget' }).click();
+  await page.locator('.toast', { hasText: '1 address forgotten' }).last().waitFor();
+  await page.getByText('No other contacts').waitFor();
+  await page.getByRole('tab', { name: 'My contacts' }).click();
+  await page.locator('tbody tr', { hasText: 'cy@three.example.com' }).waitFor();
+  if (await page.locator('tbody tr', { hasText: 'bo@two.example.com' }).count()) throw new Error('forgotten one was added');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
