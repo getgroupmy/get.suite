@@ -400,6 +400,7 @@ export default function Notes() {
       {templates && <NoteTemplates onClose={() => setTemplates(false)} onUse={async (t) => {
         try {
           const n = await post('/notes', { title: t.title, body: t.body, ...(t.items && { items: t.items }), ...(t.color && { color: t.color }), labels: t.labels || [] });
+          post(`/notes/templates/${t.id}/used`).catch(() => {});
           setTemplates(false); toast(`New note from “${t.name}”`); await load(); setEditing(n.id);
         } catch (e) { toast(e.message, 'error'); }
       }} />}
@@ -574,7 +575,8 @@ function NoteTemplates({ onClose, onUse }) {
     <Modal title="Note templates" onClose={onClose}>
       {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No templates yet. On a note, choose ⋮ → <strong>Save as template…</strong> to start new notes from it.</p> : (
         <ul className="plain-list stack-tight" aria-label="Templates">
-          {list.map((t) => (
+          {/* With several, the three you used last first; then the rest, by name. */}
+          {(() => { const recent = list.length > 3 ? list.filter((t) => t.used_at).sort((x, y) => y.used_at - x.used_at).slice(0, 3) : []; return [...recent, ...list.filter((t) => !recent.includes(t))]; })().map((t) => (
             <li key={t.id} className="stack-tight">
             <div className="row" style={{ gap: 8 }}>
               <span className="grow"><strong>{t.name}</strong>{t.daily && <span className="muted small"> · Today’s note</span>} <span className="muted small">{t.items ? `☑ ${t.items.length} item${t.items.length === 1 ? '' : 's'}` : (t.body || '').slice(0, 60)}</span></span>

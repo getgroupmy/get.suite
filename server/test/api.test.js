@@ -16248,6 +16248,12 @@ test('note templates: a note kept as a template (checklist unticked), new notes 
   assert.equal((await b('POST', '/api/notes/templates', { note_id: note.id, name: 'Mine now' })).status, 404);
   assert.deepEqual((await b('GET', '/api/notes/templates')).body, [], 'each person’s own');
   assert.equal((await b('DELETE', `/api/notes/templates/${list[0].id}`)).status, 404);
+  // Used to start a note: when is kept (the window lists the latest first); your own only.
+  assert.equal(list[0].used_at, null);
+  assert.equal((await b('POST', `/api/notes/templates/${list[0].id}/used`)).status, 404);
+  const usedFrom = Date.now();
+  assert.equal((await a('POST', `/api/notes/templates/${list[0].id}/used`)).status, 200);
+  assert.ok((await a('GET', '/api/notes/templates')).body[0].used_at >= usedFrom);
   assert.equal((await a('DELETE', `/api/notes/templates/${list[0].id}`)).status, 200);
   assert.deepEqual((await a('GET', '/api/notes/templates')).body, []);
 });

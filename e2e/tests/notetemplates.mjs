@@ -132,6 +132,25 @@ await step('carry over: today’s note brings yesterday’s unticked items', asy
   await until(async () => { const v = await page.getByRole('dialog').locator('input').evaluateAll((els) => els.map((e) => e.value)).catch(() => []); return v.includes('Call the bank') && !v.includes('Sent the invoice'); }, 10000);
   await page.keyboard.press('Escape');
 });
+await step('with several templates, the ones you used last are listed first', async () => {
+  for (const title of ['Alpha plan', 'Beta plan', 'Zeta plan']) {
+    const n = (await api(page, 'POST', '/notes', { title, body: title })).body;
+    await api(page, 'POST', '/notes/templates', { note_id: n.id, name: title });
+  }
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  let dlg = page.getByRole('dialog', { name: 'Note templates' });
+  await dlg.getByRole('list', { name: 'Templates' }).getByRole('listitem').filter({ hasText: 'Zeta plan' }).getByRole('button', { name: 'Use' }).click();
+  await page.getByText('New note from “Zeta plan”').last().waitFor();
+  await until(async () => (await api(page, 'GET', '/notes/templates')).body.find((t) => t.name === 'Zeta plan')?.used_at);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Templates' }).click();
+  dlg = page.getByRole('dialog', { name: 'Note templates' });
+  await dlg.getByRole('list', { name: 'Templates' }).getByRole('listitem').first().waitFor();
+  const names = await dlg.getByRole('list', { name: 'Templates' }).getByRole('listitem').evaluateAll((els) => els.map((e) => e.querySelector('strong')?.textContent).filter(Boolean));
+  if (names[0] !== 'Zeta plan' || names.indexOf('Alpha plan') > names.indexOf('Beta plan')) throw new Error(names.join('|'));
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

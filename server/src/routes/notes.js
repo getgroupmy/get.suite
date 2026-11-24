@@ -506,11 +506,13 @@ if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'daily_date')) q
 if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'daily')) q('ALTER TABLE note_templates ADD COLUMN daily INTEGER NOT NULL DEFAULT 0').run();
 // carry: Today's note also gets the unticked items of the last daily note (with the daily template; for a checklist).
 if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'carry')) q('ALTER TABLE note_templates ADD COLUMN carry INTEGER NOT NULL DEFAULT 0').run();
-const templateOut = (t) => ({ id: t.id, name: t.name, daily: !!t.daily, carry: !!t.carry, ...JSON.parse(t.content) });
+// When each was last used to start a note (the Templates window lists the latest first).
+if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'used_at')) q('ALTER TABLE note_templates ADD COLUMN used_at INTEGER').run();
+const templateOut = (t) => ({ id: t.id, name: t.name, daily: !!t.daily, carry: !!t.carry, used_at: t.used_at ?? null, ...JSON.parse(t.content) });
 
 /** Someone's note templates as JSON, for Download your data (null when they have none). */
 export function noteTemplatesJson(userId) {
-  const list = q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map(templateOut).map(({ id: _id, ...t }) => t);
+  const list = q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map(templateOut).map(({ id: _id, used_at: _used, ...t }) => t);
   return list.length ? JSON.stringify(list, null, 2) : null;
 }
 /** Note templates brought back from Download your data: one already here (the same content) is skipped; a name in use gets " (2)". */
@@ -536,6 +538,11 @@ export default function noteRoutes() {
   const r = Router();
   r.get('/templates', (req, res) => {
     res.json(q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map(templateOut));
+  });
+  // A template was used to start a note: your own only.
+  r.post('/templates/:id/used', (req, res) => {
+    if (!q('UPDATE note_templates SET used_at = ? WHERE id = ? AND owner_id = ?').run(now(), String(req.params.id), req.user.id).changes) throw notFound('Template not found');
+    res.json({ ok: true });
   });
   // { note_id, name }: a note you can open, kept as a template (its checklist unticked).
   r.post('/templates', (req, res) => {
