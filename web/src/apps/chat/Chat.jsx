@@ -1,3 +1,4 @@
+import { matchesFilter } from '../contacts/contactfilter.js';
 import ConversationPick, { conversationName, latestFirst } from '../../components/ConversationPick.jsx';
 import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { has } from '../../fold.js';
@@ -608,6 +609,7 @@ export default function Chat() {
 
   const publicChannels = channels.filter((c) => !c.dm_key && !c.archived_at && !c.left);
   const leftChannels = channels.filter((c) => !c.dm_key && !c.archived_at && c.left); // public channels you left: in Browse channels
+  const [browseFind, setBrowseFind] = useState(''); // Browse channels: one by its name or topic
   const [browsing, setBrowsing] = useState(false);
   const leave = async (c, left = true) => {
     try { await post(`/chat/channels/${c.id}/leave`, { left }); await loadChannels(); toast(left ? `You left #${c.name}: Browse channels joins it again` : `Joined #${c.name}`); if (left && c.id === channelId) navigate('/chat'); } catch (e) { toast(e.message, 'error'); }
@@ -751,8 +753,9 @@ export default function Chat() {
       {browsing && (
         <Modal title="Browse channels" onClose={() => setBrowsing(false)} footer={<button type="button" className="btn" onClick={() => setBrowsing(false)}>Close</button>}>
           <p className="muted small" style={{ marginTop: 0 }}>Public channels you've left. Join one to have it back in your list.</p>
+          {leftChannels.length > 6 && <input type="search" aria-label="Find a channel" placeholder="Find a channel by name or topic" value={browseFind} onChange={(e) => setBrowseFind(e.target.value)} />}
           <ul className="plain-list" aria-label="Channels you left">
-            {leftChannels.map((c) => (
+            {leftChannels.filter((c) => matchesFilter({ name: c.name, topic: c.topic || '' }, browseFind)).map((c) => (
               <li key={c.id} className="row" style={{ gap: 8, padding: '4px 0' }}>
                 <span className="grow"><strong># {c.name}</strong>{c.topic && <span className="muted small"> · {c.topic}</span>}</span>
                 <button type="button" className="btn small" onClick={() => { setBrowsing(false); navigate(`/chat/${c.id}`); }}>Look</button>
@@ -760,6 +763,7 @@ export default function Chat() {
               </li>
             ))}
             {!leftChannels.length && <li className="muted small">You're in every public channel.</li>}
+            {leftChannels.length > 0 && browseFind.trim() && !leftChannels.some((c) => matchesFilter({ name: c.name, topic: c.topic || '' }, browseFind)) && <li className="muted small">No channel fits “{browseFind.trim()}”.</li>}
           </ul>
         </Modal>
       )}

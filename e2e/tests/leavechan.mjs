@@ -72,6 +72,25 @@ await step('Browse channels joins it again, with what was missed', async () => {
   const c = (await api(kim, 'GET', '/chat/channels')).body.channels.find((x) => x.id === ch);
   if (c.left || c.unread !== 1) throw new Error(JSON.stringify(c));
 });
+await step('Browse channels: from seven up, find one by name or topic', async () => {
+  for (const [name, topic] of [['alpha', ''], ['bravo', ''], ['charlie', 'Quarterly planning'], ['delta', ''], ['echo', ''], ['foxtrot', ''], ['golf', '']]) {
+    const c = (await api(page, 'POST', '/chat/channels', { name, ...(topic && { topic }) })).body;
+    await api(kim, 'POST', `/chat/channels/${c.id}/leave`, { left: false }); // Kim joins…
+    await api(kim, 'POST', `/chat/channels/${c.id}/leave`, { left: true }); // …and leaves
+  }
+  await kim.reload();
+  await side(kim).getByRole('button', { name: /Browse channels \(7\)/ }).click();
+  const d = kim.getByRole('dialog', { name: 'Browse channels' });
+  const list = d.getByRole('list', { name: 'Channels you left' }).locator('li');
+  await until(async () => (await list.count()) === 7);
+  await d.getByLabel('Find a channel').fill('fox');
+  await until(async () => (await list.count()) === 1);
+  await d.getByText('# foxtrot').waitFor();
+  await d.getByLabel('Find a channel').fill('planning'); // by its topic
+  await d.getByText('# charlie').waitFor();
+  await d.getByLabel('Find a channel').fill('zzz');
+  await d.getByText('No channel fits “zzz”.').waitFor();
+}, kim);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
