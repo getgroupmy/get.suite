@@ -99,6 +99,9 @@ function FormList() {
             <button type="button" className="link-btn small" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all shown</button>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('close', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} no longer accepting responses`)}>Stop accepting</button>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('open', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} accepting responses again`)}>Accept again</button>
+            {show === 'archived'
+              ? <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} onClick={() => many('unarchive', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} brought back from the archive`)}>Bring back</button>
+              : <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner archives it' : 'Out of the list and closed; responses stay'} onClick={() => many('archive', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} archived`)}>Archive</button>}
             <button type="button" className="btn small danger" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner deletes it' : ''} onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
           </div>
         )}

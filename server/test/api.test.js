@@ -5414,6 +5414,15 @@ test('forms: several at once from the list (stop or start accepting; delete, own
   assert.deepEqual((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'open' })).body, { changed: 1 }, 'an editor may');
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id, theirs.id], action: 'open' })).status, 404);
   assert.equal(await acc(f2.id), false, 'nothing changed');
+  // Archived (out of the way and closed), then back; the owner only.
+  assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'archive' })).status, 403);
+  assert.deepEqual((await own('POST', '/api/forms/batch', { ids: [f1.id, f3.id], action: 'archive' })).body, { changed: 2 });
+  let list = (await own('GET', '/api/forms')).body;
+  assert.deepEqual(list.filter((x) => x.archived_at).map((x) => x.title).sort(), ['Batch one', 'Batch three']);
+  assert.equal(list.find((x) => x.id === f1.id).closed, 'archived');
+  assert.deepEqual((await own('POST', '/api/forms/batch', { ids: [f1.id, f3.id], action: 'unarchive' })).body, { changed: 2 });
+  list = (await own('GET', '/api/forms')).body;
+  assert.equal(list.filter((x) => x.archived_at && x.title.startsWith('Batch')).length, 0);
   assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'delete' })).status, 403, 'only the owner deletes');
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f1.id], action: 'burn' })).status, 400);
   assert.equal((await own('POST', '/api/forms/batch', { ids: [], action: 'close' })).status, 400);

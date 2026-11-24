@@ -965,15 +965,22 @@ export default function formRoutes() {
     q('UPDATE forms SET archived_at = ? WHERE id = ?').run(at, f.id);
     res.json({ archived_at: at, closed: closedReason({ ...f, archived_at: at }) });
   });
-  // Several forms at once (from the list): stop or start accepting responses (owner or editor), or delete
-  // (owner only; each can be put back from Recently deleted). Every form checked before any changes.
+  // Several forms at once (from the list): stop or start accepting responses (owner or editor), archive or bring
+  // back, or delete (owner only; each can be put back from Recently deleted). Every form checked before any changes.
   r.post('/batch', (req, res) => {
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
     if (!ids.length) throw bad('Choose some forms');
     if (ids.length > 200) throw bad('200 forms at a time at most');
     const action = String(req.body?.action || '');
-    if (!['close', 'open', 'delete'].includes(action)) throw bad('Unknown action');
-    const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: action === 'delete' }));
+    if (!['close', 'open', 'delete', 'archive', 'unarchive'].includes(action)) throw bad('Unknown action');
+    const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: ['delete', 'archive', 'unarchive'].includes(action) }));
+    if (action === 'archive' || action === 'unarchive') { // out of the way and closed, or back as they were (owner only)
+      const t = now();
+      const changing = forms.filter((f) => !!f.archived_at !== (action === 'archive'));
+      tx(() => { for (const f of changing) q('UPDATE forms SET archived_at = ? WHERE id = ?').run(action === 'archive' ? t : null, f.id); });
+      for (const f of changing) sendTo(teamOf(f), { type: 'form-changed', form_id: f.id });
+      return res.json({ changed: changing.length });
+    }
     if (action === 'delete') {
       const bins = [];
       for (const f of forms) {

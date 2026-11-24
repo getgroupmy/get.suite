@@ -76,6 +76,25 @@ await step('Select all shown, delete them after a confirmation, and Undo brings 
   await until(async () => (await mineTitles()).length === 3);
   await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor();
 });
+await step('Archive several, then bring them back from Archived', async () => {
+  await page.getByLabel('Search your forms').fill('');
+  const bar = page.getByRole('toolbar', { name: 'Change the selected forms' });
+  await page.getByLabel('Select: Lunch order').check();
+  await page.getByLabel('Select: Old survey').check();
+  await bar.getByRole('button', { name: 'Archive' }).click();
+  await page.locator('.toast', { hasText: '2 forms archived' }).last().waitFor();
+  const arch = async () => (await api(page, 'GET', '/forms')).body.filter((f) => f.archived_at).map((f) => f.title).sort().join('|');
+  if (await arch() !== 'Lunch order|Old survey') throw new Error(await arch());
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor({ state: 'detached' });
+  await page.getByLabel('Show').selectOption('archived');
+  await page.getByLabel('Select: Lunch order').check();
+  await page.getByLabel('Select: Old survey').check();
+  await bar.getByRole('button', { name: 'Bring back' }).click();
+  await page.locator('.toast', { hasText: '2 forms brought back from the archive' }).last().waitFor();
+  if (await arch() !== '') throw new Error(await arch());
+  await page.getByLabel('Show').selectOption('all');
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor();
+});
 await step('Delete is off when a form shared with you is selected', async () => {
   const sam = (await api(page, 'POST', '/users', { local: 'sam', domain: 'acme.com', name: 'Sam Shared', password: 'password123' })).body;
   const ctx = await browser.newContext();
