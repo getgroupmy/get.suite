@@ -101,5 +101,24 @@ await step('Open…: ★ Starred shows just the starred files, folder and all; R
   if (await d.getByRole('button', { name: '★ Starred' }).count()) throw new Error('the choice stays while searching');
   await page.keyboard.press('Escape');
 });
+await step('Open…: type, ↓ and Enter, without the mouse', async () => {
+  await page.goto(`${B}/sheets/${book.id}`);
+  await page.locator('.grid td[data-k="A1"]').getByText('Charlie').waitFor();
+  await page.keyboard.press('Control+o');
+  const d = page.getByRole('dialog', { name: 'Open a file' });
+  await d.getByLabel('Search your files').fill('plan');
+  await d.getByRole('button', { name: /^Plan A/ }).waitFor();
+  const first = (await d.locator('.pick-list button').first().innerText()).split('\n')[0].replace(/ · in .*/, '').trim();
+  const second = (await d.locator('.pick-list button').nth(1).innerText()).split('\n')[0].replace(/ · in .*/, '').trim();
+  if ((await d.locator('.pick-list button').first().getAttribute('aria-current')) !== 'true') throw new Error('the first isn\'t the one Enter picks');
+  await page.keyboard.press('ArrowDown');
+  if ((await d.locator('.pick-list button').nth(1).getAttribute('aria-current')) !== 'true') throw new Error('↓ didn\'t move');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const want = { 'Plan A': a.id, 'Plan B': b.id }[second];
+  if (!want) throw new Error(`unexpected second result: ${second} (first ${first})`);
+  await page.waitForURL(`**/docs/${want}`);
+});
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

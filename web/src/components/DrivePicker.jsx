@@ -9,12 +9,15 @@ const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation
 /** Where to open a Drive item: Docs, Sheets and Slides in their app; other files as they are (a new tab). */
 export const openUrl = (f) => (f.kind === 'folder' ? `/drive/folder/${f.id}` : KIND_ICON[f.kind] ? `/${f.kind === 'doc' ? 'docs' : f.kind === 'sheet' ? 'sheets' : 'slides'}/${f.id}` : `/api/files/${f.id}/raw`);
 
-/** Pick a file from Drive: recent ones, or search, each saying which folder it's in. `accept` says which items can be picked. */
+/** Pick a file from Drive: recent ones, or search, each saying which folder it's in. `accept` says which items can be picked.
+ *  From the search box, Enter picks the first one (↑ ↓ to choose another). */
 export default function DrivePicker({ title = 'Attach from Drive', accept = (x) => x.kind === 'file', empty = 'No files found.', onClose, onPick }) {
   const [items, setItems] = useState(null);
   const [term, setTerm] = useState('');
   // Before anything is typed: your recent files, your starred ones (the ones you keep coming back to), or what colleagues shared with you.
   const [view, setView] = useState('recent');
+  const [at, setAt] = useState(0); // the one Enter picks (↑ ↓ move it)
+  useEffect(() => { setAt(0); }, [items]);
   useEffect(() => {
     const url = term ? `/files?view=search&q=${encodeURIComponent(term)}` : `/files?view=${view}`;
     let live = true; // typed on meanwhile: this answer is for an older search, and is dropped
@@ -23,7 +26,13 @@ export default function DrivePicker({ title = 'Attach from Drive', accept = (x) 
   }, [term, view]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Modal title={title} onClose={onClose}>
-      <input className="filter" style={{ width: '100%' }} placeholder="Search your files" aria-label="Search your files" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus />
+      <input className="filter" style={{ width: '100%' }} placeholder="Search your files" aria-label="Search your files" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus
+        onKeyDown={(e) => {
+          if (!items?.length) return;
+          if (e.key === 'ArrowDown') { e.preventDefault(); setAt((i) => Math.min(i + 1, items.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setAt((i) => Math.max(i - 1, 0)); }
+          else if (e.key === 'Enter') { e.preventDefault(); onPick(items[Math.min(at, items.length - 1)]); }
+        }} />
       {!term && (
         <div className="row small" role="group" aria-label="Show" style={{ gap: 6, marginTop: 8 }}>
           {[['recent', 'Recent'], ['starred', '★ Starred'], ['shared', 'Shared with me']].map(([v, label]) => (
@@ -34,7 +43,7 @@ export default function DrivePicker({ title = 'Attach from Drive', accept = (x) 
       <ul className="pick-list">
         {items === null && <li className="muted">Loading…</li>}
         {items?.length === 0 && <li className="muted">{!term && view === 'starred' ? 'Nothing starred here yet: ☆ a file in Drive to keep it handy.' : !term && view === 'shared' ? 'Nobody has shared a file with you yet.' : empty}</li>}
-        {items?.map((x) => <li key={x.id}><button type="button" onClick={() => onPick(x)}><Icon name={KIND_ICON[x.kind] || 'file'} />
+        {items?.map((x, i) => <li key={x.id}><button type="button" className={i === at ? 'on' : ''} aria-current={i === at ? 'true' : undefined} onClick={() => onPick(x)}><Icon name={KIND_ICON[x.kind] || 'file'} />
           {/* which folder it's in, so two "Budget"s are told apart */}
           <span className="grow">{x.name}{x.parent_name && <span className="muted small"> · in {x.parent_name}</span>}</span>
           <span className="muted small">{x.kind === 'file' ? formatBytes(x.size) : KIND_NAME[x.kind]}</span></button></li>)}
