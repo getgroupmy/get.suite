@@ -2466,6 +2466,14 @@ test('booking pages: at most N bookings in all — then full (no times, and the 
   assert.ok(again.days.length > 0);
   // No limit again: free as before.
   assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { max_total: 0 })).body.max_total, 0);
+  // One booking per person: Two (still to come) can't book again, whatever the capitals; someone new can.
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { one_each: true })).body.one_each, true);
+  const free = (await outsider('GET', `/api/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const twice = await outsider('POST', `/api/public/book/${tk}`, { start: free[free.length - 1], name: 'Two', email: 'TWO@example.org' });
+  assert.equal(twice.status, 409);
+  assert.match(twice.body.error, /already have a booking here/);
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: free[free.length - 1], name: 'Four', email: 'four@example.org' })).status < 300);
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: free[free.length - 3], name: 'One', email: 'one@example.org' })).status < 300, 'One cancelled theirs: free to book again');
   resetBookingLimits();
 });
 

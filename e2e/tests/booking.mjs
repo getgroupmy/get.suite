@@ -267,6 +267,27 @@ await step('the booking that fills the page: its owner is told in the bell', asy
   await page.keyboard.press('Escape');
   await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: 0 });
 });
+await step('“One booking per person”: someone with a booking to come is told, and pointed to their link', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('One booking per person').check();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/^Booking page saved/).first().waitFor();
+  await page.keyboard.press('Escape');
+  // Rita booked in the step before: she tries for another time.
+  await visitor.goto(url.replace(/^https?:\/\/[^/]+/, B));
+  await visitor.getByRole('heading', { name: 'Intro call' }).waitFor();
+  await visitor.getByRole('tab').last().click();
+  await visitor.getByRole('group', { name: /^Times on/ }).getByRole('button').last().click();
+  await visitor.getByLabel('Your name').fill('Rita Last');
+  await visitor.getByLabel('Your email').fill('Rita@Example.org');
+  await visitor.getByLabel('Phone number', { exact: true }).fill('+1 555 0199');
+  await visitor.getByRole('button', { name: 'Book' }).click();
+  await visitor.getByText('You already have a booking here: to change its time, use the link in the email you were sent').waitFor();
+  await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { one_each: false });
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });
