@@ -919,7 +919,7 @@ function Rooms() {
         <span className="muted small">Columns: Name, Seats, Where, Equipment, Admins only, Check-in (yes or no). Rooms with the same name are updated.</span>
       </div>
       {rooms?.length > 0 && <RoomUsage />}
-      {bin && <RecentlyDeleted title="Recently removed rooms" what="Rooms" list="/rooms/bin" restore={(id) => `/rooms/bin/${id}/restore`}
+      {bin && <RecentlyDeleted title="Recently removed rooms" what="Rooms" list="/rooms/bin" restore={(id) => `/rooms/bin/${id}/restore`} forever={(id) => `/rooms/bin/${id}`} empty="/rooms/bin"
         note="Rooms removed by your company's admins are kept here for 30 days, then deleted for good. Putting one back brings back its bookings too."
         onClose={() => setBin(false)} onRestored={() => { setBin(false); load(); }} />}
       {removing && <ConfirmModal title={`Remove ${removing.room.name}?`} confirm="Remove room" onClose={() => setRemoving(null)} onConfirm={remove}

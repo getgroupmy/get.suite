@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf, purgeOwn } from '../recyclebin.js';
 import { expand } from '../calserver.js';
 import { outEvent } from './calendar.js';
 import { q, tx, fold } from '../db.js';
@@ -464,6 +464,9 @@ export default function contactRoutes() {
     const bins = req.body?.remove ? groups.map((g) => binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id })) : [];
     res.status(201).json({ group: merged, removed: bins.length, bin_ids: bins });
   });
+  // Recently deleted groups, for good before the 30 days (registered before DELETE /groups/:id).
+  r.delete('/groups/bin/:id', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'contact_group', req.params.id) }));
+  r.delete('/groups/bin', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'contact_group') }));
   r.delete('/groups/:id', (req, res) => { const g = ownGroup(req); res.json({ ok: true, bin_id: binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }) }); });
   r.get('/groups/bin', (req, res) => res.json(binOf(req.user.id, 'contact_group'))); // Recently deleted groups
   r.post('/groups/bin/:id/restore', (req, res) => {

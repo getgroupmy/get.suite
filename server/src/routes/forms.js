@@ -3,7 +3,7 @@ import { shownQuestions } from '../formpath.js';
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
 // Mounted at /api/forms (owner) and /api/public/forms (people filling it in).
-import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo, purgeOwn } from '../recyclebin.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
@@ -1079,6 +1079,9 @@ export default function formRoutes() {
     for (const f of changing) sendTo(teamOf(f), { type: 'form-changed', form_id: f.id });
     res.json({ changed: changing.length });
   });
+  // Recently deleted forms, for good before the 30 days (registered before DELETE /:id).
+  r.delete('/bin/:id', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'form', req.params.id) }));
+  r.delete('/bin', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'form') }));
   r.delete('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user, { ownerOnly: true });
     const team = teamOf(f);

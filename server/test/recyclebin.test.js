@@ -256,3 +256,31 @@ test('a list put back keeps its tasks’ history (who changed what)', async () =
   assert.equal((await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`)).status, 200);
   assert.equal(await hist(), before);
 });
+
+test('deleted for good before the 30 days: one or all, for lists, forms, booking pages, groups and rooms; not on legal hold', async () => {
+  const { setHold } = await import('../src/hold.js');
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  const kinds = [
+    { make: async () => (await olivia('POST', '/api/tasks/lists', { name: 'P list' })).body.id, del: (id) => `/api/tasks/lists/${id}`, bin: '/api/tasks/bin' },
+    { make: async () => (await olivia('POST', '/api/forms', { title: 'P form' })).body.id, del: (id) => `/api/forms/${id}`, bin: '/api/forms/bin', list: '/api/forms/bin/list' },
+    { make: async () => (await olivia('POST', '/api/bookings', { title: 'P page', duration: 30 })).body.id, del: (id) => `/api/bookings/${id}`, bin: '/api/bookings/bin' },
+    { make: async () => (await olivia('POST', '/api/contacts/groups', { name: 'P group' })).body.id, del: (id) => `/api/contacts/groups/${id}`, bin: '/api/contacts/groups/bin' },
+    { make: async () => (await olivia('POST', '/api/rooms', { name: 'P room' })).body.id, del: (id) => `/api/rooms/${id}`, bin: '/api/rooms/bin' },
+  ];
+  for (const k of kinds) {
+    const listed = async () => (await olivia('GET', k.list || k.bin)).body.length;
+    await olivia('DELETE', k.bin); // (start empty)
+    const binIds = [];
+    for (let i = 0; i < 3; i++) binIds.push((await olivia('DELETE', k.del(await k.make()))).body.bin_id);
+    assert.equal(await listed(), 3, k.bin);
+    assert.equal((await carol('DELETE', `${k.bin}/${binIds[0]}`)).status, k.bin === '/api/rooms/bin' ? 403 : 404, `${k.bin}: not Carol’s`);
+    assert.deepEqual((await olivia('DELETE', `${k.bin}/${binIds[0]}`)).body, { deleted: 1 }, k.bin);
+    assert.equal((await olivia('POST', `${k.bin}/${binIds[0]}/restore`)).status, 404, `${k.bin}: can’t be put back`);
+    assert.equal(await listed(), 2, k.bin);
+    setHold(me.id, true, { note: 'Case 7' });
+    assert.equal((await olivia('DELETE', k.bin)).status, 409, `${k.bin}: kept while on legal hold`);
+    setHold(me.id, false);
+    assert.deepEqual((await olivia('DELETE', k.bin)).body, { deleted: 2 }, k.bin);
+    assert.equal(await listed(), 0, k.bin);
+  }
+});

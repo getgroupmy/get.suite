@@ -140,6 +140,21 @@ export const binExport = (ownerId) => q('SELECT * FROM recycle_bin WHERE owner_i
   return { kind: e.kind, name: e.name, deleted_at: new Date(e.deleted_at).toISOString(), restorable_until: new Date(e.deleted_at + KEEP_DAYS * 864e5).toISOString(), contents: byTable };
 });
 
+/** Deleted for good before the 30 days are up: the bin entries given ([{ id, owner_id }]); not while their owner is
+ * on legal hold (hold.js). Returns how many. */
+export function purgeEntries(entries) {
+  for (const e of entries) if (q('SELECT legal_hold FROM users WHERE id = ?').get(e.owner_id)?.legal_hold) throw new HttpError(409, 'Kept while its owner is on legal hold');
+  tx(() => { for (const e of entries) { q('DELETE FROM recycle_bin WHERE id = ?').run(e.id); q('DELETE FROM bin_notices WHERE bin_id = ?').run(e.id); } });
+  return entries.length;
+}
+/** One of someone's bin entries of a kind (binId), or all of them (binId null): deleted for good. 404 for one not theirs. */
+export function purgeOwn(ownerId, kind, binId = null) {
+  const entries = binId === null ? q('SELECT id, owner_id FROM recycle_bin WHERE owner_id = ? AND kind = ?').all(ownerId, kind)
+    : q('SELECT id, owner_id FROM recycle_bin WHERE id = ? AND owner_id = ? AND kind = ?').all(String(binId), ownerId, kind);
+  if (binId !== null && !entries.length) throw new HttpError(404, 'Not in your recently deleted');
+  return purgeEntries(entries);
+}
+
 export function purgeBin(t = Date.now()) {
   q('DELETE FROM bin_notices WHERE bin_id NOT IN (SELECT id FROM recycle_bin) AND sent_at IS NOT NULL').run();
   // Not while its owner is on legal hold (hold.js): kept until the hold ends (then purged at the next check, if older than 30 days).

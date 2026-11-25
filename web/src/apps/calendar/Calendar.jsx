@@ -2725,7 +2725,7 @@ function BookingPagesDialog({ onClose }) {
   }
   const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
   const [bin, setBin] = useState(false); // Recently deleted pages
-  if (bin) return <RecentlyDeleted title="Recently deleted booking pages" what="Booking pages" list="/bookings/bin" restore={(id) => `/bookings/bin/${id}/restore`}
+  if (bin) return <RecentlyDeleted title="Recently deleted booking pages" what="Booking pages" list="/bookings/bin" restore={(id) => `/bookings/bin/${id}/restore`} forever={(id) => `/bookings/bin/${id}`} empty="/bookings/bin"
     note="Booking pages you delete are kept here for 30 days, then deleted for good. Restoring one makes its link work again, with its bookings."
     onClose={() => { setBin(false); load(); }} onRestored={() => { setBin(false); load(); }} />;
   return (

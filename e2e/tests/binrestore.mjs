@@ -81,6 +81,21 @@ await step('deleted for good: Carol’s bell says who deleted the list', async (
   await carol.getByRole('button', { name: /^Notifications/ }).first().click();
   await carol.getByText('Olivia Owner deleted the list “Holiday rota”').first().waitFor({ timeout: 8000 });
 });
+await step('Recently deleted forms: Delete forever the ticked ones, and Empty (asked first)', async () => {
+  for (const title of ['Gone A', 'Gone B', 'Gone C']) { const f = (await api(owner, 'POST', '/forms', { title })).body; await api(owner, 'DELETE', `/forms/${f.id}`); }
+  await owner.goto(`${B}/forms`);
+  await owner.getByRole('button', { name: 'Recently deleted' }).click();
+  const dlg = owner.getByRole('dialog', { name: 'Recently deleted forms' });
+  await dlg.getByLabel('Select Gone A').check();
+  await dlg.getByRole('button', { name: 'Delete forever' }).click();
+  await owner.getByRole('dialog', { name: 'Delete 1 for good?' }).getByRole('button', { name: 'Delete forever' }).click();
+  await owner.getByText('1 deleted for good').waitFor();
+  await dlg.getByText('Gone A').waitFor({ state: 'detached' });
+  await dlg.getByRole('button', { name: 'Empty' }).click();
+  await owner.getByRole('dialog', { name: /^Delete all \d+ here for good\?$/ }).getByRole('button', { name: 'Delete forever' }).click();
+  await dlg.getByText('Nothing deleted lately').waitFor();
+  if ((await api(owner, 'GET', '/forms/bin/list')).body.length) throw new Error('not empty');
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

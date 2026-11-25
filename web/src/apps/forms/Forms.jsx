@@ -73,7 +73,7 @@ function FormList() {
   return (
     <div className="page">
       <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={18} /> Recently deleted</button><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
-      {bin && <RecentlyDeleted title="Recently deleted forms" what="Forms" list="/forms/bin/list" restore={(id) => `/forms/bin/${id}/restore`}
+      {bin && <RecentlyDeleted title="Recently deleted forms" what="Forms" list="/forms/bin/list" restore={(id) => `/forms/bin/${id}/restore`} forever={(id) => `/forms/bin/${id}`} empty="/forms/bin"
         onClose={() => setBin(false)} onRestored={(b) => navigate(`/forms/${b.form_id}`)} />}
       {(templates.length > 0 || mine.length > 0) && (
         <section className="form-gallery" aria-label="Start a new form">

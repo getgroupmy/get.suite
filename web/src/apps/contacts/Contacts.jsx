@@ -912,7 +912,7 @@ function Groups({ filter }) {
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
         <span className="muted small grow">Type a group's name in To, Cc or Bcc to put in everyone in it.</span>
         <button type="button" className="btn small" onClick={() => setBin(true)}><Icon name="trash" size={16} /> Recently deleted</button></div>
-      {bin && <RecentlyDeleted title="Recently deleted groups" what="Groups" list="/contacts/groups/bin" restore={(id) => `/contacts/groups/bin/${id}/restore`}
+      {bin && <RecentlyDeleted title="Recently deleted groups" what="Groups" list="/contacts/groups/bin" restore={(id) => `/contacts/groups/bin/${id}/restore`} forever={(id) => `/contacts/groups/bin/${id}`} empty="/contacts/groups/bin"
         note="Groups you delete are kept here for 30 days, then deleted for good. Restoring one brings it back with its people."
         onClose={() => setBin(false)} onRestored={() => { setBin(false); load(); }} />}
       {groups && !groups.length ? <Empty icon="people" title="No groups yet">Make one for people you often email together: a team, a board, a club.</Empty> : (

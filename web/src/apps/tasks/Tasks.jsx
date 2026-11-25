@@ -766,7 +766,7 @@ export default function Tasks() {
         onDelete={() => { show(null); deleteTask(current); }}
         onNewList={newList}
         onMove={async (to, toName) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${toName || lists.find((l) => l.id === to)?.name}`); }} />}
-      {dialog === 'bin' && <RecentlyDeleted title="Recently deleted lists" what="Lists" list="/tasks/bin" restore={(id) => `/tasks/bin/${id}/restore`}
+      {dialog === 'bin' && <RecentlyDeleted title="Recently deleted lists" what="Lists" list="/tasks/bin" restore={(id) => `/tasks/bin/${id}/restore`} forever={(id) => `/tasks/bin/${id}`} empty="/tasks/bin"
         onClose={() => setDialog(null)} onRestored={async (b) => { setDialog(null); await loadLists(); navigate(`/tasks/${b.list_id}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}

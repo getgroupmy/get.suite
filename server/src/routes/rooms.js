@@ -1,7 +1,7 @@
 // Meeting rooms (and other things to book, like a projector): a company's admins list them; people
 // add one to an event, and it's booked when it's free then (every time, for a repeating event, over
 // the next six months) or declined when something else has it.
-import { binAndDelete, restoreFromBin, noticeAfterUndo, binOf } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, noticeAfterUndo, binOf, purgeEntries } from '../recyclebin.js';
 import express, { Router } from 'express';
 import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
@@ -421,6 +421,15 @@ export default function roomRoutes() {
   r.get('/:id/upcoming', (req, res) => { admin(req); res.json({ meetings: upcoming(own(req).id) }); });
   // Removed rooms can be put back (Undo), with their bookings (recyclebin.js).
   // Their organisers are told, once the moment to Undo has passed (and only if it wasn't undone).
+  // Recently removed rooms, for good before the 30 days: any admin of the company (registered before DELETE /:id).
+  const companyRoomBin = (orgId) => q(`SELECT b.id, b.owner_id FROM recycle_bin b JOIN users u ON u.id = b.owner_id WHERE b.kind = 'room' AND u.org_id = ?`).all(orgId);
+  r.delete('/bin/:id', (req, res) => {
+    admin(req);
+    const e = companyRoomBin(req.user.org_id).filter((x) => x.id === String(req.params.id));
+    if (!e.length) throw notFound('Not among your company’s recently removed rooms');
+    res.json({ deleted: purgeEntries(e) });
+  });
+  r.delete('/bin', (req, res) => { admin(req); res.json({ deleted: purgeEntries(companyRoomBin(req.user.org_id)) }); });
   r.delete('/:id', (req, res) => {
     admin(req);
     const room = own(req);

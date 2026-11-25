@@ -1,7 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
-import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo, purgeOwn } from '../recyclebin.js';
 import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv, workloadTable } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
@@ -677,6 +677,8 @@ export default function taskRoutes() {
     res.json({ ok: true, bin_id: bin });
   });
   // Recently deleted lists (yours), and putting one back: its tasks, sections, members and all.
+  r.delete('/bin/:id', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'task_list', req.params.id) })); // for good, before the 30 days
+  r.delete('/bin', (req, res) => res.json({ deleted: purgeOwn(req.user.id, 'task_list') }));
   r.get('/bin', (req, res) => res.json(binOf(req.user.id, 'task_list')));
   r.post('/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);
