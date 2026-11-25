@@ -140,6 +140,18 @@ await step('in a label view, Mark all as read marks only the labelled mail', asy
   if (!now.find((m) => m.subject === 'Labelled newsletter').seen) throw new Error('labelled one still unread');
   if (now.find((m) => m.subject === 'Unlabelled note').seen) throw new Error('the unlabelled one was marked too');
 });
+await step('with a search open, Mark all as read marks only what it finds', async () => {
+  const call = (method, url, body) => page.evaluate(async ([m, u, b]) => { const r = await fetch('/api' + u, { method: m, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); return r.json(); }, [method, url, body]);
+  for (const s of ['Quarterly invoice 77', 'Holiday rota']) await send(s);
+  await until(async () => (await call('GET', '/mail/messages?folder=INBOX')).messages.filter((m) => /^(Quarterly invoice 77|Holiday rota)$/.test(m.subject) && !m.seen).length === 2, 20000);
+  await page.goto(`${B}/mail?q=${encodeURIComponent('subject:invoice')}`);
+  await row('Quarterly invoice 77').waitFor();
+  await page.getByRole('button', { name: 'Mark all as read' }).click();
+  await page.locator('.toast', { hasText: /^\s*1 marked as read/ }).last().waitFor();
+  const now = (await call('GET', '/mail/messages?folder=INBOX')).messages;
+  if (!now.find((m) => m.subject === 'Quarterly invoice 77').seen) throw new Error('the found one still unread');
+  if (now.find((m) => m.subject === 'Holiday rota').seen) throw new Error('marked what the search didn’t find');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

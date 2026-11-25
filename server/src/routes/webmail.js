@@ -2033,13 +2033,17 @@ export default function webmailRoutes() {
   });
 
   // Mark everything in a folder as read. Returns how many were unread.
-  // Every unread message in a folder as read; with { label }, only those with that label of yours.
+  // Every unread message in a folder as read; with { label }, only those with that label of yours, and
+  // with { q }, only those a search finds (as the list shows them: the same search words).
   r.post('/messages/read-all', async (req, res) => {
     const folder = String(req.body.folder || 'INBOX');
     const only = req.body?.label ? labelsOf(req.user.id).find((l) => l.id === String(req.body.label)) : null;
     if (req.body?.label && !only) throw notFound('Label not found');
+    const parsed = parseMailQuery(String(req.body?.q || '').trim());
+    if (parsed.error) throw bad(parsed.error);
     const n = await withFolder(req.user, folder, async (client) => {
-      const unread = await client.search(only ? { seen: false, keyword: only.keyword } : { seen: false }, { uid: true });
+      let unread = (await client.search(allOf([{ seen: false }, ...(only ? [{ keyword: only.keyword }] : []), ...(parsed.query ? [parsed.query] : [])]), { uid: true })) || [];
+      if (parsed.files) unread = await withFileNames(client, unread, parsed.files);
       if (unread.length) await client.messageFlagsAdd(unread, ['\\Seen'], { uid: true });
       return unread.length;
     });

@@ -1184,6 +1184,13 @@ test('mark all as read: every unread message in a folder', async () => {
   const after = await inbox(olivia);
   assert.equal(after.find((m) => m.subject === 'Labelled unread').seen, true);
   assert.equal(after.find((m) => m.subject === 'Plain unread').seen, false, 'others untouched');
+  // With a search: only the unread ones it finds.
+  for (const s of ['Invoice 4411 overdue', 'Team lunch']) await t.sendMail({ from: 'Someone <someone@acme.com>', to: 'olivia@acme.com', subject: s, text: 'x' });
+  await eventually(async () => (await inbox(olivia)).filter((m) => /^(Invoice 4411 overdue|Team lunch)$/.test(m.subject) && !m.seen).length === 2, 20000);
+  assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX', q: 'subject:invoice' })).body.marked, 1);
+  const found = await inbox(olivia);
+  assert.equal(found.find((m) => m.subject === 'Invoice 4411 overdue').seen, true);
+  assert.equal(found.find((m) => m.subject === 'Team lunch').seen, false, 'what the search doesn’t find is untouched');
   assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX', label: 'nope' })).status, 404);
   assert.equal((await gina('POST', '/api/mail/messages/read-all', { folder: 'INBOX', label: lab.id })).status, 404, 'not someone else’s label');
   await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' });
