@@ -99,6 +99,23 @@ await step('the mail server does it: the list into Newsletters (whoever sends), 
   if (!find(l, 'Payment due').flagged) throw new Error(`not starred: ${JSON.stringify(find(l, 'Payment due'))}`);
   if (find(l, 'Lunch').flagged) throw new Error('lunch starred');
 });
+await step('Make a copy of a filter: opened to change, saved just after the one it came from', async () => {
+  await page.getByRole('button', { name: 'Filters' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Filters' });
+  const before = (await api(page, 'GET', '/mail/rules')).body.map((r) => r.name);
+  const at = before.indexOf('Invoices');
+  await dlg.getByRole('button', { name: 'Make a copy of Invoices' }).click();
+  const ed = page.getByRole('dialog', { name: 'New filter' });
+  if ((await ed.getByLabel('Name').inputValue()) !== 'Copy of Invoices') throw new Error('name');
+  if ((await ed.getByLabel('Condition 1 value').inputValue()) !== 'invoice number') throw new Error('its conditions');
+  await ed.getByLabel('Name').fill('Receipts');
+  await ed.getByLabel('Condition 1 value').fill('receipt number');
+  await ed.getByRole('button', { name: 'Save filter' }).click();
+  await dlg.getByText('If Message text contains “receipt number”: star it').waitFor();
+  const after = (await api(page, 'GET', '/mail/rules')).body.map((r) => r.name);
+  if (after[at] !== 'Invoices' || after[at + 1] !== 'Receipts' || after.length !== before.length + 1) throw new Error(after.join('|'));
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

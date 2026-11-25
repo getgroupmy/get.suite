@@ -62,9 +62,11 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
   if (editing && rules) {
     return (
       <RuleEditor rule={editing.rule} isNew={editing.index === -1} folders={folders} labels={labels} onFoldersChanged={onFoldersChanged}
-        onCancel={() => (startWith && editing.index === -1 ? onClose() : setEditing(null))}
+        onCancel={() => (startWith && editing.index === -1 && editing.after === undefined ? onClose() : setEditing(null))}
         onSave={async (rule, applyNow) => {
-          const next = editing.index === -1 ? [...rules, rule] : rules.map((r, i) => (i === editing.index ? rule : r));
+          // A copy goes just after the one it was made from; a new one at the end.
+          const next = editing.after !== undefined ? [...rules.slice(0, editing.after + 1), rule, ...rules.slice(editing.after + 1)]
+            : editing.index === -1 ? [...rules, rule] : rules.map((r, i) => (i === editing.index ? rule : r));
           if (!(await save(next, applyNow ? null : 'Filter saved'))) return;
           if (applyNow) {
             // Also the mail already in the Inbox (the server runs it once, as the mail server does on new mail).
@@ -74,7 +76,7 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
               onFoldersChanged?.();
             } catch (e) { toast(`Filter saved, but it couldn't be applied to the Inbox: ${e.message}`, 'error'); }
           }
-          if (startWith && editing.index === -1) onClose(); else setEditing(null);
+          if (startWith && editing.index === -1 && editing.after === undefined) onClose(); else setEditing(null);
         }} />
     );
   }
@@ -104,6 +106,8 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
             <button className="icon-btn" aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button className="icon-btn" aria-label={`Move ${r.name} down`} disabled={i === rules.length - 1} onClick={() => move(i, 1)}>↓</button>
             <button className="icon-btn" aria-label={`Edit ${r.name}`} onClick={() => setEditing({ index: i, rule: r })}><Icon name="edit" size={18} /></button>
+            <button className="icon-btn" aria-label={`Make a copy of ${r.name}`} title="A copy to change (it goes just after this one once saved)"
+              onClick={() => setEditing({ index: -1, after: i, rule: { ...r, name: `Copy of ${r.name}`.slice(0, 100) } })}><Icon name="copy" size={18} /></button>
             <button className="icon-btn" aria-label={`Delete ${r.name}`} onClick={() => save(rules.filter((_, j) => j !== i), 'Filter deleted')}><Icon name="trash" size={18} /></button>
           </li>
         ))}
