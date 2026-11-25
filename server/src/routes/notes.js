@@ -561,7 +561,7 @@ export default function noteRoutes() {
     else q('INSERT INTO note_templates (id, owner_id, name, content, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(content), now());
     res.status(had ? 200 : 201).json(templateOut(q('SELECT * FROM note_templates WHERE id = ?').get(id)));
   });
-  // { daily: true } makes it the template for Today's note (only one is); false stops that.
+  // { daily: true } makes it the template for Today's note (only one is); false stops that. { name } renames it.
   r.patch('/templates/:id', (req, res) => {
     const t = q('SELECT * FROM note_templates WHERE id = ? AND owner_id = ?').get(String(req.params.id), req.user.id);
     if (!t) throw notFound('No such template');
@@ -570,6 +570,12 @@ export default function noteRoutes() {
       q('UPDATE note_templates SET daily = ? WHERE id = ?').run(req.body.daily ? 1 : 0, t.id);
     }
     if (req.body?.carry !== undefined) q('UPDATE note_templates SET carry = ? WHERE id = ?').run(req.body.carry ? 1 : 0, t.id);
+    if (req.body?.name !== undefined) { // a new name: not empty, not one another of yours has
+      const name = (str(req.body.name, { max: 80, name: 'Name' }) || '').trim();
+      if (!name) throw bad('Give the template a name');
+      if (q('SELECT 1 FROM note_templates WHERE owner_id = ? AND name = ? COLLATE NOCASE AND id != ?').get(req.user.id, name, t.id)) throw bad('You already have a template with that name');
+      q('UPDATE note_templates SET name = ? WHERE id = ?').run(name, t.id);
+    }
     res.json(templateOut(q('SELECT * FROM note_templates WHERE id = ?').get(t.id)));
   });
   // The day's note if there is one (Home's card), without making it: ?date=YYYY-MM-DD → the note, or null.

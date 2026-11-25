@@ -151,6 +151,25 @@ await step('with several templates, the ones you used last are listed first', as
   if (names[0] !== 'Zeta plan' || names.indexOf('Alpha plan') > names.indexOf('Beta plan')) throw new Error(names.join('|'));
   await page.keyboard.press('Escape');
 });
+await step('a template is renamed from Templates (not to a name another has)', async () => {
+  const n = (await api(page, 'POST', '/notes', { title: 'Retro', items: [{ text: 'Went well' }] })).body;
+  await api(page, 'POST', '/notes/templates', { note_id: n.id, name: 'Retro' });
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Note templates' });
+  await dlg.getByRole('button', { name: 'Rename the template Retro' }).click();
+  const r = page.getByRole('dialog', { name: 'Rename template' });
+  await r.getByLabel('Template name').fill('stand-up');
+  await r.getByRole('button', { name: 'Rename' }).click();
+  await r.getByText('You already have a template with that name').waitFor();
+  await r.getByLabel('Template name').fill('Sprint retro');
+  await r.getByRole('button', { name: 'Rename' }).click();
+  await r.waitFor({ state: 'detached' });
+  await dlg.getByRole('button', { name: 'Rename the template Sprint retro' }).waitFor();
+  const t = (await api(page, 'GET', '/notes/templates')).body.find((x) => x.name === 'Sprint retro');
+  if (t?.items?.[0]?.text !== 'Went well') throw new Error(JSON.stringify(t));
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

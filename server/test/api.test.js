@@ -16612,6 +16612,14 @@ test('note templates: a note kept as a template (checklist unticked), new notes 
   const usedFrom = Date.now();
   assert.equal((await a('POST', `/api/notes/templates/${list[0].id}/used`)).status, 200);
   assert.ok((await a('GET', '/api/notes/templates')).body[0].used_at >= usedFrom);
+  // Renamed: not to nothing, not to another of yours (any case); your own only; what it holds stays.
+  const other = (await a('POST', '/api/notes/templates', { note_id: note.id, name: 'Weekend' })).body;
+  assert.equal((await a('PATCH', `/api/notes/templates/${list[0].id}`, { name: 'WEEKEND' })).status, 400);
+  assert.equal((await a('PATCH', `/api/notes/templates/${list[0].id}`, { name: '  ' })).status, 400);
+  assert.equal((await b('PATCH', `/api/notes/templates/${list[0].id}`, { name: 'Mine' })).status, 404);
+  const ren = await a('PATCH', `/api/notes/templates/${list[0].id}`, { name: ' Trip packing ' });
+  assert.deepEqual([ren.status, ren.body.name, ren.body.items.length], [200, 'Trip packing', 3]);
+  await a('DELETE', `/api/notes/templates/${other.id}`);
   assert.equal((await a('DELETE', `/api/notes/templates/${list[0].id}`)).status, 200);
   assert.deepEqual((await a('GET', '/api/notes/templates')).body, []);
 });

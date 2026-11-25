@@ -572,10 +572,11 @@ function PickTime({ note, onPick, onClose }) {
 /** How a reminder can repeat (the server's REPEATS), with what the menu says. */
 const REPEAT_CHOICES = [[null, 'Doesn’t repeat'], ['daily', 'Repeat daily'], ['weekdays', 'Repeat on weekdays'], ['weekly', 'Repeat weekly'], ['monthly', 'Repeat monthly']];
 
-/** Your note templates: start a note from one, or delete one. */
+/** Your note templates: start a note from one, rename or delete one. */
 function NoteTemplates({ onClose, onUse }) {
   const toast = useToast();
   const [list, setList] = useState(null);
+  const [renaming, setRenaming] = useState(null); // the template being given a new name
   const load = useCallback(() => get('/notes/templates').then(setList).catch((e) => toast(e.message, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
   return (
@@ -590,6 +591,7 @@ function NoteTemplates({ onClose, onUse }) {
               <button type="button" className={`btn small ${t.daily ? 'on' : ''}`} aria-pressed={t.daily} title="Today’s note (on the left) starts from this template"
                 onClick={async () => { try { await patch(`/notes/templates/${t.id}`, { daily: !t.daily }); toast(t.daily ? 'Today’s note starts empty' : `Today’s note starts from “${t.name}”`); load(); } catch (e) { toast(e.message, 'error'); } }}>{t.daily ? '✓ For Today’s note' : 'For Today’s note'}</button>
               <button type="button" className="btn small primary" onClick={() => onUse(t)}>Use</button>
+              <button type="button" className="icon-btn" aria-label={`Rename the template ${t.name}`} onClick={() => setRenaming(t)}><Icon name="edit" size={16} /></button>
               <button type="button" className="icon-btn" aria-label={`Delete the template ${t.name}`} onClick={async () => { try { await del(`/notes/templates/${t.id}`); toast('Template deleted'); load(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="trash" size={16} /></button>
             </div>
             {t.daily && t.items && (
@@ -606,6 +608,8 @@ function NoteTemplates({ onClose, onUse }) {
           ))}
         </ul>
       )}
+      {renaming && <PromptModal title="Rename template" label="Template name" initial={renaming.name} confirm="Rename" onClose={() => setRenaming(null)}
+        onSubmit={async (name) => { await patch(`/notes/templates/${renaming.id}`, { name }); toast('Template renamed'); load(); }} />}
     </Modal>
   );
 }
