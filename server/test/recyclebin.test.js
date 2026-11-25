@@ -132,10 +132,15 @@ test('a meeting room removed by mistake: Undo puts it back with its bookings', a
   const del = await olivia('DELETE', `/api/rooms/${room.id}`);
   assert.equal(del.body.meetings, 1);
   assert.equal((await roomsOf()).length, 0, 'the meeting lost it');
-  // Listed under Recently removed (admins; the rooms they removed), until it's put back.
-  assert.ok((await olivia('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id && x.name === 'Board room'));
+  // Listed under Recently removed for every admin of the company (with who removed it), until it's put back.
+  assert.ok((await olivia('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id && x.name === 'Board room' && x.removed_by === 'Olivia Owner'));
   assert.equal((await carol('GET', '/api/rooms/bin')).status, 403, 'admins only');
-  assert.equal((await olivia('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200);
+  const davidId = (await olivia('POST', '/api/users', { local: 'david', domain: 'acme.com', name: 'David Admin', password: 'password123' })).body.id;
+  await olivia('PATCH', `/api/users/${davidId}`, { is_admin: true });
+  const david = client();
+  assert.equal((await david('POST', '/api/auth/login', { username: 'david@acme.com', password: 'password123' })).status, 200);
+  assert.ok((await david('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id), 'another admin sees it');
+  assert.equal((await david('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200, 'and can put it back');
   assert.equal((await roomsOf()).length, 1, 'and has it again');
   assert.ok(!(await olivia('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id));
 });

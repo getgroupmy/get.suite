@@ -430,11 +430,22 @@ export default function roomRoutes() {
     tellRoomRemoved(binId, room.name, lose, req.user);
     res.json({ ok: true, meetings, bin_id: binId });
   });
-  r.get('/bin', (req, res) => { admin(req); res.json(binOf(req.user.id, 'room')); }); // rooms you removed, kept 30 days
+  // Rooms belong to the company: any of its admins sees the rooms removed (by any of them) in the last 30
+  // days, with who removed each, and can put one back.
+  const companyBin = (orgId) => q(`SELECT b.id, b.owner_id FROM recycle_bin b JOIN users u ON u.id = b.owner_id WHERE b.kind = 'room' AND u.org_id = ?`).all(orgId);
+  r.get('/bin', (req, res) => {
+    admin(req);
+    const ownerOf = new Map(companyBin(req.user.org_id).map((x) => [x.id, x.owner_id]));
+    const names = new Map();
+    res.json([...new Set(ownerOf.values())].flatMap((o) => binOf(o, 'room')).filter((x) => ownerOf.has(x.id))
+      .sort((a, b) => b.deleted_at - a.deleted_at)
+      .map((x) => { const by = ownerOf.get(x.id); if (!names.has(by)) names.set(by, q('SELECT name FROM users WHERE id = ?').get(by)?.name || ''); return { ...x, removed_by: names.get(by) }; }));
+  });
   r.post('/bin/:id/restore', (req, res) => {
     admin(req);
-    const back = restoreFromBin(req.params.id, req.user.id);
-    if (!back || back.kind !== 'room') throw notFound('Not in your recently removed rooms');
+    const entry = companyBin(req.user.org_id).find((x) => x.id === String(req.params.id));
+    const back = entry ? restoreFromBin(entry.id, entry.owner_id) : null;
+    if (!back || back.kind !== 'room') throw notFound('Not among your company’s recently removed rooms');
     res.json({ ok: true, id: back.item_id });
   });
   return r;

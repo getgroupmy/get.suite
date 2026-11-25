@@ -920,7 +920,7 @@ function Rooms() {
       </div>
       {rooms?.length > 0 && <RoomUsage />}
       {bin && <RecentlyDeleted title="Recently removed rooms" what="Rooms" list="/rooms/bin" restore={(id) => `/rooms/bin/${id}/restore`}
-        note="Rooms you remove are kept here for 30 days, then deleted for good. Putting one back brings back its bookings too."
+        note="Rooms removed by your company's admins are kept here for 30 days, then deleted for good. Putting one back brings back its bookings too."
         onClose={() => setBin(false)} onRestored={() => { setBin(false); load(); }} />}
       {removing && <ConfirmModal title={`Remove ${removing.room.name}?`} confirm="Remove room" onClose={() => setRemoving(null)} onConfirm={remove}
         message={removing.meetings ? `${removing.meetings} meeting${removing.meetings === 1 ? ' to come has' : 's to come have'} it booked, and will lose it (their organisers are told). You can undo this straight after.` : 'No meetings to come have it booked. You can undo this straight after.'} />}
