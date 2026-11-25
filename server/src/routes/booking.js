@@ -271,6 +271,15 @@ export default function bookingRoutes() {
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
   });
+  // A copy of one of your pages (to make a variant: longer meetings, other hours): its settings, questions, place
+  // and co-hosts, with a new link of its own; none of its bookings.
+  r.post('/:id/copy', (req, res) => {
+    if (q('SELECT COUNT(*) AS n FROM booking_pages WHERE user_id = ?').get(req.user.id).n >= MAX_PAGES) throw bad('Too many booking pages');
+    const cur = mine(req);
+    const p = readPage({ title: `Copy of ${cur.title}`.slice(0, 100) }, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled, add_contacts: !!cur.add_contacts });
+    const id = addPage(req.user, p);
+    res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
+  });
   // The people with a booking on this page that still stands (not cancelled), each address once, newest first: to write to
   // them all (a change of room, a reminder of what to bring). ?upcoming=1: only bookings that haven't started yet.
   r.get('/:id/people', (req, res) => {

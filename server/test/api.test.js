@@ -2452,6 +2452,22 @@ test('contact groups: downloaded as vCard or CSV; your contacts with their detai
   assert.equal((await a('GET', `/api/contacts/groups/${empty.id}/export`)).status, 400);
 });
 
+test('booking pages: Make a copy — the same settings and questions, a new link, none of the bookings; only your own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['bpca', 'Bpc Ann'], ['bpcb', 'Bpc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'bpca@acme.com'); await login(b, 'bpcb@acme.com');
+  const page = (await a('POST', '/api/bookings', { title: 'Intro call', duration: 45, days: [2, 4], from_min: 600, to_min: 900, tz: 'Europe/London', questions: [{ label: 'Company', required: true }] })).body;
+  const copy = await a('POST', `/api/bookings/${page.id}/copy`);
+  assert.equal(copy.status, 201, JSON.stringify(copy.body));
+  assert.notEqual(copy.body.id, page.id);
+  assert.notEqual(copy.body.url, page.url, 'a link of its own');
+  assert.equal(copy.body.title, 'Copy of Intro call');
+  for (const k of ['duration', 'days', 'from_min', 'to_min', 'tz']) assert.deepEqual(copy.body[k], page[k], k);
+  assert.deepEqual(copy.body.questions.map((x) => [x.label, !!x.required]), [['Company', true]]);
+  assert.equal((await b('POST', `/api/bookings/${page.id}/copy`)).status, 404, 'not Ben’s');
+  assert.equal((await a('GET', '/api/bookings')).body.length, 2);
+});
+
 test('booking pages: Recently deleted lists yours, and restoring brings the page and its link back', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['bpba', 'Bpb Ann'], ['bpbb', 'Bpb Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

@@ -67,6 +67,18 @@ await step('a booking page deleted: Recently deleted in Booking pages puts it ba
   const r = await owner.request.get(`${B}/api/public/book/${token}`);
   if (r.status() !== 200) throw new Error(`the link: ${r.status()}`);
 });
+await step('Make a copy of a booking page: opened to change, with a link of its own', async () => {
+  const p = (await api(owner, 'POST', '/bookings', { title: 'Coffee chat', duration: 30 })).body;
+  await owner.goto(`${B}/calendar`);
+  await owner.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = owner.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Make a copy of Coffee chat' }).click();
+  await owner.getByText('“Copy of Coffee chat” made').waitFor();
+  const pages = (await api(owner, 'GET', '/bookings')).body;
+  const c = pages.find((x) => x.title === 'Copy of Coffee chat');
+  if (!c || c.url === p.url || c.duration !== 30) throw new Error(JSON.stringify(c));
+  await dlg.getByRole('textbox', { name: /Title/ }).first().waitFor(); // opened for changing
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

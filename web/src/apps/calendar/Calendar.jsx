@@ -2748,6 +2748,9 @@ function BookingPagesDialog({ onClose }) {
                   } catch (e) { toast(e.message, 'error'); }
                 }}><Icon name="person" size={16} /></button>}
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
+                <button type="button" className="icon-btn" aria-label={`Make a copy of ${p.title}`} title="Make a copy (with a link of its own), to change into another kind of meeting" onClick={async () => {
+                  try { const c = await post(`/bookings/${p.id}/copy`); toast(`“${c.title}” made`); load(); setEditing(c); } catch (e) { toast(e.message, 'error'); }
+                }}><Icon name="copy" size={18} /></button>
                 <button type="button" className="icon-btn" aria-label={`Delete ${p.title}`} onClick={async () => {
                   const r = await del(`/bookings/${p.id}`); load();
                   if (r?.bin_id) toast(`“${p.title}” deleted: its link no longer works`, 'info', { action: { label: 'Undo', onClick: async () => { await post(`/bookings/bin/${r.bin_id}/restore`); load(); } } });
