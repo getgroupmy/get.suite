@@ -14,6 +14,7 @@ import TasksAbout from '../../components/TasksAbout.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { printHtml } from '../mail/mailprint.js';
 import { contactsPrintHtml } from './contactprint.js';
@@ -893,6 +894,7 @@ function Groups({ filter }) {
   const [pickedG, setPickedG] = useState(() => new Set()); // groups ticked to merge or delete together
   const [merging, setMerging] = useState(false);
   const [deletingMany, setDeletingMany] = useState(false);
+  const [bin, setBin] = useState(false); // Recently deleted groups
   const load = () => get('/contacts/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = (groups || []).filter((g) => !filter || has(g.name, filter) || g.members.some((m) => has(`${m.name} ${m.email}`, filter)));
@@ -908,7 +910,11 @@ function Groups({ filter }) {
   return (
     <div className="stack">
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
-        <span className="muted small">Type a group's name in To, Cc or Bcc to put in everyone in it.</span></div>
+        <span className="muted small grow">Type a group's name in To, Cc or Bcc to put in everyone in it.</span>
+        <button type="button" className="btn small" onClick={() => setBin(true)}><Icon name="trash" size={16} /> Recently deleted</button></div>
+      {bin && <RecentlyDeleted title="Recently deleted groups" what="Groups" list="/contacts/groups/bin" restore={(id) => `/contacts/groups/bin/${id}/restore`}
+        note="Groups you delete are kept here for 30 days, then deleted for good. Restoring one brings it back with its people."
+        onClose={() => setBin(false)} onRestored={() => { setBin(false); load(); }} />}
       {groups && !groups.length ? <Empty icon="people" title="No groups yet">Make one for people you often email together: a team, a board, a club.</Empty> : (
         <table className="files">
           {pickedG.size > 0 && (

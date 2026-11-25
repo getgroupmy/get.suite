@@ -2451,6 +2451,22 @@ test('contact groups: downloaded as vCard or CSV; your contacts with their detai
   assert.equal((await a('GET', `/api/contacts/groups/${empty.id}/export`)).status, 400);
 });
 
+test('booking pages: Recently deleted lists yours, and restoring brings the page and its link back', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['bpba', 'Bpb Ann'], ['bpbb', 'Bpb Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'bpba@acme.com'); await login(b, 'bpbb@acme.com');
+  const page = (await a('POST', '/api/bookings', { title: 'Office hours', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, tz: 'UTC' })).body;
+  const del = await a('DELETE', `/api/bookings/${page.id}`);
+  assert.ok(del.body.bin_id);
+  const bin = (await a('GET', '/api/bookings/bin')).body;
+  assert.deepEqual(bin.map((x) => [x.id, x.name]), [[del.body.bin_id, 'Office hours']]);
+  assert.deepEqual((await b('GET', '/api/bookings/bin')).body, [], 'only yours');
+  assert.equal((await b('POST', `/api/bookings/bin/${del.body.bin_id}/restore`)).status, 404);
+  assert.equal((await a('POST', `/api/bookings/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.ok((await a('GET', '/api/bookings')).body.some((p) => p.id === page.id && p.title === 'Office hours'));
+  assert.deepEqual((await a('GET', '/api/bookings/bin')).body, []);
+});
+
 test('contact groups: in your own order; renaming keeps the place, new ones come after by name', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cgoa', 'Cgo Ann'], ['cgob', 'Cgo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
@@ -2470,7 +2486,13 @@ test('contact groups: in your own order; renaming keeps the place, new ones come
   assert.deepEqual(await names(a), ['Zeta', 'Alpha', 'Beta', 'Aardvark'], 'renamed keeps its place; new after');
   const del = await a('DELETE', `/api/contacts/groups/${alpha.id}`);
   assert.deepEqual(await names(a), ['Zeta', 'Beta', 'Aardvark']);
+  // Listed under Recently deleted, yours alone, with when it's deleted for good.
+  const gbin = (await a('GET', '/api/contacts/groups/bin')).body;
+  assert.deepEqual(gbin.map((x) => [x.id, x.name]), [[del.body.bin_id, 'Alpha']]);
+  assert.ok(gbin[0].until > gbin[0].deleted_at);
+  assert.deepEqual((await b('GET', '/api/contacts/groups/bin')).body, []);
   assert.equal((await a('POST', `/api/contacts/groups/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/contacts/groups/bin')).body, [], 'gone from the list once back');
   assert.deepEqual(await names(a), ['Zeta', 'Alpha', 'Beta', 'Aardvark'], 'back in its place after undo');
 });
 

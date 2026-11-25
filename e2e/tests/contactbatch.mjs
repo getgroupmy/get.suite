@@ -306,6 +306,19 @@ await step('Download a group: its people as vCards or a CSV', async () => {
   const lines = csv.trim().split(/\r?\n/);
   if (lines.length !== 3 || !lines[1].startsWith('"Doe, Jo",jo@example.com')) throw new Error(csv);
 });
+await step('Groups → Recently deleted: a deleted group put back after its Undo has gone', async () => {
+  const g = (await api(page, 'POST', '/contacts/groups', { name: 'Book club', members: [{ email: 'reader@example.org' }] })).body;
+  await api(page, 'DELETE', `/contacts/groups/${g.id}`);
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  await page.getByRole('button', { name: 'Recently deleted' }).click();
+  const d = page.getByRole('dialog', { name: 'Recently deleted groups' });
+  await d.getByRole('button', { name: 'Restore Book club' }).click();
+  await page.getByText('“Book club” is back').waitFor();
+  await page.locator('table.files tbody td.name > span:last-child', { hasText: 'Book club' }).waitFor();
+  const back = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Book club');
+  if (back?.members[0]?.email !== 'reader@example.org') throw new Error(JSON.stringify(back));
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

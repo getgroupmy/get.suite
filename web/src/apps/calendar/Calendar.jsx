@@ -2724,6 +2724,10 @@ function BookingPagesDialog({ onClose }) {
     } catch (e) { toast(e.message, 'error'); } finally { saving.current = false; }
   }
   const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
+  const [bin, setBin] = useState(false); // Recently deleted pages
+  if (bin) return <RecentlyDeleted title="Recently deleted booking pages" what="Booking pages" list="/bookings/bin" restore={(id) => `/bookings/bin/${id}/restore`}
+    note="Booking pages you delete are kept here for 30 days, then deleted for good. Restoring one makes its link work again, with its bookings."
+    onClose={() => { setBin(false); load(); }} onRestored={() => { setBin(false); load(); }} />;
   return (
     <Modal wide title="Booking pages" onClose={onClose}>
       {editing ? <BookingForm page={editing} onSave={save} onCancel={() => setEditing(null)} /> : (
@@ -2751,7 +2755,8 @@ function BookingPagesDialog({ onClose }) {
               </li>
             ))}
           </ul>
-          <div className="row"><button type="button" className="btn primary" onClick={() => setEditing(fresh())}><Icon name="plus" size={16} /> New booking page</button></div>
+          <div className="row"><button type="button" className="btn primary" onClick={() => setEditing(fresh())}><Icon name="plus" size={16} /> New booking page</button>
+            <button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={16} /> Recently deleted</button></div>
         </div>
       )}
     </Modal>

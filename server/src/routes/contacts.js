@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { binAndDelete, restoreFromBin } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
 import { expand } from '../calserver.js';
 import { outEvent } from './calendar.js';
 import { q, tx, fold } from '../db.js';
@@ -465,6 +465,7 @@ export default function contactRoutes() {
     res.status(201).json({ group: merged, removed: bins.length, bin_ids: bins });
   });
   r.delete('/groups/:id', (req, res) => { const g = ownGroup(req); res.json({ ok: true, bin_id: binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }) }); });
+  r.get('/groups/bin', (req, res) => res.json(binOf(req.user.id, 'contact_group'))); // Recently deleted groups
   r.post('/groups/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);
     if (!back || back.kind !== 'contact_group') throw notFound('Not in your recently deleted groups');

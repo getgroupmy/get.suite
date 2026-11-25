@@ -53,6 +53,20 @@ await step('a contact group deleted, then Undo: back with its people', async () 
   await owner.getByRole('button', { name: 'Delete Suppliers' }).waitFor({ timeout: 8000 }); // listed again
   if (!JSON.stringify(g?.members || []).includes('ann@x.example')) throw new Error('its people are missing');
 });
+await step('a booking page deleted: Recently deleted in Booking pages puts it back later, link and all', async () => {
+  const p = (await api(owner, 'POST', '/bookings', { title: 'Demo slot', duration: 30 })).body;
+  await api(owner, 'DELETE', `/bookings/${p.id}`);
+  await owner.goto(`${B}/calendar`);
+  await owner.getByRole('button', { name: 'Booking pages' }).click();
+  await owner.getByRole('dialog', { name: 'Booking pages' }).getByRole('button', { name: 'Recently deleted' }).click();
+  const bin = owner.getByRole('dialog', { name: 'Recently deleted booking pages' });
+  await bin.getByRole('button', { name: 'Restore Demo slot' }).click();
+  await owner.getByText('“Demo slot” is back').waitFor();
+  await owner.getByRole('dialog', { name: 'Booking pages' }).getByText('Demo slot').first().waitFor();
+  const token = p.token || (p.url || '').split('/').pop();
+  const r = await owner.request.get(`${B}/api/public/book/${token}`);
+  if (r.status() !== 200) throw new Error(`the link: ${r.status()}`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

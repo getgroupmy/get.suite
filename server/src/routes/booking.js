@@ -2,7 +2,7 @@
 // see the free times in your bookable hours (your events, repeating ones included, and invitations
 // you haven't declined count as busy), pick one, and leave a name and email. The booking goes on
 // your calendar with them as a guest, and they get the invitation by email.
-import { binAndDelete, restoreFromBin } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
@@ -298,6 +298,7 @@ export default function bookingRoutes() {
   });
   // Deleted pages can be put back for 30 days (its link works again), recyclebin.js.
   r.delete('/:id', (req, res) => { const p = mine(req); res.json({ ok: true, bin_id: binAndDelete('booking_page', p.id, { ownerId: req.user.id, name: p.title, by: req.user.id }) }); });
+  r.get('/bin', (req, res) => res.json(binOf(req.user.id, 'booking_page'))); // Recently deleted pages
   r.post('/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);
     if (!back || back.kind !== 'booking_page') throw notFound('Not in your recently deleted booking pages');
