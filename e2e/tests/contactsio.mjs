@@ -87,6 +87,21 @@ await step('Export → Open in Sheets: the contacts as a spreadsheet, a name tha
   if (await page.getByText('Click me', { exact: true }).count()) throw new Error('the formula ran');
   await page.goBack();
 });
+await step('Import → From Sheets…: contacts from a spreadsheet in Drive, ones already here skipped', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Trade fair leads', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Name', B1: 'Email', C1: 'Company', A2: 'Ines Ortega', B2: 'ines@fair.example', C2: 'Ortega Tiles' } }] } });
+  await page.goto(`${B}/contacts`);
+  for (const added of [1, 0]) { // (the second time she's already here)
+    await page.getByRole('button', { name: 'Import' }).click();
+    await page.getByRole('menuitem', { name: 'From Sheets…' }).click();
+    const pick = page.getByRole('dialog', { name: 'Import contacts from a spreadsheet' });
+    await pick.getByLabel('Search your files').fill('Trade fair leads');
+    await pick.getByRole('button', { name: /Trade fair leads/ }).click();
+    await page.getByText(added ? '1 contact imported from “Trade fair leads”' : '0 contacts imported from “Trade fair leads”, 1 already here').waitFor();
+  }
+  await page.getByText('Ines Ortega').first().waitFor();
+  const c = (await api(page, 'GET', '/contacts')).body.find((x) => x.email === 'ines@fair.example');
+  if (c?.company !== 'Ortega Tiles') throw new Error(JSON.stringify(c));
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

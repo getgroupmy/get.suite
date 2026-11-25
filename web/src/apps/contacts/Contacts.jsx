@@ -19,6 +19,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToas
 import { printHtml } from '../mail/mailprint.js';
 import { contactsPrintHtml } from './contactprint.js';
 import { useAuth } from '../../App.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
 import { placeText, isoDay, comingDays, PLACES } from '../../components/workloc.js';
@@ -127,6 +128,7 @@ export default function Contacts() {
   };
   // Import a .vcf or .csv from a phone, Gmail or Outlook; people already here are skipped.
   const importInput = useRef();
+  const [pickingSheet, setPickingSheet] = useState(false); // Import → From Sheets…
   const importFile = async (file) => {
     if (!file) return;
     try {
@@ -208,7 +210,20 @@ export default function Contacts() {
       <div className="page-head">
         <h1>Contacts</h1>
         <div className="grow" />
-        <button className="btn" onClick={() => importInput.current.click()}><Icon name="upload" size={18} /> Import</button>
+        <Menu trigger={(p) => <button className="btn" {...p}><Icon name="upload" size={18} /> Import</button>} items={[
+          { label: 'From a file (.vcf or .csv)…', icon: 'upload', onClick: () => importInput.current.click() },
+          { label: 'From Sheets…', icon: 'sheet', onClick: () => setPickingSheet(true) }, // (a spreadsheet in Drive, its first sheet, read as a CSV is)
+        ]} />
+        {pickingSheet && <DrivePicker title="Import contacts from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPickingSheet(false)}
+          onPick={async (x) => {
+            setPickingSheet(false);
+            try {
+              const r = await post('/contacts/from-sheet', { file: x.id, sheet: 0 });
+              toast(`${r.added} contact${r.added === 1 ? '' : 's'} imported from “${x.name}”${r.skipped ? `, ${r.skipped} already here` : ''}`);
+              setTab('mine');
+              load();
+            } catch (e) { toast(e.message, 'error'); }
+          }} />}
         <input ref={importInput} type="file" accept=".vcf,.vcard,.csv,text/vcard,text/csv" hidden aria-label="Contacts file to import" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
         <Menu trigger={(p) => <button className="btn" {...p}><Icon name="download" size={18} /> Export</button>} items={[
           { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=vcf'; } },
