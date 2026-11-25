@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import { matchesFilter } from '../contacts/contactfilter.js';
 import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
@@ -477,7 +478,9 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
   const [done, setDone] = useState(null); // the results
   const [error, setError] = useState('');
   const fileInput = useRef();
-  const call = (dry) => post('/users/import', { csv, domain, org_id: orgId, dry_run: dry });
+  const [sheet, setSheet] = useState(null); // a spreadsheet from Drive in place of a file: { id, name }
+  const [picking, setPicking] = useState(false);
+  const call = (dry) => post('/users/import', { ...(sheet ? { sheet_file: sheet.id } : { csv }), domain, org_id: orgId, dry_run: dry });
   const check = async () => { setError(''); try { setRows((await call(true)).rows); } catch (e) { setError(e.message); } };
   const create = async () => {
     try { const r = await call(false); setDone(r); onDone(); toast(`${r.created} user${r.created === 1 ? '' : 's'} created${r.updated ? `, ${r.updated} updated` : ''}`); } catch (e) { setError(e.message); }
@@ -505,15 +508,18 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
           <p className="muted small" style={{ margin: 0 }}>A CSV file with one person per row. The first row names the columns: <strong>Name</strong> (or First name and Last name), <strong>Email</strong> (a full address, or just the part before @), and optionally <strong>Password</strong> (at least 8 characters; one is made up if it's empty), <strong>Admin</strong> (yes), <strong>Job title</strong>, <strong>Department</strong>, <strong>Work phone</strong> and <strong>Manager</strong> (their email address). People already here get their job details brought up to date (empty cells leave what's there), so a file from <strong>Export</strong> can come back in. Up to 500 people.</p>
           <div className="row wrap">
             <button type="button" className="btn" onClick={() => fileInput.current.click()}><Icon name="upload" size={18} /> Choose file</button>
-            <span className="muted small">{fileName || 'No file chosen'}</span>
-            <input ref={fileInput} type="file" accept=".csv,text/csv" hidden aria-label="CSV file of users" onChange={async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setFileName(f.name); setCsv(await f.text()); setRows(null); }} />
+            <button type="button" className="btn" title="A spreadsheet in your Drive laid out the same way (its first sheet): one from Open in Sheets, changed there, comes back in" onClick={() => setPicking(true)}><Icon name="sheet" size={18} /> From Sheets…</button>
+            <span className="muted small">{sheet ? `${sheet.name} (spreadsheet)` : fileName || 'No file chosen'}</span>
+            <input ref={fileInput} type="file" accept=".csv,text/csv" hidden aria-label="CSV file of users" onChange={async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setFileName(f.name); setCsv(await f.text()); setSheet(null); setRows(null); }} />
             <label className="field" style={{ marginLeft: 'auto' }}><span>Domain for addresses without one</span>
               <select value={domain} onChange={(e) => { setDomain(e.target.value); setRows(null); }} aria-label="Domain">{domains.map((d) => <option key={d}>{d}</option>)}</select></label>
           </div>
+          {picking && <DrivePicker title="Import users from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPicking(false)}
+            onPick={(x) => { setPicking(false); setSheet({ id: x.id, name: x.name }); setCsv(''); setFileName(''); setRows(null); }} />}
           {error && <p className="error">{error}</p>}
           {rows && <ImportTable rows={rows} />}
           <div className="row end">
-            {!rows ? <button type="button" className="btn primary" disabled={!csv} onClick={check}>Check</button>
+            {!rows ? <button type="button" className="btn primary" disabled={!csv && !sheet} onClick={check}>Check</button>
               : <button type="button" className="btn primary" disabled={!good.length} onClick={create}>{(() => { const n = good.filter((r) => !r.update).length, u = good.length - n; return [n && `Create ${n} user${n === 1 ? '' : 's'}`, u && `${n ? 'update' : 'Update'} ${u}`].filter(Boolean).join(', '); })()}</button>}
           </div>
         </div>

@@ -93,6 +93,24 @@ await step('a second file updates people already here: job details and managers'
   const kim = dir.find((u) => u.username === 'kim@acme.com'), lee = dir.find((u) => u.username === 'lee@acme.com');
   if (kim.job_title !== 'Designer' || kim.manager_id !== lee.id || lee.job_title !== 'Head of Product') throw new Error(JSON.stringify([kim, lee]));
 });
+await step('From Sheets…: a spreadsheet in Drive in place of a file, checked and imported the same way', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'New starters', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Name', B1: 'Email', C1: 'Department', A2: 'Mo Reed', B2: 'mo', C2: 'Sales' } }] } });
+  await page.goto(`${B}/admin`);
+  await page.getByRole('button', { name: 'Import from CSV' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Import users' });
+  await dlg.getByRole('button', { name: 'From Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: 'Import users from a spreadsheet' });
+  await pick.getByLabel('Search your files').fill('New starters');
+  await pick.getByRole('button', { name: /New starters/ }).click();
+  await dlg.getByText('New starters (spreadsheet)').waitFor();
+  await dlg.getByRole('button', { name: 'Check' }).click();
+  await dlg.getByText('mo@acme.com').first().waitFor();
+  await dlg.getByRole('button', { name: 'Create 1 user' }).click();
+  await page.getByText('1 user created').waitFor();
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  const dir = (await page.evaluate(async () => (await fetch('/api/users/directory')).json()));
+  if (dir.find((u) => u.username === 'mo@acme.com')?.department !== 'Sales') throw new Error(JSON.stringify(dir.map((u) => u.username)));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

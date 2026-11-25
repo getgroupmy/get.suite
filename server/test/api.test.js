@@ -3164,6 +3164,17 @@ test('admin: import people from a CSV — checked first, good rows created, pass
   assert.equal((await owner('POST', '/api/users/import', { csv: 'Name,Email\nX Y,imp1', domain: 'acme.com', dry_run: true })).body.rows[0].update, true, 'someone already here is updated, not added again');
   assert.equal((await owner('POST', '/api/users/import', { csv: 'Who,Where\na,b', domain: 'acme.com' })).status, 400, 'columns named');
   assert.equal((await c('POST', '/api/users/import', { csv, domain: 'acme.com' })).status, 403, 'admins only');
+  // From a spreadsheet in Drive instead of a file: read the same way (its first sheet).
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'New starters', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Name', B1: 'Email', C1: 'Job title', A2: 'Sheet Person', B2: 'impsheet', C2: 'Analyst' } }] } })).body;
+  const fromSheet = await owner('POST', '/api/users/import', { sheet_file: sheet.id, domain: 'acme.com', dry_run: true });
+  assert.equal(fromSheet.status, 200, JSON.stringify(fromSheet.body));
+  assert.deepEqual(fromSheet.body.rows.map((r) => [r.name, r.email, !!r.error]), [['Sheet Person', 'impsheet@acme.com', false]]);
+  const madeFromSheet = (await owner('POST', '/api/users/import', { sheet_file: sheet.id, domain: 'acme.com' })).body;
+  assert.equal(madeFromSheet.created, 1);
+  assert.equal((await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'impsheet@acme.com')?.job_title, 'Analyst');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not a sheet' })).body;
+  assert.equal((await owner('POST', '/api/users/import', { sheet_file: doc.id, domain: 'acme.com', dry_run: true })).status, 400, 'a spreadsheet only');
+  assert.equal((await c('POST', '/api/users/import', { sheet_file: sheet.id, domain: 'acme.com', dry_run: true })).status, 403, 'admins only');
 });
 
 test('drive: asking for access — the owner is told, approves (as asked or otherwise) or declines; nothing leaks', async () => {

@@ -25,7 +25,7 @@ import { planImport, readablePassword, usersCsv, usersTable } from '../userimpor
 import { sheetFromRows } from '../office/tablesheet.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from '../workhours.js';
-import { insertFile, uniqueName, keepDriveFiles } from './files.js';
+import { insertFile, uniqueName, keepDriveFiles, sheetAsCsv } from './files.js';
 import { rehomeSharedMedia } from '../mediahome.js';
 import { focusUntil, calendarStatus, baseUrl } from './calendar.js';
 import { placeOn } from './location.js';
@@ -670,10 +670,12 @@ export default function userRoutes() {
 
   // Many people from a CSV: { csv, domain, dry_run }. A dry run only checks; otherwise the good rows
   // are created (all or nothing per row) and the results list each row, with made-up passwords.
-  r.post('/import', (req, res) => {
+  // Or { sheet_file, sheet }: a spreadsheet in Drive the admin can open (its first sheet unless one is named), read as the CSV.
+  r.post('/import', async (req, res) => {
     const orgId = targetOrg(req);
+    const text = req.body.sheet_file ? await sheetAsCsv(req.body.sheet_file, req.body.sheet ?? 0, req.user) : String(req.body.csv || '');
     let plan;
-    try { plan = planImport(String(req.body.csv || ''), { orgId, domain: String(req.body.domain || '').trim().toLowerCase() || null }); }
+    try { plan = planImport(text, { orgId, domain: String(req.body.domain || '').trim().toLowerCase() || null }); }
     catch (e) { throw bad(e.message); }
     if (req.body.dry_run) return res.json({ rows: plan.map(({ password, update, ...p }) => ({ ...p, has_password: !!password, ...(update && { update: true }) })) });
     const rows = [];
