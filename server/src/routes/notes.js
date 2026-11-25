@@ -10,6 +10,7 @@ import { sendTo } from '../hub.js';
 import { notesFromEnex, noteFromHtml } from '../evernote.js';
 import { notify as bell } from '../notifications.js';
 import { insertFile, receiveUpload } from './files.js';
+import { sheetFromRows } from '../office/tablesheet.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
@@ -1050,6 +1051,18 @@ export default function noteRoutes() {
   });
 
   // A copy as a document in your Drive: the title as a heading, text as paragraphs, a checklist as tick boxes, then its pictures.
+  // A checklist note as a spreadsheet in your Drive: an Item and a Done column (an indented item kept indented with spaces).
+  r.post('/:id/sheet', (req, res) => {
+    const n = load(req.params.id, req.user);
+    let items = null;
+    try { items = n.items ? JSON.parse(n.items) : null; } catch { items = null; }
+    if (!items?.length) throw bad('Only a checklist goes to a spreadsheet: its items, one a row');
+    const rows = [['Item', 'Done'], ...items.map((it) => [`${it.indent ? '    ' : ''}${it.text || ''}`, it.done ? 'Yes' : ''])];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Checklist' }));
+    const name = (n.title || 'Checklist').slice(0, 120);
+    const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, items: items.length });
+  });
   r.post('/:id/doc', (req, res) => {
     const n = load(req.params.id, req.user);
     const para = (text) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) });

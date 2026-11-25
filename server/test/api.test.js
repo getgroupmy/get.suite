@@ -6866,6 +6866,16 @@ test('notes: copy to a document or to tasks', async () => {
   const tasks = (await a('GET', `/api/tasks/lists/${t.list.id}/tasks`)).body.filter((x) => !x.done);
   assert.deepEqual(tasks.slice(0, 2).map((x) => x.title), ['Book hotel', 'Taxi'], 'in order, on top');
   assert.equal((await a('POST', `/api/notes/${text.id}/tasks`)).body.added, 1, 'a plain note becomes one task');
+  // A checklist to a spreadsheet: an Item and a Done column; only a checklist; only a note you can open.
+  await a('PATCH', `/api/notes/${list.id}`, { items: [{ text: 'Book hotel' }, { text: 'Passport', done: true }, { text: '=Taxi', indent: true }] });
+  const sh = await a('POST', `/api/notes/${list.id}/sheet`);
+  assert.deepEqual([sh.status, /^Trip( \(\d+\))?$/.test(sh.body.name), sh.body.items], [201, true, 3], sh.body.name); // (numbered: the document above is Trip)
+  const { q } = await import('../src/db.js');
+  const cells = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(sh.body.id).content).sheets[0].cells;
+  assert.deepEqual([cells.A1, cells.B1, cells.A2, cells.B2 ?? '', cells.A3, cells.B3], ['Item', 'Done', 'Book hotel', '', 'Passport', 'Yes']);
+  assert.ok(String(cells.A4).includes('=Taxi') && !String(cells.A4).startsWith('='), 'indented, and never a formula');
+  assert.equal((await a('POST', `/api/notes/${text.id}/sheet`)).status, 400, 'a plain note has no items');
+  assert.equal((await owner('POST', `/api/notes/${list.id}/sheet`)).status, 404);
 });
 
 test('notes: checklists with sub-items, to a document and to tasks with steps', async () => {

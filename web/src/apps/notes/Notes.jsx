@@ -250,6 +250,7 @@ export default function Notes() {
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onTemplate={() => setTemplating(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
+    onToSheet={async () => { try { const d = await post(`/notes/${n.id}/sheet`); toast(`Copied to a new spreadsheet in My Drive (${d.items} item${d.items === 1 ? '' : 's'})`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast(`Copied to a new document in My Drive${d.pictures ? `, with its ${d.pictures === 1 ? 'picture' : `${d.pictures} pictures`}` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { // (with several task lists: which one; otherwise straight to the only list)
       try {
@@ -652,7 +653,7 @@ function NoteToTasks({ lists, items, onPick, onClose }) {
   );
 }
 
-function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onTemplate, onDelete, onRemind, onToDoc, onToTasks, onHistory, onChat }) {
+function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onTemplate, onDelete, onRemind, onToDoc, onToSheet, onToTasks, onHistory, onChat }) {
   const mail = useMailStatus();
   const navigate = useNavigate();
   const toast = useToast();
@@ -725,6 +726,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           } },
           { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
+          n.items && onToSheet && { label: 'Copy to a spreadsheet', icon: 'sheet', onClick: onToSheet },
           { label: 'Schedule time for it…', icon: 'calendar', onClick: () => {
             // A new event in Calendar at the next full hour, with the note in its description: yours to move and save.
             navigate('/calendar', { state: { newEvent: noteEventAt(n, noteLink(n)) } }); // (or the day and time its title names)
