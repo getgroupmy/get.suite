@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { indent, moveItem, tick, untickAll, dropTicked, tidy } from './checklist.js';
+import { indent, moveItem, tick, untickAll, dropTicked, tidy, sortItems } from './checklist.js';
 
 const L = (spec) => spec.split(' ').map((s) => ({ id: s.replace(/[>*]/g, ''), text: s.replace(/[>*]/g, ''), done: s.includes('*'), ...(s.startsWith('>') && { indent: 1 }) }));
 const S = (items) => items.map((x) => `${x.indent ? '>' : ''}${x.id}${x.done ? '*' : ''}`).join(' ');
@@ -33,4 +33,11 @@ test('dragging an item onto another', async () => {
   assert.equal(S(moveItemTo(L('a b c d'), 'd', 'b')), 'a d b c');
   assert.equal(S(moveItemTo(L('a >a1 b c'), 'a', 'c')), 'b c a >a1');
   assert.equal(S(moveItemTo(L('a b'), 'a', 'a')), 'a b');
+});
+
+test('sort A–Z: main items with their sub-items, sub-items sorted under each; numbers in order, capitals aside', () => {
+  assert.equal(S(sortItems(L('pears >p2 >p1 Apples bananas'))), 'Apples bananas pears >p1 >p2');
+  const n = sortItems([{ id: 'a', text: 'Item 10' }, { id: 'b', text: 'item 2' }, { id: 'c', text: 'Éclair' }, { id: 'd', text: 'eggs' }]);
+  assert.deepEqual(n.map((x) => x.text), ['Éclair', 'eggs', 'item 2', 'Item 10']);
+  assert.equal(S(sortItems(L('b* a'))), 'a b*', 'ticks kept');
 });

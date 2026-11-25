@@ -87,6 +87,14 @@ await step('Copy to Tasks: sub-items become steps', async () => {
   const pp = tasks.find((t) => t.title === 'Passport');
   if (pp?.steps?.map((s) => s.title).join() !== 'Charger' || !tasks.some((t) => t.title === 'Pack')) throw new Error(JSON.stringify(tasks));
 });
+await step('⋮ → Sort items A–Z: sub-items stay under their item, sorted too; ticks kept', async () => {
+  const n = (await api(page, 'POST', '/notes', { title: 'Shopping', items: [{ text: 'pears' }, { text: 'ripe', indent: 1 }, { text: 'green', indent: 1 }, { text: 'Apples', done: true }, { text: 'bread 10' }, { text: 'bread 2' }] })).body;
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Shopping').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Sort items A–Z' }).click();
+  const got = async () => (await api(page, 'GET', '/notes')).body.find((x) => x.id === n.id).items.map((i) => `${i.indent ? '>' : ''}${i.text}${i.done ? '*' : ''}`).join('|');
+  await until(async () => (await got()) === 'Apples*|bread 2|bread 10|pears|>green|>ripe');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

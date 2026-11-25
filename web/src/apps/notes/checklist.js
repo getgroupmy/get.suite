@@ -69,3 +69,16 @@ export function moveItemTo(items, id, target) {
   }
   return cur;
 }
+
+/** Sorted A–Z (numbers in order, capitals and accents aside): main items with their sub-items, and the sub-items under each. */
+export function sortItems(items) {
+  const cmp = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
+  const blocks = [];
+  for (let i = 0; i < items.length;) {
+    const [a, b] = blockAt(items, i);
+    blocks.push(items.slice(a, b + 1));
+    i = b + 1;
+  }
+  const byText = (x, y) => cmp(String(x.text || '').trim(), String(y.text || '').trim());
+  return tidy(blocks.sort((x, y) => byText(x[0], y[0])).flatMap(([head, ...subs]) => [head, ...subs.sort(byText)]));
+}

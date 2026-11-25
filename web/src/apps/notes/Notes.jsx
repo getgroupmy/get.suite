@@ -10,7 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
-import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
+import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked, sortItems } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import TasksAbout from '../../components/TasksAbout.jsx';
 import { dueFromText } from '../tasks/addtask.js';
@@ -707,6 +707,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
         {n.mine && <button type="button" className="icon-btn" aria-label="Share note" title="Share with colleagues" onClick={onShare}><Icon name="share" size={18} /></button>}
         <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="More" {...p}><Icon name="more" size={18} /></button>} items={[
           ...(onMove ? [{ label: 'Move earlier', onClick: () => onMove(-1), disabled: first }, { label: 'Move later', onClick: () => onMove(1), disabled: last }] : []),
+          ...(items?.length > 1 ? [{ label: 'Sort items A–Z', onClick: () => onChange({ items: sortItems(items) }) }] : []), // (sub-items stay with theirs)
           ...(done.length ? [{ label: 'Untick all items', onClick: () => onChange({ items: untickAll(items) }) }, { label: `Delete ticked items (${done.length})`, onClick: () => onChange({ items: dropTicked(items) }) }] : []),
           { label: 'Labels…', onClick: onLabel },
           { label: n.items ? 'Hide tick boxes' : 'Show tick boxes', icon: 'check', onClick: async () => { try { await post(`/notes/${n.id}/convert`, { to: n.items ? 'text' : 'checklist' }); } catch (e) { toast(e.message, 'error'); } } },
