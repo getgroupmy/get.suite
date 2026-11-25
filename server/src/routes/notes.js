@@ -539,6 +539,13 @@ export default function noteRoutes() {
   r.get('/templates', (req, res) => {
     res.json(q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map(templateOut));
   });
+  // Import templates (as Templates → Export, or Download your data's Note templates.json, gives them: [{ name, title, body,
+  // items, color, labels }]): one already here is skipped, a name that's taken gets a number. { added, skipped }.
+  r.post('/templates/import', (req, res) => {
+    const list = Array.isArray(req.body?.templates) ? req.body.templates : [];
+    if (!list.some((t) => String(t?.name || '').trim())) throw bad('There are no templates in that file');
+    res.json(importNoteTemplates(req.user, list));
+  });
   // A template was used to start a note: your own only.
   r.post('/templates/:id/used', (req, res) => {
     if (!q('UPDATE note_templates SET used_at = ? WHERE id = ? AND owner_id = ?').run(now(), String(req.params.id), req.user.id).changes) throw notFound('Template not found');

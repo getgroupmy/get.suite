@@ -577,11 +577,33 @@ function NoteTemplates({ onClose, onUse }) {
   const toast = useToast();
   const [list, setList] = useState(null);
   const [renaming, setRenaming] = useState(null); // the template being given a new name
+  const fileRef = useRef(null);
   const load = useCallback(() => get('/notes/templates').then(setList).catch((e) => toast(e.message, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
+  // Moving templates to another account or server: Export gives Note templates.json, Import reads one back.
+  const exportAll = () => {
+    const out = list.map(({ name, title, body, items, color, labels }) => ({ name, title, body, items, color, labels }));
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(out, null, 2)}\n`], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'Note templates.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const importFile = async (file) => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const r = await post('/notes/templates/import', { templates: Array.isArray(data) ? data : data?.templates });
+      load();
+      toast(r.added ? `Added ${r.added} template${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already here)` : ''}` : 'Those templates are all here already');
+    } catch (e) { toast(e instanceof SyntaxError ? 'That isn’t a templates file (Note templates.json)' : e.message, 'error'); }
+  };
   return (
-    <Modal title="Note templates" onClose={onClose}>
-      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No templates yet. On a note, choose ⋮ → <strong>Save as template…</strong> to start new notes from it.</p> : (
+    <Modal title="Note templates" onClose={onClose} footer={<>
+      <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import note templates" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
+      <button type="button" className="btn" onClick={() => fileRef.current?.click()}><Icon name="upload" size={18} /> Import…</button>
+      <button type="button" className="btn" disabled={!list?.length} onClick={exportAll}><Icon name="download" size={18} /> Export</button>
+      <button type="button" className="btn" onClick={onClose}>Close</button>
+    </>}>
+      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No templates yet. On a note, choose ⋮ → <strong>Save as template…</strong> to start new notes from it, or <strong>Import…</strong> a Note templates.json exported from Workspace.</p> : (
         <ul className="plain-list stack-tight" aria-label="Templates">
           {/* With several, the three you used last first; then the rest, by name. */}
           {(() => { const recent = list.length > 3 ? list.filter((t) => t.used_at).sort((x, y) => y.used_at - x.used_at).slice(0, 3) : []; return [...recent, ...list.filter((t) => !recent.includes(t))]; })().map((t) => (

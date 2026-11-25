@@ -16585,6 +16585,22 @@ test('morning summary on Mondays: last week — meetings, focus time against the
   assert.doesNotMatch(digestFor(aid, monday).text, /Last week/);
 });
 
+test('note templates: Import reads an exported list — ones already here skipped, taken names numbered; an empty file refused', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'ntia', domain: 'acme.com', name: 'Nti Ann', password: 'password123' })).status, 201);
+  await login(a, 'ntia@acme.com');
+  const file = [{ name: 'Packing', title: 'Packing', body: '', items: [{ text: 'Passport' }, { text: 'Cable', indent: 1 }], color: '#d4e4ed', labels: ['travel'] }, { name: 'Retro', title: 'Retro', body: 'What went well' }];
+  assert.deepEqual((await a('POST', '/api/notes/templates/import', { templates: file })).body, { added: 2, skipped: 0 });
+  const list = (await a('GET', '/api/notes/templates')).body;
+  assert.deepEqual(list.map((t) => [t.name, t.items?.length ?? null, t.color, t.labels]), [['Packing', 2, '#d4e4ed', ['travel']], ['Retro', null, null, []]]);
+  assert.deepEqual((await a('POST', '/api/notes/templates/import', { templates: file })).body, { added: 0, skipped: 2 }, 'already here');
+  assert.deepEqual((await a('POST', '/api/notes/templates/import', { templates: [{ name: 'retro', body: 'Different' }] })).body, { added: 1, skipped: 0 });
+  assert.ok((await a('GET', '/api/notes/templates')).body.some((t) => t.name === 'retro (2)'), 'a taken name gets a number');
+  assert.equal((await a('POST', '/api/notes/templates/import', { templates: [] })).status, 400);
+  assert.equal((await a('POST', '/api/notes/templates/import', { templates: [{ body: 'no name' }] })).status, 400);
+  assert.equal((await a('POST', '/api/notes/templates/import', {})).status, 400);
+});
+
 test('note templates: a note kept as a template (checklist unticked), new notes from it, replaced by name, removed', async () => {
   const a = client(), b = client();
   for (const local of ['ntpa', 'ntpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);

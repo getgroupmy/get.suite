@@ -170,6 +170,24 @@ await step('a template is renamed from Templates (not to a name another has)', a
   if (t?.items?.[0]?.text !== 'Went well') throw new Error(JSON.stringify(t));
   await page.keyboard.press('Escape');
 });
+await step('Templates → Export gives Note templates.json; Import reads one back (ones here skipped)', async () => {
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Note templates' });
+  await dlg.getByRole('button', { name: 'Rename the template Sprint retro' }).waitFor();
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: 'Export' }).click()]);
+  if (dl.suggestedFilename() !== 'Note templates.json') throw new Error(dl.suggestedFilename());
+  const file = JSON.parse(await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8'));
+  const retro = file.find((t) => t.name === 'Sprint retro');
+  if (!retro || retro.items?.[0]?.text !== 'Went well' || 'id' in retro) throw new Error(JSON.stringify(file));
+  const more = [...file, { name: 'Weekly review', title: 'Weekly review', items: [{ text: 'Inbox zero' }] }];
+  await dlg.getByLabel('Import note templates').setInputFiles({ name: 'Note templates.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(more)) });
+  await page.getByText(`Added 1 template (${file.length} already here)`).waitFor();
+  await dlg.getByRole('button', { name: 'Rename the template Weekly review' }).waitFor();
+  await dlg.getByLabel('Import note templates').setInputFiles({ name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('not json') });
+  await page.getByText('That isn’t a templates file (Note templates.json)').waitFor();
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
