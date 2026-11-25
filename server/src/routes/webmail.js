@@ -346,6 +346,12 @@ const LINK_DAYS = 30; // large files sent as links: how long the links last
 export const folderTag = (st) => [st.messages ?? 0, st.uidNext ?? 0, st.unseen ?? 0, String(st.highestModseq ?? 0)].join(':');
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
 // Your own order for your own folders (below Inbox and the built-in ones); those never placed come after, by name.
+// Your own folders hidden from the sidebar (still there, under More folders; mail filed in them as before).
+q(`CREATE TABLE IF NOT EXISTS mail_folder_hidden (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  PRIMARY KEY (user_id, path)
+)`).run();
 q(`CREATE TABLE IF NOT EXISTS mail_folder_order (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   path TEXT NOT NULL,
@@ -850,6 +856,9 @@ export default function webmailRoutes() {
     for (const { path } of q('SELECT path FROM mail_folder_order WHERE user_id = ?').all(req.user.id)) { // and their place in your order
       if (inTree(path, from)) q('UPDATE OR REPLACE mail_folder_order SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
     }
+    for (const { path } of q('SELECT path FROM mail_folder_hidden WHERE user_id = ?').all(req.user.id)) { // hidden ones stay hidden
+      if (inTree(path, from)) q('UPDATE OR REPLACE mail_folder_hidden SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
+    }
     for (const { path } of q('SELECT path FROM mail_move_recent WHERE user_id = ?').all(req.user.id)) { // recent ones keep their place under the new name
       if (inTree(path, from)) q('UPDATE OR REPLACE mail_move_recent SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
     }
@@ -894,6 +903,9 @@ export default function webmailRoutes() {
     setFollowed(req.user.id, followedFolders(req.user.id).filter((f) => !inTree(f, target)));
     for (const { path } of q('SELECT path FROM mail_folder_order WHERE user_id = ?').all(req.user.id)) {
       if (inTree(path, target)) q('DELETE FROM mail_folder_order WHERE user_id = ? AND path = ?').run(req.user.id, path);
+    }
+    for (const { path } of q('SELECT path FROM mail_folder_hidden WHERE user_id = ?').all(req.user.id)) {
+      if (inTree(path, target)) q('DELETE FROM mail_folder_hidden WHERE user_id = ? AND path = ?').run(req.user.id, path);
     }
     const disabledFilters = updateRules(req.user.id, (rule) => {
       if (!rule.enabled || !rule.actions.moveTo || !inTree(rule.actions.moveTo, target)) return false;
@@ -1105,12 +1117,23 @@ export default function webmailRoutes() {
     const boxes = await withClient(req.user, (c) => c.list({ statusQuery: { messages: true, unseen: true } }));
     const rank = (b) => (b.specialUse ? ORDER.indexOf(b.specialUse) : b.path === 'INBOX' ? 0 : 99);
     const placed = new Map(q('SELECT path, position FROM mail_folder_order WHERE user_id = ?').all(req.user.id).map((x) => [x.path, x.position]));
+    const hidden = new Set(q('SELECT path FROM mail_folder_hidden WHERE user_id = ?').all(req.user.id).map((x) => x.path));
     const place = (b) => (rank(b) === 99 ? placed.get(b.path) ?? Infinity : 0);
     res.json(boxes.filter((b) => !b.flags?.has('\\Noselect'))
       // Nested folders show their full path ("Partners / Globex") so it's clear where they live.
-      .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.path.split(b.delimiter || '/').join(' / '), specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
+      .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.path.split(b.delimiter || '/').join(' / '), specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null, hidden: hidden.has(b.path),
         messages: b.status?.messages ?? 0, unseen: b.status?.unseen ?? 0 }))
       .sort((a, b) => rank(a) - rank(b) || (place(a) === place(b) ? 0 : place(a) < place(b) ? -1 : 1) || a.name.localeCompare(b.name)));
+  });
+  // Hide one of your own folders from the sidebar ({ hidden: true }), or show it again; not Inbox or the built-in ones.
+  r.put('/folders/hidden', async (req, res) => {
+    const path = String(req.body?.path || '');
+    const box = (await withClient(req.user, (c) => c.list())).find((b) => b.path === path);
+    if (!box || box.flags?.has('\\Noselect')) throw notFound('Folder not found');
+    if (isProtected(box)) throw bad('Inbox and the built-in folders always show');
+    if (req.body?.hidden) q('INSERT OR IGNORE INTO mail_folder_hidden (user_id, path) VALUES (?, ?)').run(req.user.id, path);
+    else q('DELETE FROM mail_folder_hidden WHERE user_id = ? AND path = ?').run(req.user.id, path);
+    res.json({ hidden: !!req.body?.hidden });
   });
   // Put your own folders in your order: the paths given first, in that order, then the rest as they were.
   r.put('/folders/order', async (req, res) => {

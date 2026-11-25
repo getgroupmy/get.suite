@@ -251,5 +251,30 @@ await step('move-all-in-a-folder-to-trash', async () => {
   await api(page, 'DELETE', `/mail/folders?path=${encodeURIComponent('Old receipts')}`);
 });
 
+await step('hide-a-folder-from-the-sidebar', async () => {
+  await api(page, 'POST', '/mail/folders', { name: 'Old imports' });
+  await page.goto(`${B}/mail`);
+  const row = page.locator('.folder-row', { hasText: 'Old imports' });
+  await row.waitFor();
+  await row.hover();
+  await page.getByRole('button', { name: 'Options for Old imports' }).click();
+  await page.getByRole('menuitem', { name: 'Hide from the sidebar' }).click();
+  await page.locator('.toast', { hasText: 'Old imports is hidden' }).waitFor();
+  await row.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: /^More folders/ }).click();
+  await row.waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: /^More folders/ }).waitFor();
+  if (await row.count()) throw new Error('shown after reload');
+  await page.getByRole('button', { name: /^More folders/ }).click();
+  await row.hover();
+  await page.getByRole('button', { name: 'Options for Old imports' }).click();
+  await page.getByRole('menuitem', { name: 'Show in the sidebar' }).click();
+  await page.locator('.toast', { hasText: 'Old imports is back in the sidebar' }).waitFor();
+  await page.getByRole('button', { name: /^(More|Fewer) folders/ }).waitFor({ state: 'detached' }); // none hidden now
+  await row.waitFor();
+  await api(page, 'DELETE', '/mail/folders?path=Old%20imports');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

@@ -601,6 +601,27 @@ test('folders in your own order: below the built-in ones; renaming keeps the pla
   for (const p of ['Zed', 'Alpha', 'Mid', 'Omega']) await olivia('DELETE', `/api/mail/folders?path=${encodeURIComponent(p)}`);
 });
 
+test('folders hidden from the sidebar: yours alone, kept through a rename, forgotten when deleted; not the built-in ones', async () => {
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Old imports' })).status, 201);
+  const hiddenOf = async (who) => (await who('GET', '/api/mail/folders')).body.filter((f) => f.hidden).map((f) => f.path);
+  assert.deepEqual(await hiddenOf(olivia), []);
+  assert.deepEqual((await olivia('PUT', '/api/mail/folders/hidden', { path: 'Old imports', hidden: true })).body, { hidden: true });
+  assert.deepEqual(await hiddenOf(olivia), ['Old imports']);
+  assert.equal((await olivia('PUT', '/api/mail/folders/hidden', { path: 'INBOX', hidden: true })).status, 400);
+  assert.equal((await olivia('PUT', '/api/mail/folders/hidden', { path: 'Trash', hidden: true })).status, 400);
+  assert.equal((await olivia('PUT', '/api/mail/folders/hidden', { path: 'Nope', hidden: true })).status, 404);
+  assert.equal((await gina('PUT', '/api/mail/folders/hidden', { path: 'Old imports', hidden: true })).status, 404, 'only your own folders');
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'Old imports', newPath: 'Archive 2019' })).status, 200);
+  assert.deepEqual(await hiddenOf(olivia), ['Archive 2019'], 'still hidden under its new name');
+  assert.deepEqual((await olivia('PUT', '/api/mail/folders/hidden', { path: 'Archive 2019', hidden: false })).body, { hidden: false });
+  assert.deepEqual(await hiddenOf(olivia), []);
+  await olivia('PUT', '/api/mail/folders/hidden', { path: 'Archive 2019', hidden: true });
+  await olivia('DELETE', '/api/mail/folders?path=Archive%202019');
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Archive 2019' })).status, 201);
+  assert.deepEqual(await hiddenOf(olivia), [], 'made again: not hidden');
+  await olivia('DELETE', '/api/mail/folders?path=Archive%202019');
+});
+
 test('folders: Move all to Trash clears one of your own folders (the folder stays); not the built-in ones', async () => {
   assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Clearme' })).status, 201);
   const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });

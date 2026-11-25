@@ -138,6 +138,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { loadLabels(); }, [loadLabels]);
 
   const [folders, setFolders] = useState([]);
+  const [showHiddenFolders, setShowHiddenFolders] = useState(false); // your folders hidden from the sidebar, shown
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [compose, setCompose] = useState(null);
@@ -527,7 +528,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           ? <div className="banner small" role="status"><strong>{shared.name}</strong>’s mail: what you send comes from {shared.address}, and says you sent it.</div>
           : <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>)}
         <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
-        {folders.map((f) => {
+        {folders.filter((f) => !f.hidden || showHiddenFolders || f.path === folder).map((f) => {
           const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
           const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
           return (
@@ -556,6 +557,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                       ...(k < mine.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderFolders(f.path, 1) }] : []),
                     ];
                   })() : []),
+                  ...(own && !shared ? [{ label: f.hidden ? 'Show in the sidebar' : 'Hide from the sidebar', icon: f.hidden ? 'restore' : 'archive', onClick: async () => {
+                    try { await put('/mail/folders/hidden', { path: f.path, hidden: !f.hidden }); toast(f.hidden ? `${f.name} is back in the sidebar` : `${f.name} is hidden: it's under More folders`); loadFolders(); }
+                    catch (e) { toast(e.message, 'error'); }
+                  } }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     ...(f.messages > 0 ? [{ label: 'Move all to Trash…', icon: 'trash', onClick: () => setFolderDialog({ type: 'clear', folder: f }) }] : []),
@@ -566,6 +571,12 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             </div>
           );
         })}
+        {!shared && folders.some((f) => f.hidden) && (
+          <button type="button" className="subnav-item muted" aria-expanded={showHiddenFolders} onClick={() => setShowHiddenFolders(!showHiddenFolders)}>
+            <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>{showHiddenFolders ? '▾' : '▸'}</span><span className="grow">{showHiddenFolders ? 'Fewer folders' : 'More folders'}</span>
+            {!showHiddenFolders && <span className="count muted">{folders.filter((f) => f.hidden).length}</span>}
+          </button>
+        )}
         {scheduled.length > 0 && (
           <button className="subnav-item" onClick={() => setScheduledOpen(true)}><Icon name="clock" /><span className="grow">Scheduled</span>
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
