@@ -166,6 +166,17 @@ await step('Open in Sheets, add a row there, then ⋮ → Update company groups:
   }
   if ((await inGroup()) !== 'kim@acme.com') throw new Error(`Night shift: ${await inGroup()} (sheet ${id})`);
 });
+await step('Admin → Groups → Import from Sheets…: a spreadsheet in Drive read like the CSV', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Book club list', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Group', B1: 'Member email', A2: 'Book club', B2: 'lee@acme.com' } }] } });
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  await page.getByRole('button', { name: 'Import from Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: 'Import groups from a spreadsheet' });
+  await pick.getByLabel('Search your files').fill('Book club list');
+  await pick.getByRole('button', { name: /Book club list/ }).click();
+  await page.locator('.toast', { hasText: '1 group made, 1 person added' }).waitFor();
+  await page.getByRole('listitem', { name: 'Group Book club' }).getByText('Lee Chan').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

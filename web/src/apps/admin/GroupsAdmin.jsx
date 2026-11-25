@@ -6,11 +6,13 @@ import { useNavigate } from 'react-router';
 import { get, post, put, patch, del, postText } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import { matchesFilter } from '../contacts/contactfilter.js';
 
 export default function GroupsAdmin() {
   const toast = useToast();
   const navigate = useNavigate();
+  const [pickingSheet, setPickingSheet] = useState(false); // Import from Sheets…
   const [groups, setGroups] = useState(null);
   const [people, setPeople] = useState([]);
   const [name, setName] = useState('');
@@ -56,6 +58,17 @@ export default function GroupsAdmin() {
             } catch (err) { toast(err.message, 'error'); }
           }} />
         </label>
+        <button type="button" className="btn small" title="A spreadsheet in your Drive laid out the same way (its first sheet): the one Open in Sheets makes, changed there" onClick={() => setPickingSheet(true)}><Icon name="sheet" size={16} /> Import from Sheets…</button>
+        {pickingSheet && <DrivePicker title="Import groups from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPickingSheet(false)}
+          onPick={async (x) => {
+            setPickingSheet(false);
+            try {
+              const r = await post('/groups/from-sheet', { file: x.id, sheet: 0 });
+              toast([`${r.groups_created} group${r.groups_created === 1 ? '' : 's'} made, ${r.members_added} ${r.members_added === 1 ? 'person' : 'people'} added`,
+                r.unknown.length && `not in the company: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}`].filter(Boolean).join('; '), r.unknown.length ? 'error' : 'info');
+              load();
+            } catch (err) { toast(err.message, 'error'); }
+          }} />}
         {groups?.length > 0 && <a className="btn small" href="/api/groups/export.csv" download title="Every group and who's in it, one row per person, for a spreadsheet"><Icon name="download" size={16} /> Export as CSV</a>}
         {groups?.length > 0 && <button type="button" className="btn small" title="The same rows as a spreadsheet in your Drive: change it there, then its ⋮ → Update company groups" onClick={async () => {
           try { const r = await post('/groups/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }

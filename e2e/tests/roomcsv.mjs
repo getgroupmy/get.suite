@@ -85,6 +85,18 @@ await step('changed in Sheets, then ⋮ → Update company rooms: the change is 
   }
   if ((await seats()) !== 20) throw new Error(`Boardroom has ${await seats()} seats`);
 });
+await step('Admin → Rooms → Import from Sheets…: a spreadsheet in Drive read like the CSV', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Rooms upstairs', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Name', B1: 'Seats', C1: 'Where', A2: 'Loft', B2: '8', C2: '3rd floor' } }] } });
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Company settings' }).click().catch(() => page.getByRole('button', { name: 'Company settings' }).click());
+  await page.getByRole('button', { name: 'Import from Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: 'Import rooms from a spreadsheet' });
+  await pick.getByLabel('Search your files').fill('Rooms upstairs');
+  await pick.getByRole('button', { name: /Rooms upstairs/ }).click();
+  await page.getByText('1 added, 0 updated').waitFor();
+  const loft = (await api(page, 'GET', '/rooms')).body.find((r) => r.name === 'Loft');
+  if (loft?.capacity !== 8 || loft.location !== '3rd floor') throw new Error(JSON.stringify(loft));
+});
 console.log(errors.length ? `ERRORS ${errors.join(' / ')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

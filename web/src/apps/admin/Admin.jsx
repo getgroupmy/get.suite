@@ -863,6 +863,7 @@ function CompanySettings() {
 function Rooms() {
   const toast = useToast();
   const navigate = useNavigate();
+  const [pickingSheet, setPickingSheet] = useState(false); // Import from Sheets…
   const [rooms, setRooms] = useState(null);
   const [name, setName] = useState('');
   const [capacity, setCapacity] = useState('');
@@ -922,6 +923,16 @@ function Rooms() {
               load();
             } catch (err) { toast(err.message, 'error'); }
           }} /></label>
+        <button type="button" className="btn small" title="A spreadsheet in your Drive laid out the same way (its first sheet): the one Open in Sheets makes, changed there" onClick={() => setPickingSheet(true)}>Import from Sheets…</button>
+        {pickingSheet && <DrivePicker title="Import rooms from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPickingSheet(false)}
+          onPick={async (x) => {
+            setPickingSheet(false);
+            try {
+              const r = await post('/rooms/from-sheet', { file: x.id, sheet: 0 });
+              toast([`${r.added} added, ${r.updated} updated`, ...r.problems.slice(0, 3)].join(' · '), r.problems.length ? 'info' : undefined, { duration: r.problems.length ? 10000 : 4000 });
+              load();
+            } catch (err) { toast(err.message, 'error'); }
+          }} />}
         {rooms?.length > 0 && <a className="btn small" href="/api/rooms/export.csv" download>Export as CSV</a>}
         {rooms?.length > 0 && <button type="button" className="btn small" title="The rooms as a spreadsheet in your Drive, to change and import back" onClick={async () => {
           try { const r = await post('/rooms/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
