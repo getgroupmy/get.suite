@@ -54,6 +54,9 @@ if (!cols('booking_pages').includes('remind')) q('ALTER TABLE booking_pages ADD 
 if (!cols('booking_pages').includes('questions')) q("ALTER TABLE booking_pages ADD COLUMN questions TEXT NOT NULL DEFAULT '[]'").run();
 // Add people who book to the contacts of whoever they book with (off unless turned on).
 if (!cols('booking_pages').includes('add_contacts')) q('ALTER TABLE booking_pages ADD COLUMN add_contacts INTEGER NOT NULL DEFAULT 0').run();
+// What the visitor answered and wrote, kept with the booking (for Download the bookings): [{ label, value }] and the note.
+if (!cols('bookings').includes('answers')) q("ALTER TABLE bookings ADD COLUMN answers TEXT NOT NULL DEFAULT '[]'").run();
+if (!cols('bookings').includes('note')) q('ALTER TABLE bookings ADD COLUMN note TEXT').run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 // Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
 // to a host who is free then, the one with the fewest bookings from the page.
@@ -297,17 +300,23 @@ export default function bookingRoutes() {
     res.json({ title: p.title, people });
   });
   // Every booking made through this page as a spreadsheet (CSV): who, their address, when (in the page's time zone),
-  // which host it went to, when it was booked, and whether it still stands or was cancelled. Newest first.
+  // which host it went to, when it was booked, whether it still stands or was cancelled, and what they answered and wrote.
   r.get('/:id/bookings.csv', (req, res) => {
     const p = mine(req);
     const tz = zoneOrUtc(p.tz);
     const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     const at = (t) => (t == null ? '' : fmt.format(new Date(t)));
-    const rows = q(`SELECT b.name, b.email, b.created_at, b.cancelled_at, e.start, e."end" AS fin, u.name AS host FROM bookings b
+    const rows = q(`SELECT b.name, b.email, b.created_at, b.cancelled_at, b.answers, b.note, e.start, e."end" AS fin, u.name AS host FROM bookings b
                     LEFT JOIN events e ON e.id = b.event_id LEFT JOIN users u ON u.id = e.owner_id
                     WHERE b.page_id = ? ORDER BY e.start DESC, b.created_at DESC`).all(p.id);
-    const lines = [['Name', 'Email', 'Starts', 'Ends', 'Time zone', 'Host', 'Booked', 'Status'],
-      ...rows.map((b) => [b.name || '', b.email || '', at(b.start), at(b.fin), tz, b.host || '', at(b.created_at), b.cancelled_at ? `Cancelled ${at(b.cancelled_at)}` : 'Booked'])];
+    // A column for each question the page asks now, then any asked before that bookings answered; then the note.
+    const answersOf = (b) => { try { return JSON.parse(b.answers || '[]'); } catch { return []; } };
+    const labels = [...new Set([...JSON.parse(p.questions || '[]').map((x) => x.label), ...rows.flatMap((b) => answersOf(b).map((x) => x.label))])];
+    const lines = [['Name', 'Email', 'Starts', 'Ends', 'Time zone', 'Host', 'Booked', 'Status', ...labels, 'Note'],
+      ...rows.map((b) => {
+        const given = new Map(answersOf(b).map((x) => [x.label, x.value]));
+        return [b.name || '', b.email || '', at(b.start), at(b.fin), tz, b.host || '', at(b.created_at), b.cancelled_at ? `Cancelled ${at(b.cancelled_at)}` : 'Booked', ...labels.map((l) => given.get(l) || ''), b.note || ''];
+      })];
     const file = `${p.title} bookings.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.replace(/[^\w .-]+/g, '').trim() || 'bookings.csv'}"; filename*=UTF-8''${encodeURIComponent(file)}`);
@@ -485,11 +494,13 @@ export function publicBookingRoutes() {
     const note = str(req.body?.note ?? '', { max: 1000 }) || '';
     // The page's questions, answered in order.
     const given = Array.isArray(req.body?.answers) ? req.body.answers : [];
-    const answers = JSON.parse(p.questions || '[]').map((x, i) => {
+    const answered = JSON.parse(p.questions || '[]').map((x, i) => {
       const a = str(given[i] ?? '', { max: 500 }) || '';
       if (x.required && !a.trim()) throw bad(`Please answer “${x.label}”`);
-      return a.trim() ? `${x.label}: ${a.trim()}` : null;
+      return a.trim() ? { label: x.label, value: a.trim() } : null;
     }).filter(Boolean);
+    const answers = answered.map((x) => `${x.label}: ${x.value}`);
+    const kept = JSON.stringify(answered);
     const host = slotsOf(p).some((d) => d.slots.includes(start)) && hostFor(p, start);
     if (!host) throw new HttpError(409, 'That time has just been taken. Pick another.');
     limit(req.ip);
@@ -505,7 +516,7 @@ export function publicBookingRoutes() {
       const { added } = setOutside(ev.id, [...emails, email]);
       q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ? AND lower(email) = ?").run(Date.now(), ev.id, email);
       q('UPDATE events SET description = ? WHERE id = ?').run(`${ev.description || ''}\n${name} <${email}>${answers.length ? ` · ${answers.join(' · ')}` : ''}${note ? ` · ${note}` : ''}`.slice(0, 20000), ev.id);
-      q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, ev.id, Date.now(), ct, name, email, baseUrl(req));
+      q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base, answers, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, ev.id, Date.now(), ct, name, email, baseUrl(req), kept, note || null);
       autoContact(p, owner, name, email);
       const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(ev.id));
       notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
@@ -531,7 +542,7 @@ export function publicBookingRoutes() {
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, '[]', NULL, ?, ?)`).run(id, owner.id, title, details, p.where_kind === 'place' ? p.where_text : null, start, start + p.duration * 6e4, p.tz, meetCode);
     const { added } = setOutside(id, [email]);
     q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ?").run(Date.now(), id);
-    q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email, baseUrl(req));
+    q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base, answers, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email, baseUrl(req), kept, note || null);
     autoContact(p, owner, name, email);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });

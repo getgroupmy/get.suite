@@ -2202,12 +2202,12 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get('content-disposition'), /Tour%20bookings\.csv/);
   const lines = csv.body.replace(/^\ufeff/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status');
+  assert.equal(lines[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Note');
   assert.deepEqual(lines.slice(1).map((l) => l.split(',')[1]), ['bother@acme.com', 'kai@visit.example', 'liv@visit.example']);
   const iso = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
   assert.deepEqual(lines[3].split(',').slice(2, 6), [iso(slots[0]), iso(slots[0] + 30 * 60e3), 'UTC', 'Bea Contacts']);
-  assert.match(lines[2], /,Cancelled \d{4}-\d\d-\d\d \d\d:\d\d$/);
-  assert.match(lines[1], /,Booked$/);
+  assert.match(lines[2], /,Cancelled \d{4}-\d\d-\d\d \d\d:\d\d,$/);
+  assert.match(lines[1], /,Booked,$/);
   assert.equal((await other('GET', `/api/bookings/${pg.id}/bookings.csv`)).status, 404);
   resetBookingLimits();
 });
@@ -2387,9 +2387,19 @@ test('booking pages: questions for the visitor; required ones must be answered; 
   const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Consult: Quinn');
   assert.match(ev.description, /Phone number: \+44 20 7946 0000/);
   assert.doesNotMatch(ev.description, /Company:/);
-  // Changing the questions later keeps the rest of the page.
+  // The answers and note are kept with the booking: Download the bookings has a column for each question, then the note.
+  const slot2 = pub.days[1].slots[2];
+  assert.equal((await outsider('POST', `/api/public/book/${token}`, { start: slot2, name: 'Rae', email: 'rae@example.org', answers: ['555 0100', 'Globex, Inc.'], note: 'Parking?' })).status, 201);
+  const rows = (t) => t.replace(/^\ufeff/, '').trim().split('\r\n');
+  let csv = rows((await a('GET', `/api/bookings/${page.id}/bookings.csv`)).body);
+  assert.equal(csv[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Company,Note');
+  assert.ok(csv[1].startsWith('Rae,') && csv[1].endsWith(',Booked,555 0100,"Globex, Inc.",Parking?'), csv[1]);
+  assert.ok(csv[2].endsWith(',Booked,+44 20 7946 0000,,'), csv[2]);
+  // Changing the questions later keeps the rest of the page, and answers to a question no longer asked stay in the download.
   const changed = (await a('PATCH', `/api/bookings/${page.id}`, { questions: [] })).body;
   assert.deepEqual([changed.questions, changed.title, changed.duration], [[], 'Consult', 30]);
+  csv = rows((await a('GET', `/api/bookings/${page.id}/bookings.csv`)).body);
+  assert.equal(csv[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Company,Note');
 });
 
 test('page setup: kept with a document, checked, and only for documents', async () => {

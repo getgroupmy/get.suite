@@ -155,9 +155,11 @@ await step('Booking pages → Download the bookings: a CSV of who booked, when, 
   if (dl.suggestedFilename() !== 'Intro call bookings.csv') throw new Error(dl.suggestedFilename());
   const text = (await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8')).replace(/^\ufeff/, '');
   const lines = text.trim().split('\r\n');
-  if (lines[0] !== 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status') throw new Error(lines[0]);
+  if (!lines[0].startsWith('Name,Email,Starts,Ends,Time zone,Host,Booked,Status,') || !lines[0].endsWith(',Note')) throw new Error(lines[0]);
   const oscar = lines.find((l) => l.startsWith('Oscar Out,')), quinn = lines.find((l) => l.startsWith('Quinn Quick,'));
-  if (!oscar?.includes(',Cancelled ') || !quinn?.endsWith(',Booked')) throw new Error(text);
+  if (!oscar?.includes(',Cancelled ') || !quinn?.includes(',Booked,')) throw new Error(text);
+  // The page's question has a column of its own, with Quinn's answer in it.
+  if (lines[0] !== 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Note' || !quinn.endsWith(',Booked,+1 555 0111,')) throw new Error(`${lines[0]} | ${quinn}`);
   await page.keyboard.press('Escape');
 });
 await step('turned off: the link says so', async () => {
