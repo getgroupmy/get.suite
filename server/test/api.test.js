@@ -6122,6 +6122,23 @@ test('groups: share with a group; joining and leaving it gives and takes access'
   assert.deepEqual([sales.description, sales.members.map((m) => m.username)], ['Selling things', ['gra@acme.com']]);
   assert.deepEqual((await send(owner, csvIn)).body.members_added, 0, 'twice: nothing new');
   assert.equal((await send(owner, 'Name only\r\nx')).status, 400, 'needs a Group column');
+  // Open in Sheets gives the same rows; a row added there and read back with Update company groups makes that group.
+  const gs = await owner('POST', '/api/groups/sheet', {});
+  assert.deepEqual([gs.status, gs.body.name.startsWith('Groups')], [201, true]);
+  assert.equal((await own('POST', '/api/groups/sheet', {})).status, 403, 'admins only');
+  const { q: gq } = await import('../src/db.js');
+  const gdoc = JSON.parse(gq('SELECT content FROM files WHERE id = ?').get(gs.body.id).content);
+  assert.deepEqual(['A1', 'E1'].map((k) => gdoc.sheets[0].cells[k]), ['Group', 'Member email']);
+  assert.ok(Object.values(gdoc.sheets[0].cells).includes('Sales team'));
+  const nextRow = Object.keys(gdoc.sheets[0].cells).filter((k) => /^A\d+$/.test(k)).length + 1;
+  Object.assign(gdoc.sheets[0].cells, { [`A${nextRow}`]: 'Sheet crew', [`E${nextRow}`]: 'grb@acme.com' });
+  gq('UPDATE files SET content = ? WHERE id = ?').run(JSON.stringify(gdoc), gs.body.id);
+  assert.equal((await own('POST', '/api/groups/from-sheet', { file: gs.body.id, sheet: 0 })).status, 403, 'admins only');
+  const fromSheet = await owner('POST', '/api/groups/from-sheet', { file: gs.body.id, sheet: 0 });
+  assert.deepEqual(fromSheet.body, { groups_created: 1, members_added: 1, unknown: [], skipped: 0 }, 'the rest already as they are');
+  const crew = (await owner('GET', '/api/groups')).body.find((x) => x.name === 'Sheet crew');
+  assert.deepEqual(crew.members.map((m) => m.username), ['grb@acme.com']);
+  await owner('DELETE', `/api/groups/${crew.id}`);
   await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra] });
   await owner('DELETE', `/api/groups/${sales.id}`);
 

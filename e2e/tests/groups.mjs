@@ -139,6 +139,33 @@ await step('Import from CSV: groups made and people added, unknown addresses sai
   await g.getByText('2 people').waitFor();
   await g.getByText('Kim Park, Lee Chan').waitFor();
 });
+await step('Open in Sheets, add a row there, then ⋮ → Update company groups: the person is in the group', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.locator('.toast', { hasText: 'Made “Groups” in your Drive' }).getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Group' }).waitFor();
+  await page.getByText('Field team', { exact: true }).first().waitFor();
+  // A new row under the last one: the group Night shift, with Kim in it.
+  const id = page.url().split('/sheets/')[1].split(/[?#]/)[0];
+  let row = 2;
+  while (await page.locator(`[data-k="A${row}"]`).innerText().then((t) => t.trim()).catch(() => '')) row++;
+  await page.locator(`[data-k="A${row}"]`).click();
+  await page.keyboard.type('Night shift');
+  await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); await page.keyboard.press('Tab');
+  await page.keyboard.type('kim@acme.com');
+  await page.keyboard.press('Enter');
+  await page.locator(`[data-k="E${row}"]`, { hasText: 'kim@acme.com' }).waitFor();
+  const inGroup = async () => (await api(page, 'GET', '/groups')).body.find((g) => g.name === 'Night shift')?.members.map((m) => m.username).join();
+  for (let i = 0; i < 6 && (await inGroup()) !== 'kim@acme.com'; i++) { // (the edit is saved a moment after it's typed)
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Update company groups' }).click();
+    await page.locator('.toast', { hasText: /^Groups: \d+ made/ }).last().waitFor();
+  }
+  if ((await inGroup()) !== 'kim@acme.com') throw new Error(`Night shift: ${await inGroup()} (sheet ${id})`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -131,22 +131,44 @@ export function groupRoutes() {
     res.json(q('SELECT * FROM groups WHERE org_id = ? ORDER BY name COLLATE NOCASE').all(req.user.org_id).map(describe));
   });
   // Admins: every group with its members, one row per person (a group nobody's in gets one row too), for a spreadsheet.
-  r.get('/export.csv', requireAdmin, (req, res) => {
+  // Every group and who's in it, one row per person (a group with nobody in it gets a row of its own).
+  const groupRows = (orgId) => {
     const rows = [['Group', 'Description', 'Group email', 'Member', 'Member email']];
-    for (const g of q('SELECT * FROM groups WHERE org_id = ? ORDER BY name COLLATE NOCASE').all(req.user.org_id).map(describe)) {
+    for (const g of q('SELECT * FROM groups WHERE org_id = ? ORDER BY name COLLATE NOCASE').all(orgId).map(describe)) {
       if (!g.members.length) rows.push([g.name, g.description || '', g.email || '', '', '']);
       for (const m of g.members) rows.push([g.name, g.description || '', g.email || '', m.name, m.username]);
     }
+    return rows;
+  };
+  r.get('/export.csv', requireAdmin, (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
-    res.send(`\ufeff${csvText(rows)}`);
+    res.send(`\ufeff${csvText(groupRows(req.user.org_id))}`);
+  });
+  // The same as a spreadsheet in your Drive ("Groups"), to change there and read back with Update company groups.
+  r.post('/sheet', requireAdmin, async (req, res) => {
+    const rows = groupRows(req.user.org_id);
+    if (rows.length < 2) throw bad('There are no groups yet');
+    const { insertFile } = await import('./routes/files.js'); // (files.js uses this module: loaded when needed)
+    const { sheetFromRows } = await import('./office/tablesheet.js');
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Groups' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: 'Groups', kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
   });
   // Admins: groups and members from a CSV (columns Group, and Member email or Email; Description if there):
   // groups not there yet are made, and the people named are added. Nobody is taken off; addresses not in
   // the company are listed back. All checked first; nothing changes if the file can't be used.
   r.post('/import', requireAdmin, express.text({ type: () => true, limit: '2mb' }), (req, res) => {
-    const rows = parseCsv(String(req.body || ''));
-    if (rows.length < 2) throw bad('The file has no rows under its headings');
+    res.json(importGroups(req, String(req.body || ''), 'The file has no rows under its headings'));
+  });
+  // A spreadsheet in Drive read the same way (its ⋮ → Update company groups): { file, sheet }.
+  r.post('/from-sheet', requireAdmin, async (req, res) => {
+    const { sheetAsCsv } = await import('./routes/files.js');
+    res.json(importGroups(req, await sheetAsCsv(req.body?.file, req.body?.sheet, req.user), 'The sheet has no rows under its headings'));
+  });
+  const importGroups = (req, text, none) => {
+    const rows = parseCsv(text);
+    if (rows.length < 2) throw bad(none);
     const head = rows[0].map((h) => h.trim().toLowerCase());
     const col = (...names) => head.findIndex((h) => names.includes(h));
     const gi = col('group', 'group name', 'name'), mi = col('member email', 'email', 'e-mail', 'member e-mail', 'address'), di = col('description');
@@ -189,8 +211,8 @@ export function groupRoutes() {
     const membersAdded = [...added.values()].reduce((n, x) => n + x.ids.length, 0);
     audit(req, 'group.import', { details: { groups: created, members: membersAdded } });
     tell(req.user.org_id);
-    res.json({ groups_created: created, members_added: membersAdded, unknown: [...unknown].sort(), skipped });
-  });
+    return { groups_created: created, members_added: membersAdded, unknown: [...unknown].sort(), skipped };
+  };
   const load = (req) => {
     const g = q('SELECT * FROM groups WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
     if (!g) throw notFound('Group not found');

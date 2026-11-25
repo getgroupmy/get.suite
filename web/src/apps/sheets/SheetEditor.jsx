@@ -1450,6 +1450,13 @@ export default function SheetEditor() {
               toast(r.added ? `Added ${r.added} contact${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already in your contacts)` : ''}` : 'Everyone on this sheet is already in your contacts', 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
             } catch (e) { toast(e.message, 'error'); }
           } },
+          user?.is_admin && { label: 'Update company groups', icon: 'people', onClick: async () => { // (a sheet as Admin → Groups → Open in Sheets gives: Group, Member email…)
+            try {
+              const r = await post('/groups/from-sheet', { file: id, sheet: active });
+              toast([`Groups: ${r.groups_created} made, ${r.members_added} ${r.members_added === 1 ? 'person' : 'people'} added`, r.unknown.length && `not in the company: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}`].filter(Boolean).join('; '),
+                r.unknown.length ? 'error' : 'info', { action: { label: 'Open Admin', onClick: () => navigate('/admin') } });
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           user?.is_admin && { label: 'Update company rooms', icon: 'upload', onClick: async () => { // (a sheet as Admin → Rooms → Open in Sheets gives: Name, Seats, Where…)
             try {
               const r = await post('/rooms/from-sheet', { file: id, sheet: active });
