@@ -194,6 +194,25 @@ await step('Paused until a day: the visitor sees no times before it, and is told
   if (pub.body.paused_until !== ymd || pub.body.days.some((d) => d.date < ymd)) throw new Error(JSON.stringify(pub.body));
   await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { paused_until: null });
 });
+await step('Paused from a day to come: those days left out, the ones before still offered', async () => {
+  const at = (n) => { const d = new Date(Date.now() + n * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('Paused from').fill(at(5));
+  await dlg.getByLabel('Paused until').fill(at(8));
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Booking page saved').waitFor();
+  await dlg.getByText(/paused from .* until /).waitFor();
+  await page.keyboard.press('Escape');
+  await visitor.goto(url.replace(/^https?:\/\/[^/]+/, B));
+  await visitor.getByRole('status').filter({ hasText: /Not taking bookings from .* until / }).waitFor();
+  const pub = (await api(visitor, 'GET', `/public/book/${url.split('/b/')[1]}`)).body;
+  const ds = pub.days.map((d) => d.date);
+  if (ds.some((d) => d >= at(5) && d < at(8)) || !ds.some((d) => d < at(5))) throw new Error(ds.join());
+  await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { paused_from: null, paused_until: null });
+});
 await step('“No bookings while my vacation reply is on”: ticked and saved', async () => {
   await page.goto(`${B}/calendar`);
   await page.getByRole('button', { name: 'Booking pages' }).click();

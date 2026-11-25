@@ -2398,6 +2398,15 @@ test('booking pages: paused until a day — no times before it, bookings again f
   assert.equal((await outsider('GET', `/api/public/book/${tk}`)).body.days[0].date, before.days[0].date);
   await a('PATCH', `/api/bookings/${pg.id}`, { paused_until: day(-2) });
   assert.equal((await outsider('GET', `/api/public/book/${tk}`)).body.paused_until, undefined);
+  // A holiday to come: only the days from Paused from up to Paused until are left out.
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(2), paused_until: null })).status, 400, 'needs an end');
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(4), paused_until: day(2) })).status, 400, 'from before until');
+  const ahead = await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(2), paused_until: day(4) });
+  assert.deepEqual([ahead.body.paused_from, ahead.body.paused_until], [day(2), day(4)]);
+  const pub2 = (await outsider('GET', `/api/public/book/${tk}`)).body;
+  const ds = pub2.days.map((d) => d.date);
+  assert.deepEqual([pub2.paused_from, pub2.paused_until], [day(2), day(4)]);
+  assert.ok(ds.includes(day(1)) && ds.includes(day(4)) && !ds.includes(day(2)) && !ds.includes(day(3)), ds.join());
   resetBookingLimits();
 });
 

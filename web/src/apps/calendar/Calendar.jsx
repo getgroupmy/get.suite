@@ -2708,6 +2708,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
 
+const shortDay = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' });
 /** Your booking pages: links people use to book a free time with you. */
 function BookingPagesDialog({ onClose }) {
   const toast = useToast();
@@ -2757,7 +2758,7 @@ function BookingPagesDialog({ onClose }) {
           <ul className="rule-list">
             {(pages || []).map((p) => (
               <li key={p.id}>
-                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {myWeek().map(([d]) => d).filter((d) => p.days.includes(d)).map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}{p.enabled && p.paused_until && p.paused_until > localToday() ? ` · paused until ${new Date(`${p.paused_until}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}</span></span>
+                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {myWeek().map(([d]) => d).filter((d) => p.days.includes(d)).map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}{p.enabled && p.paused_until && p.paused_until > localToday() ? ` · paused ${p.paused_from && p.paused_from > localToday() ? `from ${shortDay(p.paused_from)} ` : ''}until ${shortDay(p.paused_until)}` : ''}</span></span>
                 <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
                 <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
                 {mail?.enabled && p.bookings > 0 && <button type="button" className="icon-btn" aria-label={`Email the people who booked ${p.title}`} title="A new email to everyone with a booking on this page" onClick={() => emailBooked(p)}><Icon name="mail" size={16} /></button>}
@@ -2843,6 +2844,8 @@ function BookingForm({ page, onSave, onCancel }) {
           title="More than 1: a group session (a class, a tour). People booking the same time join one event, and don't see each other." /></label>
         <label className="field"><span>Bookings a day</span><select value={p.max_per_day ?? 0} onChange={(e) => set('max_per_day', Number(e.target.value))}>
           {[[0, 'No limit'], [1, 'At most 1'], [2, 'At most 2'], [3, 'At most 3'], [4, 'At most 4'], [5, 'At most 5'], [8, 'At most 8'], [10, 'At most 10']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field" title="A holiday to come: leave empty to pause from today; with a day, only the days from it up to Paused until are left out"><span>Paused from</span>
+          <input type="date" aria-label="Paused from" value={p.paused_from || ''} onChange={(e) => set('paused_from', e.target.value || null)} /></label>
         <label className="field" title="A holiday: no times offered before this day; bookings open again from it by themselves"><span>Paused until</span>
           <input type="date" aria-label="Paused until" value={p.paused_until || ''} onChange={(e) => set('paused_until', e.target.value || null)} /></label>
       </div>
