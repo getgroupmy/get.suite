@@ -170,6 +170,11 @@ export function icsFromCsv(text, zone = 'UTC') {
 
 /** Your events as a CSV spreadsheet in the same layout (Excel, Outlook, Google Calendar's import, or back here): one row per event, times in `zone`. */
 export function exportCalendarCsv(userId, only, zone = 'UTC') {
+  return `\ufeff${calendarRows(userId, only, zone).map((r) => r.map((v) => csvCell(v)).join(',')).join('\r\n')}\r\n`; // (csvcell.js: quoted as needed, kept from running as a formula)
+}
+
+/** Your events as rows, a heading row first, in the layout Outlook and Google Calendar use (for Export as CSV and Open in Sheets). */
+export function calendarRows(userId, only, zone = 'UTC') {
   const events = only === undefined
     ? q('SELECT * FROM events WHERE owner_id = ? AND recur_parent IS NULL ORDER BY start').all(userId)
     : q('SELECT * FROM events WHERE owner_id = ? AND recur_parent IS NULL AND calendar_id IS ? ORDER BY start').all(userId, only.id);
@@ -177,7 +182,6 @@ export function exportCalendarCsv(userId, only, zone = 'UTC') {
     .formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
   const day = (p) => `${p.month}/${p.day}/${p.year}`;
   const time = (p) => `${p.hour}:${p.minute} ${p.dayPeriod}`;
-  const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
   const freq = { DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', YEARLY: 'Yearly' };
   const rows = [['Subject', 'Start Date', 'Start Time', 'End Date', 'End Time', 'All day event', 'Description', 'Location', 'Repeats']];
   for (const e of events) {
@@ -188,5 +192,5 @@ export function exportCalendarCsv(userId, only, zone = 'UTC') {
     rows.push([e.title, day(s), e.all_day ? '' : time(s), day(en), e.all_day ? '' : time(en), e.all_day ? 'True' : 'False', e.description || '', e.location || '',
       rule ? freq[String(rule.freq || '').toUpperCase()] || 'Yes' : '']);
   }
-  return `﻿${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
+  return rows;
 }

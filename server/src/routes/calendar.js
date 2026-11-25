@@ -18,7 +18,7 @@ import { buildIcs, zoneOrUtc } from '../ics.js';
 import { remindersFor, remindersOf, setReminders } from '../reminders.js';
 import { setRooms, roomsOf } from './rooms.js';
 import express from 'express';
-import { importCalendar, exportCalendar, exportCalendarCsv } from '../calimport.js';
+import { importCalendar, exportCalendar, exportCalendarCsv, calendarRows } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
@@ -893,6 +893,16 @@ export default function calendarRoutes() {
     res.send(exportCalendar(req.user.id, which));
   });
 
+  // Open in Sheets: the rows Export as CSV gives (?tz for the times), as a spreadsheet in your Drive. { calendar: id | 'main' } for one.
+  r.post('/sheet', (req, res) => {
+    const which = req.body?.calendar === 'main' ? { id: null, name: req.user.name } : req.body?.calendar ? ownCalendar(req.user.id, req.body.calendar) : undefined;
+    const rows = calendarRows(req.user.id, which, zoneOrUtc(String(req.body?.tz || 'UTC')));
+    if (rows.length < 2) throw bad('There are no events to put in a spreadsheet');
+    const name = `${which ? which.name : 'My calendar'} (events)`.slice(0, 200);
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Events' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, events: rows.length - 1 });
+  });
   r.post('/', (req, res) => {
     // An id chosen by the app (an event made offline): sending it again returns the event made the first time.
     const want = typeof req.body?.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(req.body.id) ? req.body.id : null;

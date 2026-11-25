@@ -91,6 +91,14 @@ await step('Import from Sheets…: a spreadsheet in Drive laid out as a calendar
   }
   await page.getByText('Front desk shift').first().waitFor();
 });
+await step('Open in Sheets: your events as a spreadsheet in Drive, in the Export as CSV columns', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.locator('.toast', { hasText: 'Made “My calendar (events)” in your Drive' }).getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Subject' }).waitFor();
+  await page.getByText('Front desk shift', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

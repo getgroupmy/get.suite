@@ -109,6 +109,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const { user: me, setUser } = useAuth();
   const savedPrefs = me?.cal_prefs || {};
   const toast = useToast();
+  const navigate = useNavigate();
   const [view, setViewState] = useState(savedView);
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);
@@ -523,6 +524,10 @@ function Calendar({ acting = null, managed = [], onPick }) {
           }} />}
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         <a className="subnav-item" href={`/api/events/export?format=csv&tz=${encodeURIComponent(TZ)}`} download><Icon name="download" /><span className="grow">Export as CSV</span></a>
+        <button type="button" className="subnav-item" title="Your events as a spreadsheet in your Drive, in the columns Export as CSV gives" onClick={async () => {
+          try { const r = await post('/events/sheet', { tz: TZ }); toast(`Made “${r.name}” in your Drive (${r.events} event${r.events === 1 ? '' : 's'})`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
+          catch (e) { toast(e.message, 'error'); }
+        }}><Icon name="sheet" /><span className="grow">Open in Sheets</span></button>
         <button type="button" className="subnav-item" onClick={() => setBinOpen(true)}><Icon name="trash" /><span className="grow">Recently deleted</span></button>
         </>}
         {binOpen && <RecentlyDeleted title="Recently deleted events" what="Events" list="/events/trash" restore={(id) => `/events/trash/${id}/restore`}

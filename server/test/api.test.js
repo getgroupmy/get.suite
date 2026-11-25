@@ -14892,6 +14892,26 @@ test('calendar: export as CSV in your time zone (formula-like text kept as text)
   assert.equal(got[0].title, "'=Budget, review", 'the guard quote stays: text, never a formula');
   assert.equal(got[1].all_day, 1);
   assert.equal(Math.round((got[1].end - got[1].start) / 864e5), 2);
+  // Open in Sheets: the same rows as a spreadsheet in Drive, which Import from Sheets reads back (both already there).
+  const sh = await a('POST', '/api/events/sheet', { tz: 'Europe/Berlin' });
+  assert.deepEqual([sh.status, sh.body.events, sh.body.name], [201, 2, 'My calendar (events)']);
+  const cells = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(sh.body.id).content).sheets[0].cells;
+  assert.deepEqual([cells.A1, cells.I1], ['Subject', 'Repeats']);
+  assert.ok(Object.values(cells).includes('Offsite'));
+  // (as with the CSV, rows read in are recognised by what they were read from: the first time they're added, the same again)
+  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 2, skipped: 0, failed: 0 });
+  const mine = q("SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = 'calcsvexp@acme.com' ORDER BY start, created_at").all();
+  const byTitle = (t) => mine.filter((e) => e.title.replace(/^'/, '') === t);
+  for (const t of ['=Budget, review', 'Offsite']) {
+    const [x, y] = byTitle(t);
+    assert.ok(x && y, `${t} twice`);
+    assert.deepEqual([y.start, y.all_day, Math.round((y.end - y.start) / 6e4)], [x.start, x.all_day, Math.round((x.end - x.start) / 6e4)], `${t}: the same times through the spreadsheet`);
+  }
+  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 0, skipped: 2, failed: 0 }, 'the same sheet again: skipped');
+  const none = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'calcsvexp3', domain: 'acme.com', name: 'Cal None', password: 'password123' })).status, 201);
+  await login(none, 'calcsvexp3@acme.com');
+  assert.equal((await none('POST', '/api/events/sheet', { tz: 'UTC' })).status, 400, 'no events, no spreadsheet');
 });
 
 test('contacts: LinkedIn’s Connections.csv imports (notes lines before the header skipped; position, profile, connected on)', async () => {
