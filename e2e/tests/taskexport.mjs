@@ -155,6 +155,18 @@ await step('the list’s own spreadsheet read back with Import from Sheets…: n
   const after = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.length;
   if (after !== before) throw new Error(`${before} tasks before, ${after} after`);
 });
+await step('List actions → Copy to a note: the open tasks as a checklist, steps still to do as sub-items', async () => {
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByText('Pack the kitchen').first().waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a note' }).click();
+  await page.locator('.toast', { hasText: /^Saved to Notes: a checklist of \d+ tasks/ }).getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/notes/);
+  const n = (await api(page, 'GET', '/notes')).body.find((x) => x.title === 'Office move' && x.items);
+  const items = n.items.map((i) => `${i.indent ? '>' : ''}${i.text}`);
+  const k = items.indexOf('Pack the kitchen');
+  if (k < 0 || items[k + 1] !== '>Wrap glasses' || items.includes('Cancel old lease') || n.items.some((i) => i.done)) throw new Error(items.join('|'));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

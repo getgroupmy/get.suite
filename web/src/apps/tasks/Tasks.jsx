@@ -192,6 +192,21 @@ export default function Tasks() {
   const listToDoc = async (withDone) => {
     try { const r = await post(`/tasks/lists/${list.id}/doc`, { done: withDone, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
   };
+  // Copy to a note: the open tasks (as shown: this person's, in the list's order) as a checklist note of yours, each with
+  // its steps still to do as sub-items; for a shopping run or a day out, ticked off on a phone.
+  const listToNote = async () => {
+    const items = [];
+    for (const t of open) {
+      if (items.length >= 200) break;
+      items.push({ text: t.title.slice(0, 1000) });
+      for (const st of (t.steps || []).filter((x) => !x.done)) if (items.length < 200) items.push({ text: String(st.title || '').slice(0, 1000), indent: 1 });
+    }
+    if (!items.length) { toast('There are no open tasks to copy'); return; }
+    try {
+      const n = await post('/notes', { title: (list?.name || 'Tasks').slice(0, 300), items });
+      toast(`Saved to Notes: a checklist of ${open.length} task${open.length === 1 ? '' : 's'}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/notes?note=${n.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const emailList = (withDone, only = null) => {
     const pick = (l) => (only ? l.filter((t) => only.has(t.id)) : l);
     const name = list?.name || 'Tasks';
@@ -536,6 +551,7 @@ export default function Tasks() {
               } }] : []),
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
+              ...(open.length ? [{ label: 'Copy to a note', icon: 'note', onClick: listToNote }] : []),
               ...(list ? [{ label: 'Copy to a document', icon: 'doc', onClick: () => listToDoc(false) }, ...(done.length ? [{ label: 'Copy to a document, with completed', icon: 'doc', onClick: () => listToDoc(true) }] : [])] : []),
               ...(mail?.enabled && list.members.length ? [{ label: 'Email the list’s people', icon: 'mail', onClick: () => { // (its owner and everyone it's shared with, not you)
                 const to = [{ name: list.owner_name, username: list.owner_email }, ...list.members].filter((x) => x.username && x.username !== user.username);
