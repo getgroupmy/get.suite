@@ -2374,6 +2374,33 @@ test('booking pages: a gap and a daily limit; the visitor cancels with their own
   assert.equal((await a('GET', '/api/bookings')).body[0].bookings, 0);
 });
 
+test('booking pages: paused until a day — no times before it, bookings again from it, and the page says so', async () => {
+  const { resetBookingLimits } = await import('../src/routes/booking.js');
+  resetBookingLimits();
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bpause', domain: 'acme.com', name: 'Bo Pause', password: 'password123' })).status, 201);
+  await login(a, 'bpause@acme.com');
+  const pg = (await a('POST', '/api/bookings', { title: 'Call', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 6 })).body;
+  const tk = pg.url.split('/b/')[1];
+  const before = (await outsider('GET', `/api/public/book/${tk}`)).body;
+  const firstFree = before.days[0].slots[0];
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { paused_until: 'next week' })).status, 400);
+  const paused = await a('PATCH', `/api/bookings/${pg.id}`, { paused_until: day(3) });
+  assert.deepEqual([paused.status, paused.body.paused_until, paused.body.title], [200, day(3), 'Call'], 'the rest of the page kept');
+  const pub = (await outsider('GET', `/api/public/book/${tk}`)).body;
+  assert.equal(pub.paused_until, day(3));
+  assert.ok(pub.days.length && pub.days.every((d) => d.date >= day(3)), JSON.stringify(pub.days.map((d) => d.date)));
+  assert.equal((await outsider('POST', `/api/public/book/${tk}`, { start: firstFree, name: 'Early', email: 'early@example.org' })).status, 409, 'a time before it can’t be booked');
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: pub.days[0].slots[0], name: 'Later', email: 'later@example.org' })).status < 300, 'from that day, as before');
+  // Cleared: times from today again; a pause already over isn't mentioned.
+  await a('PATCH', `/api/bookings/${pg.id}`, { paused_until: null });
+  assert.equal((await outsider('GET', `/api/public/book/${tk}`)).body.days[0].date, before.days[0].date);
+  await a('PATCH', `/api/bookings/${pg.id}`, { paused_until: day(-2) });
+  assert.equal((await outsider('GET', `/api/public/book/${tk}`)).body.paused_until, undefined);
+  resetBookingLimits();
+});
+
 test('booking pages: questions for the visitor; required ones must be answered; answers go in the event', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker3', domain: 'acme.com', name: 'Bo Booker', password: 'password123' })).status, 201);

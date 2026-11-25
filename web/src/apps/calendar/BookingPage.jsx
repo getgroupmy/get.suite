@@ -141,7 +141,8 @@ export default function BookingPage({ token }) {
         <p className="muted small">Book time with {page.owner.name}</p>
         <h1>{page.title}</h1>
         <p className="muted" style={{ margin: 0 }}>{page.duration} minutes{page.seats > 1 ? ` · up to ${page.seats} people` : ''}{page.where?.kind === 'video' ? ' · 📹 Video meeting' : page.where?.kind === 'place' ? ` · 📍 ${page.where.text}` : ''}{page.description ? ` · ${page.description}` : ''}</p>
-        {!days.length ? <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p> : !slot ? <>
+        {page.paused_until && <p className="muted" role="status">Not taking bookings until {new Date(`${page.paused_until}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}{days.length ? ': the times shown are from then on' : ''}.</p>}
+        {!days.length ? (page.paused_until ? null : <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p>) : !slot ? <>
           <div className="booking-days" role="tablist" aria-label="Days">
             {days.map(([k, list]) => (
               <button key={k} type="button" role="tab" aria-selected={k === chosen} className={k === chosen ? 'on' : ''} onClick={() => setDay(k)}>
