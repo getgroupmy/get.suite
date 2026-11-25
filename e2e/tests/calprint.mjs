@@ -190,6 +190,21 @@ await step('Sheets ⋮ → Copy to a new presentation: the selected cells as a t
   await page.getByText('15', { exact: true }).first().waitFor();
   if (await page.getByText('Note', { exact: true }).count()) throw new Error('only the selected columns');
 });
+await step('Sheets ⋮ → Make a form from this sheet: its headings become the questions, and the form is linked to it', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Event feedback', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Rating', B1: 'What should we change?', A2: 'Good', A3: 'Great', A4: 'Good' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A1"]', { hasText: 'Rating' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a form from this sheet' }).click();
+  await page.waitForURL(/\/forms\//);
+  await page.getByText('Made the form “Event feedback”').waitFor();
+  const id = page.url().split('/forms/')[1].split(/[?#/]/)[0];
+  const f = (await api(page, 'GET', `/forms/${id}`)).body;
+  if (f.linked_sheet?.id !== sh.id || f.questions.map((x) => `${x.type}:${x.title}`).join('|') !== 'choice:Rating|short:What should we change?') throw new Error(JSON.stringify(f));
+  await page.locator('input[value="What should we change?"], textarea').filter({ hasText: '' }).first().waitFor();
+  if (!(await page.evaluate(() => [...document.querySelectorAll('input, textarea')].some((el) => el.value === 'What should we change?')))) throw new Error('the question is not in the form editor');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

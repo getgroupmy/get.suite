@@ -1442,6 +1442,10 @@ export default function SheetEditor() {
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
           !viewOnly(file) && { label: 'Copy to a new document', icon: 'doc', onClick: () => copyAsTable('sheet-doc', 'docs') }, // (this sheet, or the cells selected, as a table)
           !viewOnly(file) && { label: 'Copy to a new presentation', icon: 'slides', onClick: () => copyAsTable('sheet-slides', 'slides') }, // (the same, on a slide)
+          !viewOnly(file) && { label: 'Make a form from this sheet', icon: 'form', onClick: async () => { // (its first sheet's headings as questions; each response a new row)
+            try { const f = await post('/forms/from-sheet', { file: id }); toast(`Made the form “${f.title}”: each response is added here as a row`, 'info'); navigate(`/forms/${f.id}`); }
+            catch (e) { toast(e.message, 'error'); }
+          } },
           !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
           !viewOnly(file) && { label: 'Make a contact group…', icon: 'people', onClick: () => setDialog({ type: 'contact-group' }) },
           !viewOnly(file) && { label: 'Add rows to Contacts', icon: 'person', onClick: async () => {

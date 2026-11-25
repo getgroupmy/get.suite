@@ -19,7 +19,8 @@ import { uid, now, str, bad, notFound, forbidden, HttpError, isInlineSafe } from
 import { userFromToken, tokenFromReq } from '../auth.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
-import { insertFile, receiveUpload, cleanName } from './files.js';
+import { insertFile, receiveUpload, cleanName, loadFile, sheetAsCsv } from './files.js';
+import { parseCsv } from '../sheetcalc/csvread.js';
 import { checkQuota } from '../tenancy.js';
 import { changeSheet } from '../collab.js';
 import fs from 'node:fs';
@@ -789,6 +790,31 @@ export default function formRoutes() {
     res.send(buf);
   });
 
+  // A form from a spreadsheet's column headings, on its first sheet (Sheets ⋮ → Make a form from this sheet): { file }. Each heading is a
+  // question: a column holding a few repeated values (2 to 6) a multiple choice of them, the others short answers. Headings
+  // the form fills in itself (Submitted, Name, Email, Score, Response ID) are left out. The spreadsheet is linked, so each
+  // response is a new row under its headings; so it must be one you can edit.
+  r.post('/from-sheet', async (req, res) => {
+    if (q('SELECT COUNT(*) AS n FROM forms WHERE owner_id = ?').get(req.user.id).n >= MAX_FORMS) throw bad(`You can have up to ${MAX_FORMS} forms`);
+    const file = loadFile(String(req.body?.file || ''), req.user, 'editor');
+    const rows = parseCsv(await sheetAsCsv(file.id, 0, req.user)); // (its first sheet: where responses go)
+    const OWN = new Set(['submitted', 'name', 'email', 'score', 'response id']);
+    const questions = [];
+    (rows[0] || []).forEach((h, c) => {
+      const title = String(h || '').trim().slice(0, 300);
+      if (!title || OWN.has(title.toLowerCase()) || questions.some((x) => x.title.toLowerCase() === title.toLowerCase())) return;
+      const values = rows.slice(1).map((r) => String(r[c] ?? '').trim()).filter(Boolean);
+      const distinct = [...new Set(values)];
+      const choice = distinct.length >= 2 && distinct.length <= 6 && values.length > distinct.length && distinct.every((v) => v.length <= 100);
+      questions.push(choice ? { type: 'choice', title, options: distinct } : { type: 'short', title });
+    });
+    if (!questions.length) throw bad('Give the sheet’s first row the questions to ask, one heading per column');
+    const id = uid(), t = now();
+    const title = str(file.name, { max: 200 }) || 'Untitled form';
+    q(`INSERT INTO forms (id, org_id, owner_id, token, title, questions, created_at, updated_at, linked_sheet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), title, JSON.stringify(cleanQuestions(questions.slice(0, MAX_QUESTIONS))), t, t, file.id);
+    res.status(201).json(ownForm(id, req.user));
+  });
   r.post('/', (req, res) => {
     if (q('SELECT COUNT(*) AS n FROM forms WHERE owner_id = ?').get(req.user.id).n >= MAX_FORMS) throw bad(`You can have up to ${MAX_FORMS} forms`);
     // From a template: its title, description, questions, message after sending and settings.

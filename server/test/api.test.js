@@ -8506,6 +8506,34 @@ test('tasks waiting on others: same list, no loops, and a note when it can start
   assert.deepEqual((await kay('GET', `/api/tasks/lists/${other}/tasks`)).body.find((t) => t.id === print.id).blocked_by, []);
 });
 
+test('forms: Make a form from this sheet — headings as questions (a few repeated values a choice), responses added as rows', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const anon = client();
+  const sheet = (await kay('POST', '/api/files/new', { kind: 'sheet', name: 'Volunteer sign-up', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Name', B1: 'Shift', C1: 'Dietary needs', D1: 'Shift', E1: 'Submitted',
+    A2: 'Ann', B2: 'Morning', C2: 'None', A3: 'Bo', B3: 'Evening', C3: 'Vegan', A4: 'Cy', B4: 'Morning', C4: 'Nut allergy' } }] } })).body;
+  const made = await kay('POST', '/api/forms/from-sheet', { file: sheet.id });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.title, 'Volunteer sign-up');
+  assert.deepEqual(made.body.questions.map((x) => [x.type, x.title, x.options || null]), [['choice', 'Shift', ['Morning', 'Evening']], ['short', 'Dietary needs', null]],
+    'Name and Submitted are the form’s own; a repeated heading once; three different answers stay a short answer');
+  assert.equal((await kay('GET', `/api/forms/${made.body.id}`)).body.linked_sheet.id, sheet.id, 'linked to the sheet');
+  // A response becomes a row under the headings.
+  await kay('PUT', `/api/forms/${made.body.id}`, { audience: 'public' });
+  const [shift, diet] = made.body.questions;
+  const sentIn = await anon('POST', `/api/public/forms/${made.body.token}`, { answers: { [shift.id]: 'Evening', [diet.id]: 'Halal' } });
+  assert.ok(sentIn.status < 300, JSON.stringify(sentIn.body));
+  const c = (await kay('GET', `/api/files/${sheet.id}/content`)).body.content.sheets[0].cells;
+  assert.deepEqual([c.B5, c.C5, c.A5 ?? ''], ['Evening', 'Halal', ''], 'under its headings, the rows above untouched');
+  assert.equal(c.B4, 'Morning');
+  // Only a sheet you can edit, and one with headings.
+  const blank = (await kay('POST', '/api/files/new', { kind: 'sheet', name: 'Empty' })).body;
+  assert.equal((await kay('POST', '/api/forms/from-sheet', { file: blank.id })).status, 400);
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Not a sheet' })).body;
+  assert.equal((await kay('POST', '/api/forms/from-sheet', { file: doc.id })).status, 400);
+  assert.equal((await owner('POST', '/api/forms/from-sheet', { file: sheet.id })).status, 404, 'not someone else’s');
+});
+
 test('forms: a linked spreadsheet gets each response as it arrives, and changed ones in their row', async () => {
   const kay = client(); await login(kay, 'kay@keepco.com');
   const anon = client();
