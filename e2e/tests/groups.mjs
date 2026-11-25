@@ -116,6 +116,17 @@ await step('Kim taken out of a group that edits a document she added a picture t
   await page.locator('.ProseMirror').getByText('Our colours').waitFor();
   await until(() => page.locator('.ProseMirror img[alt="Lime swatch"]').evaluate((i) => i.complete && i.naturalWidth === 44).catch(() => false), 10000);
 });
+await step('Export as CSV: every group and who is in it', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export as CSV' }).click()]);
+  if (dl.suggestedFilename() !== 'groups.csv') throw new Error(dl.suggestedFilename());
+  const fs = await import('node:fs');
+  const lines = fs.readFileSync(await dl.path(), 'utf8').replace(/^\ufeff/, '').trim().split(/\r\n/);
+  const groups = (await api(page, 'GET', '/groups')).body;
+  const want = groups.flatMap((g) => (g.members.length ? g.members.map((m) => `${g.name},${g.description || ''},${g.email || ''},${m.name},${m.username}`) : [`${g.name},${g.description || ''},${g.email || ''},,`]));
+  if (!groups.length || lines[0] !== 'Group,Description,Group email,Member,Member email' || lines.slice(1).join('|') !== want.join('|')) throw new Error(`${lines.join(' | ')} vs ${want.join(' | ')}`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

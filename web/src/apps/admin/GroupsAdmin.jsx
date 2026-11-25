@@ -40,6 +40,7 @@ export default function GroupsAdmin() {
           <button className="btn primary">Create group</button></div>
       </form>
       {groups?.length === 0 && <p className="muted">No groups yet.</p>}
+      {groups?.length > 0 && <div className="row end"><a className="btn small" href="/api/groups/export.csv" download title="Every group and who's in it, one row per person, for a spreadsheet"><Icon name="download" size={16} /> Export as CSV</a></div>}
       {/* Find a group by its name, its address, or someone in it (words in any order, accents aside). */}
       {groups?.length > 4 && <input type="search" aria-label="Find a group" placeholder="Find a group or someone in one" value={find} onChange={(e) => setFind(e.target.value)} />}
       {groups?.length > 0 && find.trim() && !shown.length && <p className="muted">No group fits “{find.trim()}”.</p>}

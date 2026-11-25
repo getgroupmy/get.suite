@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { q, tx, widenRoles } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
 import { requireAdmin } from './auth.js';
+import { csvText } from './csvcell.js';
 import { validAddress } from './tenancy.js';
 import { scheduleMailConfig } from './mail/config.js';
 import { sendTo } from './hub.js';
@@ -127,6 +128,17 @@ export function groupRoutes() {
   const r = Router();
   r.get('/', (req, res) => {
     res.json(q('SELECT * FROM groups WHERE org_id = ? ORDER BY name COLLATE NOCASE').all(req.user.org_id).map(describe));
+  });
+  // Admins: every group with its members, one row per person (a group nobody's in gets one row too), for a spreadsheet.
+  r.get('/export.csv', requireAdmin, (req, res) => {
+    const rows = [['Group', 'Description', 'Group email', 'Member', 'Member email']];
+    for (const g of q('SELECT * FROM groups WHERE org_id = ? ORDER BY name COLLATE NOCASE').all(req.user.org_id).map(describe)) {
+      if (!g.members.length) rows.push([g.name, g.description || '', g.email || '', '', '']);
+      for (const m of g.members) rows.push([g.name, g.description || '', g.email || '', m.name, m.username]);
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
+    res.send(`\ufeff${csvText(rows)}`);
   });
   const load = (req) => {
     const g = q('SELECT * FROM groups WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);

@@ -5972,6 +5972,17 @@ test('groups: share with a group; joining and leaving it gives and takes access'
   assert.equal((await owner('POST', '/api/groups', { name: 'marketing' })).status, 400, 'names are unique');
   await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra] });
   assert.ok((await own('GET', '/api/groups')).body.some((x) => x.name === 'Marketing' && x.members.length === 1), 'everyone sees groups');
+  // Admins: every group and its members as a CSV, one row per person.
+  const empty = (await owner('POST', '/api/groups', { name: '=Nobody yet' })).body;
+  const csv = await owner('GET', '/api/groups/export.csv');
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  const lines = csv.body.replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Group,Description,Group email,Member,Member email');
+  assert.ok(lines.includes('Marketing,The marketing team,,Gwen A,gra@acme.com'), lines.join('|'));
+  assert.ok(lines.some((l) => /^"?'=Nobody yet"?,,,,$/.test(l)), 'an empty group once, and a name that looks like a formula kept as text: ' + lines.join('|'));
+  assert.equal((await own('GET', '/api/groups/export.csv')).status, 403, 'admins only');
+  await owner('DELETE', `/api/groups/${empty.id}`);
 
   const folder = (await own('POST', '/api/files/folder', { name: 'Campaigns' })).body;
   const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: folder.id })).body;
