@@ -1,12 +1,13 @@
 // Recently deleted task lists or forms (yours), each with Restore: they're kept 30 days (server/src/recyclebin.js).
 // Tick several to restore them together.
 import { useEffect, useState } from 'react';
-import { get, post } from '../api.js';
-import { Empty, Modal, useToast } from './ui.jsx';
+import { get, post, del } from '../api.js';
+import { ConfirmModal, Empty, Modal, useToast } from './ui.jsx';
 
 const when = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
-export default function RecentlyDeleted({ title, list, restore, what, note, onRestored, onClose }) {
+// forever(id) and empty (urls, for DELETE): deleting for good before the 30 days are up, when the app allows it.
+export default function RecentlyDeleted({ title, list, restore, what, note, forever, empty, onRestored, onClose }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -33,6 +34,14 @@ export default function RecentlyDeleted({ title, list, restore, what, note, onRe
       get(list).then(setItems).catch(() => {}); setPicked(new Set());
     } finally { setBusy(null); }
   };
+  const [asking, setAsking] = useState(null); // 'picked' or 'all'
+  const purge = async () => {
+    const chosen = asking === 'all' ? items : items.filter((x) => picked.has(x.id));
+    if (asking === 'all') await del(empty); else for (const x of chosen) await del(forever(x.id));
+    toast(`${chosen.length} deleted for good`);
+    setPicked(new Set());
+    get(list).then(setItems).catch(() => {});
+  };
   return (
     <Modal title={title} onClose={onClose}>
       <p className="muted small" style={{ marginTop: 0 }}>{note || `${what} you delete are kept here for 30 days, then deleted for good. Restoring brings back everything in them, for everyone they were shared with.`}</p>
@@ -41,6 +50,7 @@ export default function RecentlyDeleted({ title, list, restore, what, note, onRe
           <div className="row" style={{ gap: 8, marginBottom: 8 }}>
             <label className="check small grow"><input type="checkbox" aria-label="Select all deleted" checked={items.every((x) => picked.has(x.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((x) => x.id)) : new Set())} /> Select all</label>
             <button type="button" className="btn small primary" disabled={!picked.size || !!busy} onClick={putMany}>{busy === 'many' ? 'Restoring…' : `Restore ${picked.size || ''}`.trim()}</button>
+            {forever && <button type="button" className="btn small danger" disabled={!picked.size || !!busy} onClick={() => setAsking('picked')}>Delete forever</button>}
           </div>
         )}
         <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0 }} aria-label={title}>
@@ -52,7 +62,10 @@ export default function RecentlyDeleted({ title, list, restore, what, note, onRe
             </li>
           ))}
         </ul>
+        {empty && <div className="row end" style={{ marginTop: 8 }}><button type="button" className="btn small" disabled={!!busy} onClick={() => setAsking('all')}>Empty</button></div>}
       </>)}
+      {asking && <ConfirmModal title={asking === 'all' ? `Delete all ${items.length} here for good?` : `Delete ${picked.size} for good?`} confirm="Delete forever" danger
+        message="They can’t be put back." onClose={() => setAsking(null)} onConfirm={purge} />}
     </Modal>
   );
 }

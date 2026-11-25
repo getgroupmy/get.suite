@@ -1154,6 +1154,14 @@ export default function calendarRoutes() {
     res.json({ reminders });
   });
 
+  // Deleted for good before the 30 days are up: one, or all of yours (never by someone managing your calendar).
+  const ownBin = (req) => { if (req.calendarDelegate) throw bad('That isn’t available on a colleague’s calendar'); };
+  r.delete('/trash/:id', (req, res) => {
+    ownBin(req);
+    if (!q('DELETE FROM event_trash WHERE id = ? AND owner_id = ?').run(String(req.params.id), req.user.id).changes) throw notFound('Not in your recently deleted events');
+    res.json({ deleted: 1 });
+  });
+  r.delete('/trash', (req, res) => { ownBin(req); res.json({ deleted: q('DELETE FROM event_trash WHERE owner_id = ?').run(req.user.id).changes }); });
   r.delete('/:id', (req, res) => {
     let ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!ev) { const other = q('SELECT * FROM events WHERE id = ?').get(req.params.id); if (other?.calendar_id && actAsSharer(req, other.calendar_id)) ev = other; }

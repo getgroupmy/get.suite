@@ -515,6 +515,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setBinOpen(true)}><Icon name="trash" /><span className="grow">Recently deleted</span></button>
         </>}
         {binOpen && <RecentlyDeleted title="Recently deleted events" what="Events" list="/events/trash" restore={(id) => `/events/trash/${id}/restore`}
+          forever={(id) => `/events/trash/${id}`} empty="/events/trash"
           note="Events of yours with nobody else in them are kept here for 30 days after you delete them, then deleted for good. (Events with guests or a room are cancelled for everyone instead.)"
           onClose={() => setBinOpen(false)} onRestored={() => { setBinOpen(false); load(); }} />}
         {!acting && <MyCalendars calendars={myCals} me={me} people={people.filter((p) => p.id !== me.id)} onChanged={() => { loadCals(); load(); }} onImport={importIcs}

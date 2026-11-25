@@ -86,6 +86,22 @@ await step('Recently deleted: a deleted event of yours, put back after the Undo 
   await page.getByText('“Piano lesson” is back').waitFor();
   await page.locator('.month .chip', { hasText: 'Piano lesson' }).first().waitFor();
 });
+await step('Recently deleted: Delete forever for ticked ones, and Empty (asked first)', async () => {
+  const start = dayStart + day + 18 * 36e5;
+  for (const title of ['Old gym', 'Old yoga']) { const ev = (await api(page, 'POST', '/events', { title, start, end: start + 36e5 })).body; await api(page, 'DELETE', `/events/${ev.id}`); }
+  await page.reload();
+  await page.getByRole('button', { name: 'Recently deleted' }).click();
+  const d = page.getByRole('dialog', { name: 'Recently deleted events' });
+  await d.getByLabel('Select Old gym').check();
+  await d.getByRole('button', { name: 'Delete forever' }).click();
+  await page.getByRole('dialog', { name: 'Delete 1 for good?' }).getByRole('button', { name: 'Delete forever' }).click();
+  await page.getByText('1 deleted for good').waitFor();
+  await until(async () => !(await d.getByText('Old gym').count()));
+  await d.getByRole('button', { name: 'Empty' }).click();
+  await page.getByRole('dialog', { name: /^Delete all \d+ here for good\?$/ }).getByRole('button', { name: 'Delete forever' }).click();
+  await d.getByText('Nothing deleted lately').waitFor();
+  if ((await api(page, 'GET', '/events/trash')).body.length) throw new Error('not empty');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

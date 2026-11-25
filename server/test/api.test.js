@@ -6967,6 +6967,11 @@ test('calendar editors: someone given "can edit" makes, changes and deletes even
   assert.deepEqual((await pa('GET', '/api/events/feeds', undefined, as)).body, []);
   assert.equal((await pa('DELETE', `/api/events/${id}`, undefined, as)).status, 200);
   assert.ok(!(await boss('GET', `/api/events?from=${now}&to=${now + 864e5}`)).body.some((e) => e.id === id));
+  // Bea's Recently deleted is hers: Pat can't empty it, or delete from it for good, on her behalf.
+  assert.ok((await boss('GET', '/api/events/trash')).body.some((x) => x.id === id), 'kept in Bea’s');
+  assert.equal((await pa('DELETE', '/api/events/trash', undefined, as)).status, 400);
+  assert.equal((await pa('DELETE', `/api/events/trash/${id}`, undefined, as)).status, 400);
+  assert.ok((await boss('GET', '/api/events/trash')).body.some((x) => x.id === id), 'still there');
   const log = JSON.stringify((await owner('GET', '/api/audit?limit=100')).body);
   assert.match(log, /calendar\.editor/);
   assert.match(log, /calendar\.added_for/);
@@ -12026,6 +12031,15 @@ test('calendar: undo deleting an event of your own (not one with guests)', async
   assert.deepEqual((await a('DELETE', `/api/events/${withGuest.id}`)).body, { ok: true, undo: false });
   assert.equal((await a('POST', `/api/events/trash/${withGuest.id}/restore`)).status, 404);
   assert.ok(!(await a('GET', '/api/events/trash')).body.some((x) => x.id === withGuest.id), 'not listed');
+  // Deleted for good: one (only your own), or all.
+  const e1 = (await a('POST', '/api/events', { title: 'E1', start, end: start + 36e5 })).body, e2 = (await a('POST', '/api/events', { title: 'E2', start, end: start + 36e5 })).body;
+  for (const e of [e1, e2]) await a('DELETE', `/api/events/${e.id}`);
+  assert.equal((await b('DELETE', `/api/events/trash/${e1.id}`)).status, 404, 'not Ben’s');
+  assert.deepEqual((await a('DELETE', `/api/events/trash/${e1.id}`)).body, { deleted: 1 });
+  assert.equal((await a('POST', `/api/events/trash/${e1.id}/restore`)).status, 404, 'can’t be put back');
+  assert.deepEqual((await b('DELETE', '/api/events/trash')).body, { deleted: 0 });
+  assert.deepEqual((await a('DELETE', '/api/events/trash')).body, { deleted: 1 });
+  assert.deepEqual((await a('GET', '/api/events/trash')).body, []);
   // After 30 days: gone for good.
   const old = (await a('POST', '/api/events', { title: 'Old one', start, end: start + 36e5 })).body;
   await a('DELETE', `/api/events/${old.id}`);
