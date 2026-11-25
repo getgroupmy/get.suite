@@ -558,6 +558,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   })() : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
+                    ...(f.messages > 0 ? [{ label: 'Move all to Trash…', icon: 'trash', onClick: () => setFolderDialog({ type: 'clear', folder: f }) }] : []),
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
                   ] : []),
                 ]} />
@@ -876,6 +877,16 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             toast(`Renamed to ${r.path}${r.updatedFilters ? ` · ${r.updatedFilters} filter${r.updatedFilters === 1 ? '' : 's'} updated` : ''}`);
             if (folder === folderDialog.folder.path || folder.startsWith(`${folderDialog.folder.path}/`)) go(r.path + folder.slice(folderDialog.folder.path.length));
             loadFolders();
+          }} />
+      )}
+      {folderDialog?.type === 'clear' && (
+        <ConfirmModal title={`Move everything in “${folderDialog.folder.name}” to Trash?`} confirm="Move to Trash"
+          message={`Its ${folderDialog.folder.messages} message${folderDialog.folder.messages === 1 ? '' : 's'} go to Trash, where you can get them back. The folder stays (and its subfolders, as they are).`}
+          onClose={() => setFolderDialog(null)}
+          onConfirm={async () => {
+            const r = await post('/mail/folders/clear', { folder: folderDialog.folder.path });
+            toast(`${r.moved} message${r.moved === 1 ? '' : 's'} moved to Trash`);
+            refresh();
           }} />
       )}
       {folderDialog?.type === 'delete' && (

@@ -228,5 +228,28 @@ await step('mark-a-folder-read-from-its-menu', async () => {
   await api(page, 'DELETE', '/mail/folders?path=Newsletters');
 });
 
+await step('move-all-in-a-folder-to-trash', async () => {
+  await api(page, 'POST', '/mail/folders', { name: 'Old receipts' });
+  await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', subject: 'Receipt 991', text: 'x' });
+  let inbox = [];
+  for (let i = 0; i < 40 && !inbox.some((m) => m.subject === 'Receipt 991'); i++) {
+    await page.waitForTimeout(500);
+    inbox = (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages;
+  }
+  await api(page, 'POST', '/mail/messages/move', { folder: 'INBOX', uids: [inbox.find((m) => m.subject === 'Receipt 991').uid], to: 'Old receipts' });
+  await page.goto(`${B}/mail`);
+  const row = page.locator('.folder-row', { hasText: 'Old receipts' });
+  await row.waitFor();
+  await row.hover();
+  await page.getByRole('button', { name: 'Options for Old receipts' }).click();
+  await page.getByRole('menuitem', { name: 'Move all to Trash…' }).click();
+  await page.getByRole('dialog', { name: 'Move everything in “Old receipts” to Trash?' }).getByRole('button', { name: 'Move to Trash' }).click();
+  await page.locator('.toast', { hasText: '1 message moved to Trash' }).waitFor();
+  if ((await api(page, 'GET', `/mail/messages?folder=${encodeURIComponent('Old receipts')}`)).body.messages.length) throw new Error('still there');
+  if (!(await api(page, 'GET', '/mail/messages?folder=Trash')).body.messages.some((m) => m.subject === 'Receipt 991')) throw new Error('not in Trash');
+  await row.waitFor(); // the folder stays
+  await api(page, 'DELETE', `/mail/folders?path=${encodeURIComponent('Old receipts')}`);
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

@@ -2314,6 +2314,23 @@ export default function webmailRoutes() {
   });
 
   // Empty Trash or Junk now: everything in it deleted for good (other folders can't be emptied this way).
+  // One of your own folders cleared out: everything in it (not its subfolders) moved to Trash, where it can be
+  // got back. The folder stays. { moved }.
+  r.post('/folders/clear', async (req, res) => {
+    const folder = String(req.body?.folder || '');
+    const boxes = await withClient(req.user, (c) => c.list());
+    const box = boxes.find((b) => b.path === folder);
+    if (!box || box.flags?.has('\\Noselect')) throw notFound('Folder not found');
+    if (isProtected(box)) throw bad('Only your own folders can be cleared this way');
+    const trash = boxes.find((b) => b.specialUse === '\\Trash')?.path;
+    if (!trash) throw bad('There is no Trash to move them to');
+    const moved = await withFolder(req.user, folder, async (c) => {
+      const n = c.mailbox?.exists || 0;
+      if (n) await c.messageMove('1:*', trash);
+      return n;
+    });
+    res.json({ moved });
+  });
   r.post('/folders/empty', async (req, res) => {
     const folder = String(req.body?.folder || '');
     const trash = await specialOf(req.user, '\\Trash');

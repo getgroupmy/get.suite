@@ -601,6 +601,25 @@ test('folders in your own order: below the built-in ones; renaming keeps the pla
   for (const p of ['Zed', 'Alpha', 'Mid', 'Omega']) await olivia('DELETE', `/api/mail/folders?path=${encodeURIComponent(p)}`);
 });
 
+test('folders: Move all to Trash clears one of your own folders (the folder stays); not the built-in ones', async () => {
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Clearme' })).status, 201);
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  for (const s of ['Clear one', 'Clear two']) await t.sendMail({ from: 'Someone <someone@acme.com>', to: 'olivia@acme.com', subject: s, text: 'x' });
+  const two = await eventually(async () => { const l = (await inbox(olivia)).filter((m) => /^Clear (one|two)$/.test(m.subject)); return l.length === 2 && l; }, 20000);
+  await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: two.map((m) => m.uid), to: 'Clearme' });
+  const r = await olivia('POST', '/api/mail/folders/clear', { folder: 'Clearme' });
+  assert.deepEqual(r.body, { moved: 2 });
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=Clearme')).body.messages.length, 0);
+  assert.ok((await olivia('GET', '/api/mail/folders')).body.some((f) => f.path === 'Clearme'), 'the folder stays');
+  const trash = (await olivia('GET', '/api/mail/messages?folder=Trash')).body.messages.map((m) => m.subject);
+  assert.ok(trash.includes('Clear one') && trash.includes('Clear two'), 'in Trash, to get back');
+  assert.equal((await olivia('POST', '/api/mail/folders/clear', { folder: 'INBOX' })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/folders/clear', { folder: 'Sent' })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/folders/clear', { folder: 'Nope' })).status, 404);
+  assert.deepEqual((await olivia('POST', '/api/mail/folders/clear', { folder: 'Clearme' })).body, { moved: 0 }, 'empty: nothing to move');
+  await olivia('DELETE', '/api/mail/folders?path=Clearme');
+});
+
 test('signatures: one per sending address, only for your own identities', async () => {
   // Olivia belongs to the sales@ alias, so she has two sending addresses.
   const mine = (await olivia('GET', '/api/mail/signatures')).body;
