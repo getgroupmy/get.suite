@@ -57,7 +57,7 @@ export default function RecentlyDeleted({ title, list, restore, what, note, fore
           {items.map((x) => (
             <li key={x.id} className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               {items.length > 1 && <input type="checkbox" aria-label={`Select ${x.name || 'Untitled'}`} checked={picked.has(x.id)} onChange={(e) => { const s = new Set(picked); e.target.checked ? s.add(x.id) : s.delete(x.id); setPicked(s); }} />}
-              <span className="grow" style={{ minWidth: 0, overflowWrap: 'anywhere' }}><strong>{x.name || 'Untitled'}</strong> <span className="muted small">deleted {when(x.deleted_at)} · kept until {when(x.until)}</span></span>
+              <span className="grow" style={{ minWidth: 0, overflowWrap: 'anywhere' }}><strong>{x.name || 'Untitled'}</strong> <span className="muted small">deleted {when(x.deleted_at)}{x.removed_by ? ` by ${x.removed_by}` : ''} · kept until {when(x.until)}</span></span>
               <button type="button" className="btn small" disabled={!!busy} onClick={() => put(x)} aria-label={`Restore ${x.name}`}>{busy === x.id ? 'Restoring…' : 'Restore'}</button>
             </li>
           ))}

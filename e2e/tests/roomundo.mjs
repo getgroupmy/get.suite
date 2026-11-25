@@ -68,6 +68,7 @@ await step('Recently removed: a room removed earlier put back from the list', as
   await owner.getByRole('tab', { name: 'Company settings' }).click().catch(() => owner.getByRole('button', { name: 'Company settings' }).click());
   await owner.getByRole('button', { name: 'Recently removed' }).click();
   const d = owner.getByRole('dialog', { name: 'Recently removed rooms' });
+  await d.getByRole('listitem').filter({ hasText: 'Small room' }).getByText(/deleted .* by Olivia Owner/).waitFor();
   await d.getByRole('button', { name: 'Restore Small room' }).click();
   await owner.getByText('“Small room” is back').waitFor();
   await owner.getByRole('button', { name: 'Remove Small room' }).waitFor();
