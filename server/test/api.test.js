@@ -3773,6 +3773,14 @@ test('rooms: import from a CSV file and export again', async () => {
   const out = (await owner('GET', '/api/rooms/export.csv')).body;
   assert.match(out, /^Name,Seats,Where,Equipment,Admins only,Check-in\r\n/);
   assert.match(out, /Zz Csv Booth,1,,,no,no\r\n/);
+  // The same as a spreadsheet in Drive, with the heading row frozen.
+  const sh = await owner('POST', '/api/rooms/sheet', {});
+  assert.equal(sh.status, 201);
+  assert.equal(sh.body.name.startsWith('Rooms'), true);
+  const shc = JSON.parse((await import('../src/db.js')).q('SELECT content FROM files WHERE id = ?').get(sh.body.id).content).sheets[0];
+  assert.deepEqual([shc.cells.A1, shc.cells.F1, shc.frozen], ['Name', 'Check-in', { rows: 1, cols: 0 }]);
+  assert.equal(Object.keys(shc.cells).filter((k) => /^A\d+$/.test(k)).length, sh.body.rooms + 1);
+  assert.ok(Object.values(shc.cells).includes('Zz Csv Booth'));
   // Admins only and Check-in, yes or no.
   const flags = (await owner('POST', '/api/rooms/import', Buffer.from('Name,Admins only,Check-in\nZz Csv Booth,yes,Y\nZz Csv Atrium,maybe,no\n'), { raw: true })).body;
   assert.deepEqual([flags.updated, flags.problems], [1, ['Line 3: Admins only should be yes or no']]);

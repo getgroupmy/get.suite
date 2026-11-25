@@ -3,6 +3,7 @@ import PhishingAdmin from './PhishingAdmin.jsx';
 import CheckupAdmin from './CheckupAdmin.jsx';
 import MigrationAdmin from './MigrationAdmin.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
@@ -855,6 +856,7 @@ function CompanySettings() {
 /** Meeting rooms (and other things people book with events): add, rename, set how many fit, remove. */
 function Rooms() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState(null);
   const [name, setName] = useState('');
   const [capacity, setCapacity] = useState('');
@@ -915,6 +917,9 @@ function Rooms() {
             } catch (err) { toast(err.message, 'error'); }
           }} /></label>
         {rooms?.length > 0 && <a className="btn small" href="/api/rooms/export.csv" download>Export as CSV</a>}
+        {rooms?.length > 0 && <button type="button" className="btn small" title="The rooms as a spreadsheet in your Drive, to change and import back" onClick={async () => {
+          try { const r = await post('/rooms/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+        }}>Open in Sheets</button>}
         <button type="button" className="btn small" onClick={() => setBin(true)}>Recently removed</button>
         <span className="muted small">Columns: Name, Seats, Where, Equipment, Admins only, Check-in (yes or no). Rooms with the same name are updated.</span>
       </div>

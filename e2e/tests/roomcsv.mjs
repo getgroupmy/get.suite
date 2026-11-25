@@ -60,6 +60,15 @@ await step('Export as CSV gives them back', async () => {
   const text = await (await (await dl).createReadStream()).toArray().then((c) => Buffer.concat(c).toString());
   if (!text.includes('Boardroom,12,2nd floor,"Video, Whiteboard",yes,no') || !text.includes('Huddle,4,Ground floor,Video,no,yes')) throw new Error(text);
 });
+await step('Open in Sheets: the rooms as a spreadsheet in Drive, the same columns', async () => {
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.locator('.toast', { hasText: 'Made “Rooms” in your Drive' }).getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await page.locator('[data-k="F1"]', { hasText: 'Check-in' }).waitFor();
+  await page.getByText('Boardroom', { exact: true }).first().waitFor();
+  await page.getByText('Video, Whiteboard', { exact: true }).first().waitFor();
+});
 console.log(errors.length ? `ERRORS ${errors.join(' / ')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

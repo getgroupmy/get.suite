@@ -10,6 +10,8 @@ import { expand } from '../calserver.js';
 import { outEvent, touch } from './calendar.js';
 import { notify } from '../notifications.js';
 import { csvCell } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 
 q(`CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -382,11 +384,21 @@ export default function roomRoutes() {
     });
     res.json({ added, updated, problems });
   });
-  // Every room as a CSV file (the same columns import takes).
+  // Every room as rows (the same columns import takes): for Export as CSV and Open in Sheets.
+  const roomRows = (orgId) => [['Name', 'Seats', 'Where', 'Equipment', 'Admins only', 'Check-in'],
+    ...q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(orgId).map(outRoom)
+      .map((x) => [x.name, x.capacity ?? '', x.location ?? '', x.features.join(', '), x.admins_only ? 'yes' : 'no', x.check_in ? 'yes' : 'no'])];
   r.get('/export.csv', (req, res) => {
-    const rows = q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom);
-    const csv = ['Name,Seats,Where,Equipment,Admins only,Check-in', ...rows.map((x) => [x.name, x.capacity ?? '', x.location ?? '', x.features.join(', '), x.admins_only ? 'yes' : 'no', x.check_in ? 'yes' : 'no'].map(csvCell).join(','))].join('\r\n') + '\r\n';
+    const csv = roomRows(req.user.org_id).map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="rooms.csv"' }).send(csv);
+  });
+  // The same as a spreadsheet in your Drive ("Rooms"), to change and Import back: { id, name, rooms }.
+  r.post('/sheet', (req, res) => {
+    const rows = roomRows(req.user.org_id);
+    if (rows.length < 2) throw bad('There are no rooms yet');
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Rooms' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: 'Rooms', kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, rooms: rows.length - 1 });
   });
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
   const read = (b, cur = {}) => ({
