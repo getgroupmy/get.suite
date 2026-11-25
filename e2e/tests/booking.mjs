@@ -254,6 +254,19 @@ await step('Bookings in all: at the limit the page is full, says so to visitors,
   if ((await api(visitor, 'GET', `/public/book/${url.split('/b/')[1]}`)).body.days.length) throw new Error('times offered');
   await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { max_total: 0 });
 });
+await step('the booking that fills the page: its owner is told in the bell', async () => {
+  const pg = (await api(page, 'GET', '/bookings')).body[0];
+  await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: pg.bookings + 1 });
+  const tk = url.split('/b/')[1];
+  const slots = (await api(visitor, 'GET', `/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const r = await api(visitor, 'POST', `/public/book/${tk}`, { start: slots[0], name: 'Rita Last', email: 'rita@example.org', answers: ['+1 555 0199'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await page.getByText('“Intro call” is fully booked').first().waitFor();
+  await page.keyboard.press('Escape');
+  await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: 0 });
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

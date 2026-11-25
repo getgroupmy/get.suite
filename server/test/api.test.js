@@ -2454,6 +2454,9 @@ test('booking pages: at most N bookings in all — then full (no times, and the 
   assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: slots[3], name: 'Two', email: 'two@example.org' })).status < 300);
   const full = (await outsider('GET', `/api/public/book/${tk}`)).body;
   assert.deepEqual([full.full, full.days.length], [true, 0]);
+  const told = (await a('GET', '/api/notifications')).body.items.filter((n) => n.title === '“Interview” is fully booked');
+  assert.equal(told.length, 1, 'the owner is told, once');
+  assert.match(told[0].body, /^2 of 2 booked/);
   assert.equal((await outsider('POST', `/api/public/book/${tk}`, { start: slots[6], name: 'Three', email: 'three@example.org' })).status, 409, 'no third');
   // One cancels: a place again.
   const ct = first.body.cancel_url.split('/b/cancel/')[1];

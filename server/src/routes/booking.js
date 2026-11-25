@@ -232,6 +232,13 @@ function isFull(p, except = null) {
   const n = q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL AND event_id IS NOT ?').get(p.id, except && typeof except === 'string' ? except : null).n;
   return n >= p.max_total;
 }
+/** The booking that has just filled a page with a limit in all: its owner is told (once: at exactly the limit). */
+function tellIfFull(p) {
+  if (!p.max_total) return;
+  const n = q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n;
+  if (n !== p.max_total) return;
+  bell([p.user_id], { kind: 'booking', title: `“${p.title}” is fully booked`, body: `${n} of ${n} booked: it offers no more times. Raise its Bookings in all, or leave it be.`, link: '/calendar' });
+}
 const shapePage = (p, req) => ({ ...p, in_pause: inPause(p), days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
   host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, skip_away: !!p.skip_away, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
@@ -590,6 +597,7 @@ export function publicBookingRoutes() {
       notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
       touch([owner.id]);
       bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: `${session.taken + 1} of ${p.seats} places taken`, link: '/calendar', actor: name });
+      tellIfFull(p);
       return res.status(201).json({ ok: true, title: p.title, start, end: ev.end, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl,
         meet_url: ev.meet_code ? `${baseUrl(req)}/meet/${ev.meet_code}?name=${encodeURIComponent(name)}` : null, place: p.where_kind === 'place' ? p.where_text : null });
     }
@@ -617,6 +625,7 @@ export function publicBookingRoutes() {
     touch([owner.id]);
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
     bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
+    tellIfFull(p);
     res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl,
       meet_url: meetCode ? `${baseUrl(req)}/meet/${meetCode}?name=${encodeURIComponent(name)}` : null, /* their name filled in when they join */ place: p.where_kind === 'place' ? p.where_text : null });
   });
