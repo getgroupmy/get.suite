@@ -20,6 +20,7 @@ import Icon from '../../components/Icon.jsx';
 import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal, ConfirmModal } from '../../components/ui.jsx';
+import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText, taskHoursByDay, deltaText } from './insights.js';
@@ -202,6 +203,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [binOpen, setBinOpen] = useState(false); // Recently deleted events
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
   const importInput = useRef();
   const importIcs = async (file, calendar = null) => {
@@ -510,7 +512,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <input ref={importInput} type="file" accept=".ics,.csv,text/calendar,text/csv" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         <a className="subnav-item" href={`/api/events/export?format=csv&tz=${encodeURIComponent(TZ)}`} download><Icon name="download" /><span className="grow">Export as CSV</span></a>
+        <button type="button" className="subnav-item" onClick={() => setBinOpen(true)}><Icon name="trash" /><span className="grow">Recently deleted</span></button>
         </>}
+        {binOpen && <RecentlyDeleted title="Recently deleted events" what="Events" list="/events/trash" restore={(id) => `/events/trash/${id}/restore`}
+          note="Events of yours with nobody else in them are kept here for 30 days after you delete them, then deleted for good. (Events with guests or a room are cancelled for everyone instead.)"
+          onClose={() => setBinOpen(false)} onRestored={() => { setBinOpen(false); load(); }} />}
         {!acting && <MyCalendars calendars={myCals} me={me} people={people.filter((p) => p.id !== me.id)} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
           onToggle={(c, hidden) => { setMyCals((l) => l.map((x) => (x.id === c.id ? { ...x, hidden } : x))); patch(`/events/calendars/${c.id}`, { hidden }).catch((e) => { toast(e.message, 'error'); loadCals(); }); }} />}
         <div className="subnav-title">Other calendars</div>

@@ -513,8 +513,9 @@ export function focusUntil(userId, t = Date.now()) {
 }
 
 /** Delete one of your events (a series with its changed occurrences); its guests are told it's cancelled. */
-// Deleted events of your own with nobody else in them (no guests, no rooms) wait a day, so Undo can bring
-// them back as they were (with changed occurrences and your reminders). Events with guests are cancelled for them.
+// Deleted events of your own with nobody else in them (no guests, no rooms) wait 30 days, so Undo (or Recently
+// deleted) can bring them back as they were (with changed occurrences and your reminders). Events with guests
+// are cancelled for them.
 q(`CREATE TABLE IF NOT EXISTS event_trash (
   id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -523,7 +524,7 @@ q(`CREATE TABLE IF NOT EXISTS event_trash (
   reminders TEXT NOT NULL    -- JSON: their reminders
 )`).run();
 export const JOIN_HOW = ['room', 'video'];
-export const EVENT_UNDO_MS = 864e5;
+export const EVENT_UNDO_MS = 30 * 864e5;
 /** Keep an event to put back with Undo, when it has nobody else in it. True when kept. */
 function keepForUndo(ev, userId) {
   if (ev.owner_id !== userId) return false;
@@ -1211,10 +1212,18 @@ export default function calendarRoutes() {
     touch([...people]);
     res.json({ moved: evs.length });
   });
-  // Undo a delete (within a day): the event comes back as it was.
+  // Your recently deleted events (kept 30 days), newest first: { id, name, start, deleted_at, until }.
+  r.get('/trash', (req, res) => {
+    q('DELETE FROM event_trash WHERE deleted_at < ?').run(Date.now() - EVENT_UNDO_MS);
+    res.json(q('SELECT id, deleted_at, rows FROM event_trash WHERE owner_id = ? ORDER BY deleted_at DESC').all(req.user.id).map((t) => {
+      const ev = JSON.parse(t.rows)[0] || {};
+      return { id: t.id, name: ev.title || '(No title)', start: ev.start, all_day: !!ev.all_day, deleted_at: t.deleted_at, until: t.deleted_at + EVENT_UNDO_MS };
+    }));
+  });
+  // Undo a delete (within 30 days): the event comes back as it was.
   r.post('/trash/:id/restore', (req, res) => {
     const t = q('SELECT * FROM event_trash WHERE id = ? AND owner_id = ? AND deleted_at >= ?').get(String(req.params.id), req.user.id, Date.now() - EVENT_UNDO_MS);
-    if (!t) throw notFound('Too late to undo');
+    if (!t) throw notFound('Not in your recently deleted events');
     tx(() => {
       for (const row of JSON.parse(t.rows)) if (!q('SELECT 1 FROM events WHERE id = ?').get(row.id)) insertRow('events', row);
       for (const r0 of JSON.parse(t.reminders)) q('INSERT OR IGNORE INTO event_reminders (event_id, user_id, minutes) VALUES (?, ?, ?)').run(r0.event_id, r0.user_id, r0.minutes);

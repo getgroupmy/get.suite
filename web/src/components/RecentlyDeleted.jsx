@@ -6,7 +6,7 @@ import { Empty, Modal, useToast } from './ui.jsx';
 
 const when = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
-export default function RecentlyDeleted({ title, list, restore, what, onRestored, onClose }) {
+export default function RecentlyDeleted({ title, list, restore, what, note, onRestored, onClose }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -35,7 +35,7 @@ export default function RecentlyDeleted({ title, list, restore, what, onRestored
   };
   return (
     <Modal title={title} onClose={onClose}>
-      <p className="muted small" style={{ marginTop: 0 }}>{what} you delete are kept here for 30 days, then deleted for good. Restoring brings back everything in them, for everyone they were shared with.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>{note || `${what} you delete are kept here for 30 days, then deleted for good. Restoring brings back everything in them, for everyone they were shared with.`}</p>
       {items === null ? <p className="muted">Loading…</p> : !items.length ? <Empty icon="trash" title="Nothing deleted lately" /> : (<>
         {items.length > 1 && (
           <div className="row" style={{ gap: 8, marginBottom: 8 }}>

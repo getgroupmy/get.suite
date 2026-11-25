@@ -71,6 +71,21 @@ await step('an event with a guest has no Undo (it was cancelled for them)', asyn
   await page.waitForTimeout(500);
   if (await page.getByRole('button', { name: 'Undo' }).count()) throw new Error('undo offered');
 });
+await step('Recently deleted: a deleted event of yours, put back after the Undo has gone', async () => {
+  const start = dayStart + day + 16 * 36e5;
+  const ev = (await api(page, 'POST', '/events', { title: 'Piano lesson', start, end: start + 36e5 })).body;
+  await api(page, 'DELETE', `/events/${ev.id}`);
+  await page.reload();
+  await page.locator('.month').waitFor();
+  if (await page.locator('.month .chip', { hasText: 'Piano lesson' }).count()) throw new Error('still shown');
+  await page.getByRole('button', { name: 'Recently deleted' }).click();
+  const d = page.getByRole('dialog', { name: 'Recently deleted events' });
+  await d.getByText(/kept here for 30 days/).waitFor();
+  if (await d.getByText('Supplier call').count()) throw new Error('an event with guests is listed');
+  await d.getByRole('button', { name: 'Restore Piano lesson' }).click();
+  await page.getByText('“Piano lesson” is back').waitFor();
+  await page.locator('.month .chip', { hasText: 'Piano lesson' }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

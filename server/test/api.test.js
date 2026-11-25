@@ -12007,6 +12007,14 @@ test('calendar: undo deleting an event of your own (not one with guests)', async
   assert.deepEqual(del.body, { ok: true, undo: true });
   const listed = async () => (await a('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.filter((e) => e.id === ev.id);
   assert.equal((await listed()).length, 0);
+  // Listed under Recently deleted for 30 days: yours alone.
+  const bin = (await a('GET', '/api/events/trash')).body;
+  assert.deepEqual(bin.map((x) => [x.id, x.name, x.start]), [[ev.id, 'Dentist', start]]);
+  assert.ok(Math.abs(bin[0].until - bin[0].deleted_at - 30 * 864e5) < 1000);
+  assert.deepEqual((await b('GET', '/api/events/trash')).body, []);
+  const { q } = await import('../src/db.js');
+  q('UPDATE event_trash SET deleted_at = ? WHERE id = ?').run(Date.now() - 29 * 864e5, ev.id);
+  assert.equal((await a('GET', '/api/events/trash')).body.length, 1, 'still there on day 29');
   assert.equal((await b('POST', `/api/events/trash/${ev.id}/restore`)).status, 404, 'not Ben’s');
   assert.deepEqual((await a('POST', `/api/events/trash/${ev.id}/restore`)).body, { ok: true, id: ev.id });
   const back = await listed();
@@ -12017,6 +12025,13 @@ test('calendar: undo deleting an event of your own (not one with guests)', async
   const withGuest = (await a('POST', '/api/events', { title: 'Meeting', start, end: start + 36e5, guests: ['ceub@acme.com'] })).body;
   assert.deepEqual((await a('DELETE', `/api/events/${withGuest.id}`)).body, { ok: true, undo: false });
   assert.equal((await a('POST', `/api/events/trash/${withGuest.id}/restore`)).status, 404);
+  assert.ok(!(await a('GET', '/api/events/trash')).body.some((x) => x.id === withGuest.id), 'not listed');
+  // After 30 days: gone for good.
+  const old = (await a('POST', '/api/events', { title: 'Old one', start, end: start + 36e5 })).body;
+  await a('DELETE', `/api/events/${old.id}`);
+  q('UPDATE event_trash SET deleted_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, old.id);
+  assert.equal((await a('POST', `/api/events/trash/${old.id}/restore`)).status, 404);
+  assert.deepEqual((await a('GET', '/api/events/trash')).body, []);
 });
 
 test('calendar: event templates, each person’s own', async () => {
