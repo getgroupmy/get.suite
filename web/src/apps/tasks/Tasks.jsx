@@ -1779,6 +1779,11 @@ function TaskTrash({ list, onClose, onRestored }) {
   const restoreMany = async () => {
     try { const r = await post('/tasks/trash/restore-many', { ids: [...picked] }); toast(`${r.restored === 1 ? '1 task' : `${r.restored} tasks`} back`); setPicked(new Set()); onRestored(); load(); } catch (e) { toast(e.message, 'error'); }
   };
+  const [forever, setForever] = useState(null); // 'picked' or 'all', asked first
+  const deleteForever = async () => {
+    const r = forever === 'all' ? await del(`/tasks/lists/${list.id}/trash`) : await post('/tasks/trash/delete-many', { ids: [...picked] });
+    toast(`${r.deleted === 1 ? '1 task' : `${r.deleted} tasks`} deleted for good`); setPicked(new Set()); load();
+  };
   return (
     <Modal title={`Deleted tasks · ${list.name}`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
       {!items ? null : !items.length ? <p className="muted">Nothing deleted in the last 30 days.</p> : (<>
@@ -1786,6 +1791,7 @@ function TaskTrash({ list, onClose, onRestored }) {
           <div className="row" style={{ gap: 8, marginBottom: 8 }}>
             <label className="check small grow"><input type="checkbox" aria-label="Select all deleted tasks" checked={items.every((t) => picked.has(t.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((t) => t.id)) : new Set())} /> Select all</label>
             <button type="button" className="btn small primary" disabled={!picked.size} onClick={restoreMany}>{`Restore ${picked.size || ''}`.trim()}</button>
+            <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setForever('picked')}>Delete forever</button>
           </div>
         )}
         <ul className="task-trash" aria-label="Deleted tasks">
@@ -1799,7 +1805,10 @@ function TaskTrash({ list, onClose, onRestored }) {
           ))}
         </ul>
       </>)}
-      <p className="muted small">Deleted tasks stay here for 30 days, for everyone on the list.</p>
+      <div className="row"><p className="muted small grow">Deleted tasks stay here for 30 days, for everyone on the list.</p>
+        {items?.length > 0 && <button type="button" className="btn small" onClick={() => setForever('all')}>Empty</button>}</div>
+      {forever && <ConfirmModal title={forever === 'all' ? `Delete all ${items.length === 1 ? '1 task' : `${items.length} tasks`} here for good?` : `Delete ${picked.size === 1 ? '1 task' : `${picked.size} tasks`} for good?`}
+        confirm="Delete forever" danger message="They can’t be put back, for anyone on the list." onClose={() => setForever(null)} onConfirm={deleteForever} />}
     </Modal>
   );
 }

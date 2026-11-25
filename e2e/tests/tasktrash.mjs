@@ -86,6 +86,25 @@ await step('Deleted tasks: tick several and restore them together', async () => 
   await task(page, 'Fix bike').waitFor();
   if (await task(page, 'Sort tools').count()) throw new Error('Sort tools came back');
 });
+await step('Deleted tasks: Delete forever for the ticked ones, and Empty for the rest (asked first)', async () => {
+  const lid = (await api(page, 'POST', '/tasks/lists', { name: 'Garage' })).body.id;
+  const made = [];
+  for (const title of ['Old paint', 'Broken rake', 'Spare bulbs']) made.push((await api(page, 'POST', `/tasks/lists/${lid}/tasks`, { title })).body);
+  await api(page, 'POST', '/tasks/tasks/batch', { ids: made.map((x) => x.id), delete: true });
+  await page.goto(`${B}/tasks/${lid}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Deleted tasks…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Deleted tasks · Garage' });
+  await dlg.getByLabel('Select deleted task: Old paint').check();
+  await dlg.getByRole('button', { name: 'Delete forever' }).click();
+  await page.getByRole('dialog', { name: 'Delete 1 task for good?' }).getByRole('button', { name: 'Delete forever' }).click();
+  await page.locator('.toast', { hasText: '1 task deleted for good' }).last().waitFor();
+  await until(async () => !(await dlg.getByText('Old paint').count()));
+  await dlg.getByRole('button', { name: 'Empty' }).click();
+  await page.getByRole('dialog', { name: 'Delete all 2 tasks here for good?' }).getByRole('button', { name: 'Delete forever' }).click();
+  await dlg.getByText('Nothing deleted in the last 30 days.').waitFor();
+  if ((await api(page, 'GET', `/tasks/lists/${lid}/trash`)).body.length) throw new Error('trash not empty');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

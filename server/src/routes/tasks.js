@@ -1529,6 +1529,25 @@ export default function taskRoutes() {
     res.json({ restored: back.length });
   });
 
+  // Deleted for good, before their 30 days are up ({ ids }, each in the trash of a list you're on; all checked
+  // first), or a list's whole trash at once.
+  r.post('/trash/delete-many', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some tasks');
+    if (ids.length > 500) throw bad('500 tasks at a time at most');
+    const found = ids.map((id) => { const t = q('SELECT list_id FROM task_trash WHERE id = ?').get(id); if (!t) throw notFound('Not in the trash (or kept too long)'); return { id, list: loadList(t.list_id, req.user) }; });
+    tx(() => { for (const f of found) q('DELETE FROM task_trash WHERE id = ?').run(f.id); });
+    forgetGoneHistory();
+    for (const list of new Map(found.map((f) => [f.list.id, f.list])).values()) changed(list);
+    res.json({ deleted: found.length });
+  });
+  r.delete('/lists/:id/trash', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const n = q('DELETE FROM task_trash WHERE list_id = ?').run(list.id).changes;
+    if (n) { forgetGoneHistory(); changed(list); }
+    res.json({ deleted: n });
+  });
+
   // Clear the completed tasks of a list.
   r.delete('/lists/:id/done', (req, res) => {
     const list = loadList(req.params.id, req.user);

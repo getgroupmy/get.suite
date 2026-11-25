@@ -12984,6 +12984,19 @@ test('tasks: deleted tasks wait in the list’s trash and come back whole', asyn
   assert.deepEqual((await a('POST', '/api/tasks/trash/restore-many', { ids: [t.id, ...extra.map((x) => x.id)] })).body, { restored: 3 });
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.map((x) => x.title).sort(), ['Book venue', 'X1', 'X2']);
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body, []);
+  // Deleted for good: some (all checked first), or the whole trash; only on lists you're on.
+  const gone = [];
+  for (const title of ['G1', 'G2', 'G3']) gone.push((await a('POST', `/api/tasks/lists/${list}/tasks`, { title })).body);
+  await a('POST', '/api/tasks/tasks/batch', { ids: gone.map((x) => x.id), delete: true });
+  assert.equal((await c('POST', '/api/tasks/trash/delete-many', { ids: [gone[0].id] })).status, 404, 'not Cat’s');
+  assert.equal((await a('POST', '/api/tasks/trash/delete-many', { ids: [gone[0].id, 'nope'] })).status, 404);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/trash`)).body.length, 3, 'all checked first: none gone');
+  assert.deepEqual((await a('POST', '/api/tasks/trash/delete-many', { ids: [gone[0].id] })).body, { deleted: 1 });
+  assert.equal((await a('POST', `/api/tasks/trash/${gone[0].id}/restore`)).status, 404, 'can’t be put back');
+  assert.equal((await c('DELETE', `/api/tasks/lists/${list}/trash`)).status, 404, 'not Cat’s list');
+  assert.deepEqual((await a('DELETE', `/api/tasks/lists/${list}/trash`)).body, { deleted: 2 });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body, []);
+  assert.equal(q('SELECT COUNT(*) AS n FROM task_history WHERE task_id IN (?, ?, ?)').get(...gone.map((x) => x.id)).n, 0, 'their history goes too');
 });
 
 test('tasks: what you ticked off in the last 30 days, from every list', async () => {
