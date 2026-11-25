@@ -528,6 +528,7 @@ export default function Tasks() {
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               ...(list.members.length ? [{ label: 'Workload…', icon: 'people', onClick: () => setDialog('workload') }] : []),
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
+              { label: 'Import from Sheets…', icon: 'sheet', onClick: () => setDialog('from-sheet') }, // (a spreadsheet in Drive, its first sheet, read as the CSV is)
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               ...((tasks || []).length ? [{ label: 'Open in Sheets', icon: 'sheet', onClick: async () => {
@@ -803,6 +804,15 @@ export default function Tasks() {
       {dialog === 'team' && <Workload onClose={() => setDialog(null)} />}
       {dialog === 'workload' && list && <Workload list={list} onClose={() => setDialog(null)} onPick={(id) => { setWho(id); setDialog(null); }} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} onRate={loadLists} />}
+      {dialog === 'from-sheet' && list && <DrivePicker title={`Import into ${list.name} from a spreadsheet`} accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setDialog(null)}
+        onPick={async (x) => {
+          setDialog(null);
+          try {
+            const r = await post(`/tasks/lists/${list.id}/from-sheet`, { file: x.id, sheet: 0 });
+            toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'} from “${x.name}”${r.done ? ` (${r.done} already done)` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
+            loadTasks();
+          } catch (e) { toast(e.message, 'error'); }
+        }} />}
       {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
       {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
       {dialog === 'trash' && list && <TaskTrash list={list} onClose={() => setDialog(null)} onRestored={() => { loadTasks(); loadLists(); }} />}

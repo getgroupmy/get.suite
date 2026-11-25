@@ -129,6 +129,19 @@ await step('a task’s details → Save to Notes: a note with its notes, steps a
   await page.waitForURL(/\/notes/);
   await page.getByText('A long-wheelbase one').first().waitFor();
 });
+await step('List actions → Import from Sheets…: a spreadsheet in Drive adds its tasks, no CSV file needed', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Move checklist', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Title', B1: 'Due date', A2: 'Book the van', B2: '20/12/2026', A3: 'Return the keys' } }] } });
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Import from Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: /^Import into .* from a spreadsheet$/ });
+  await pick.getByLabel('Search your files').fill('Move checklist');
+  await pick.getByRole('button', { name: /Move checklist/ }).click();
+  await page.getByText('Added 2 tasks from “Move checklist”').waitFor();
+  await page.getByText('Return the keys').first().waitFor();
+  const van = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.find((x) => x.title === 'Book the van');
+  if (van?.due !== '2026-12-20') throw new Error(JSON.stringify(van));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
