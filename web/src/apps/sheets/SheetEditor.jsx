@@ -1450,6 +1450,12 @@ export default function SheetEditor() {
               toast(r.added ? `Added ${r.added} contact${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already in your contacts)` : ''}` : 'Everyone on this sheet is already in your contacts', 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
             } catch (e) { toast(e.message, 'error'); }
           } },
+          user?.is_admin && { label: 'Update company rooms', icon: 'upload', onClick: async () => { // (a sheet as Admin → Rooms → Open in Sheets gives: Name, Seats, Where…)
+            try {
+              const r = await post('/rooms/from-sheet', { file: id, sheet: active });
+              toast(`Rooms: ${r.added} added, ${r.updated} updated${r.problems.length ? `; ${r.problems.length} row${r.problems.length === 1 ? '' : 's'} not used (${r.problems[0]})` : ''}`, r.problems.length ? 'error' : 'info', { action: { label: 'Open Admin', onClick: () => navigate('/admin') } });
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           !viewOnly(file) && { label: 'Add events to Calendar', icon: 'calendar', onClick: async () => { // (a sheet laid out as a calendar's CSV: Subject, Start Date, Start Time…)
             try {
               const r = await post(`/files/${id}/add-events`, { sheet: active, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });

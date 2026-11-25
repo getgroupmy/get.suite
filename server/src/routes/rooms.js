@@ -11,7 +11,7 @@ import { outEvent, touch } from './calendar.js';
 import { notify } from '../notifications.js';
 import { csvCell } from '../csvcell.js';
 import { sheetFromRows } from '../office/tablesheet.js';
-import { insertFile } from './files.js';
+import { insertFile, sheetAsCsv } from './files.js';
 
 q(`CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -365,8 +365,18 @@ export default function roomRoutes() {
   // Admins: add or update rooms from a CSV file (a room with the same name, ignoring case, is updated).
   r.post('/import', express.text({ type: () => true, limit: '2mb' }), (req, res) => {
     if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms');
-    const { rooms, problems } = roomsFromCsv(typeof req.body === 'string' ? req.body : '');
-    if (!rooms.length) throw bad(problems[0] || 'No rooms in that file');
+    res.json(importRooms(req.user, typeof req.body === 'string' ? req.body : '', 'No rooms in that file'));
+  });
+  // The same from a spreadsheet in Drive (its ⋮ → Update company rooms): { file, sheet }, read as Import reads a CSV.
+  r.post('/from-sheet', async (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms');
+    res.json(importRooms(req.user, await sheetAsCsv(req.body?.file, req.body?.sheet, req.user), 'No rooms on this sheet: give it a Name column'));
+  });
+  // Rooms from CSV text: new names added, ones there (any case) updated, a column left out kept. { added, updated, problems }
+  const importRooms = (user, text, none) => {
+    const req = { user };
+    const { rooms, problems } = roomsFromCsv(text);
+    if (!rooms.length) throw bad(problems[0] || none);
     let added = 0, updated = 0;
     tx(() => {
       for (const v of rooms) {
@@ -382,8 +392,8 @@ export default function roomRoutes() {
         added++;
       }
     });
-    res.json({ added, updated, problems });
-  });
+    return { added, updated, problems };
+  };
   // Every room as rows (the same columns import takes): for Export as CSV and Open in Sheets.
   const roomRows = (orgId) => [['Name', 'Seats', 'Where', 'Equipment', 'Admins only', 'Check-in'],
     ...q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(orgId).map(outRoom)

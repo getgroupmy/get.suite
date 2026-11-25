@@ -3781,6 +3781,23 @@ test('rooms: import from a CSV file and export again', async () => {
   assert.deepEqual([shc.cells.A1, shc.cells.F1, shc.frozen], ['Name', 'Check-in', { rows: 1, cols: 0 }]);
   assert.equal(Object.keys(shc.cells).filter((k) => /^A\d+$/.test(k)).length, sh.body.rooms + 1);
   assert.ok(Object.values(shc.cells).includes('Zz Csv Booth'));
+  // Changed in Sheets and read back with Update company rooms (admins only): the atrium gets more seats, a new room is added.
+  const { q: dq } = await import('../src/db.js');
+  const doc = JSON.parse(dq('SELECT content FROM files WHERE id = ?').get(sh.body.id).content);
+  const atriumRow = Object.entries(doc.sheets[0].cells).find(([, v]) => v === 'zz csv atrium')[0].slice(1);
+  doc.sheets[0].cells[`B${atriumRow}`] = '60';
+  const last = Object.keys(doc.sheets[0].cells).filter((k) => /^A\d+$/.test(k)).length + 1;
+  Object.assign(doc.sheets[0].cells, { [`A${last}`]: 'Zz Sheet Nook', [`B${last}`]: '2', [`E${last}`]: 'no', [`F${last}`]: 'yes' });
+  dq('UPDATE files SET content = ? WHERE id = ?').run(JSON.stringify(doc), sh.body.id);
+  const fromSheet = await owner('POST', '/api/rooms/from-sheet', { file: sh.body.id, sheet: 0 });
+  assert.equal(fromSheet.status, 200, JSON.stringify(fromSheet.body));
+  assert.deepEqual([fromSheet.body.added, fromSheet.body.problems], [1, []]);
+  const after = (await owner('GET', '/api/rooms')).body;
+  assert.equal(after.find((r) => r.name === 'zz csv atrium').capacity, 60);
+  assert.equal(after.find((r) => r.name === 'Zz Csv Booth').capacity, 1, 'unchanged');
+  assert.deepEqual(['capacity', 'check_in'].map((k) => after.find((r) => r.name === 'Zz Sheet Nook')[k]), [2, true]);
+  assert.equal((await owner('POST', '/api/rooms/from-sheet', { file: 'nope', sheet: 0 })).status, 404);
+  assert.equal((await a('POST', '/api/rooms/from-sheet', { file: sh.body.id, sheet: 0 })).status, 403, 'admins only');
   // Admins only and Check-in, yes or no.
   const flags = (await owner('POST', '/api/rooms/import', Buffer.from('Name,Admins only,Check-in\nZz Csv Booth,yes,Y\nZz Csv Atrium,maybe,no\n'), { raw: true })).body;
   assert.deepEqual([flags.updated, flags.problems], [1, ['Line 3: Admins only should be yes or no']]);

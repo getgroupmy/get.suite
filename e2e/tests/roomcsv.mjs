@@ -69,6 +69,22 @@ await step('Open in Sheets: the rooms as a spreadsheet in Drive, the same column
   await page.getByText('Boardroom', { exact: true }).first().waitFor();
   await page.getByText('Video, Whiteboard', { exact: true }).first().waitFor();
 });
+await step('changed in Sheets, then ⋮ → Update company rooms: the change is in Admin (no CSV in between)', async () => {
+  // (the sheet from the step before: Boardroom is row 2, sorted by name)
+  await page.locator('[data-k="A2"]', { hasText: 'Boardroom' }).waitFor();
+  await page.locator('[data-k="B2"]').click();
+  await page.keyboard.type('20');
+  await page.keyboard.press('Enter');
+  await page.locator('[data-k="B2"]', { hasText: '20' }).waitFor();
+  const seats = async () => (await api(page, 'GET', '/rooms')).body.find((r) => r.name === 'Boardroom')?.capacity;
+  for (let i = 0; i < 6 && (await seats()) !== 20; i++) { // (the edit is saved a moment after it's typed)
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Update company rooms' }).click();
+    await page.locator('.toast', { hasText: /^Rooms: 0 added, \d+ updated/ }).last().waitFor();
+  }
+  if ((await seats()) !== 20) throw new Error(`Boardroom has ${await seats()} seats`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' / ')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
