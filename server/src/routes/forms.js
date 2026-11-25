@@ -490,7 +490,9 @@ export function publicSummary(questions, responses) {
 const asText = (a) => (Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join('; ') : a == null ? '' : String(a));
 const csvCell = (v) => csvCellOf(v); // don't let a spreadsheet run an answer as a formula (csvcell.js)
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, progress_bar: !!f.progress_bar, auto_remind: !!f.auto_remind, theme: themeOf(f) });
+// One of your own forms kept as a template ("Use as my template"): under Your templates when starting a new form.
+if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'my_template')) q('ALTER TABLE forms ADD COLUMN my_template INTEGER NOT NULL DEFAULT 0').run();
+const parse = (f) => ({ ...f, my_template: !!f.my_template, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, progress_bar: !!f.progress_bar, auto_remind: !!f.auto_remind, theme: themeOf(f) });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
@@ -754,6 +756,12 @@ export default function formRoutes() {
   });
 
   // Forms to start from: the gallery under New form.
+  // Your own templates (forms you keep as one), with when you last started from each.
+  r.get('/my-templates', (req, res) => {
+    res.json(q(`SELECT f.id, f.title, f.questions, u.used_at FROM forms f LEFT JOIN form_template_uses u ON u.user_id = f.owner_id AND u.template_id = f.id
+                WHERE f.owner_id = ? AND f.my_template = 1 ORDER BY f.title COLLATE NOCASE`).all(req.user.id)
+      .map((t) => ({ id: t.id, title: t.title, questions: JSON.parse(t.questions || '[]').length, used_at: t.used_at ?? null })));
+  });
   // Each template with when you last started a form from it (used_at, or null), for the gallery's order.
   r.get('/templates', (req, res) => {
     const used = new Map(q('SELECT template_id, used_at FROM form_template_uses WHERE user_id = ?').all(req.user.id).map((x) => [x.template_id, x.used_at]));
@@ -983,9 +991,22 @@ export default function formRoutes() {
       .run(raw.collect_email, raw.send_copy, raw.allow_edit, raw.max_responses, raw.show_results, raw.email_domains, raw.progress_bar, raw.task_list, raw.task_title, id);
     return id;
   }
+  // { template: true }: a new form from one of your templates, with its title (not "Copy of …").
   r.post('/:id/copy', (req, res) => {
-    const id = copyForm(ownForm(req.params.id, req.user), req.user);
+    const f = ownForm(req.params.id, req.user);
+    if (req.body?.template && !(f.my_template && f.owner_id === req.user.id)) throw notFound('Template not found');
+    const id = copyForm(f, req.user);
+    if (req.body?.template) {
+      q('UPDATE forms SET title = ? WHERE id = ?').run(f.title, id);
+      q('INSERT INTO form_template_uses (user_id, template_id, used_at) VALUES (?, ?, ?) ON CONFLICT (user_id, template_id) DO UPDATE SET used_at = excluded.used_at').run(req.user.id, f.id, Date.now());
+    }
     res.status(201).json(ownForm(id, req.user));
+  });
+  // Keep one of your forms as a template of your own ({ template: true }), or not: its owner only.
+  r.put('/:id/my-template', (req, res) => {
+    const f = ownForm(req.params.id, req.user, { ownerOnly: true });
+    q('UPDATE forms SET my_template = ? WHERE id = ?').run(req.body?.template ? 1 : 0, f.id);
+    res.json({ my_template: !!req.body?.template });
   });
 
   // A new link: the old one stops working (for when it went somewhere it shouldn't).

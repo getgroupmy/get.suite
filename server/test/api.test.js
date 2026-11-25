@@ -10280,6 +10280,36 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   assert.deepEqual((await a('GET', '/api/contacts')).body.map((c) => c.name), ['Ann Able']);
 });
 
+test('Forms: your own templates — keep a form as one, start new forms from it (its title, its questions), owner only', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['fmta', 'Fmt Ann'], ['fmtb', 'Fmt Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fmta@acme.com');
+  await login(b, 'fmtb@acme.com');
+  const f = (await a('POST', '/api/forms', { title: 'Site visit checklist', questions: [{ type: 'text', title: 'Site' }, { type: 'choice', title: 'Safe?', options: ['Yes', 'No'] }] })).body;
+  assert.equal(f.my_template, false);
+  assert.deepEqual((await a('GET', '/api/forms/my-templates')).body, []);
+  assert.deepEqual((await a('PUT', `/api/forms/${f.id}/my-template`, { template: true })).body, { my_template: true });
+  const list = (await a('GET', '/api/forms/my-templates')).body;
+  assert.deepEqual(list.map((t) => [t.id, t.title, t.questions, t.used_at]), [[f.id, 'Site visit checklist', 2, null]]);
+  const made = await a('POST', `/api/forms/${f.id}/copy`, { template: true });
+  assert.equal(made.status, 201);
+  assert.notEqual(made.body.id, f.id);
+  assert.equal(made.body.title, 'Site visit checklist', 'its own title, not Copy of');
+  assert.deepEqual(made.body.questions.map((x) => x.title), ['Site', 'Safe?']);
+  assert.equal(made.body.my_template, false, 'the new form isn’t a template itself');
+  assert.equal(typeof (await a('GET', '/api/forms/my-templates')).body[0].used_at, 'number', 'remembered as used');
+  // A co-editor can't make it a template, nor start from someone else's.
+  assert.equal((await a('POST', `/api/forms/${f.id}/editors`, { email: 'fmtb@acme.com' })).status < 300, true);
+  assert.equal((await b('PUT', `/api/forms/${f.id}/my-template`, { template: true })).status, 403);
+  assert.equal((await b('POST', `/api/forms/${f.id}/copy`, { template: true })).status, 404);
+  assert.deepEqual((await b('GET', '/api/forms/my-templates')).body, []);
+  // A form that isn't a template can't be started from as one; off again.
+  const plain = (await a('POST', '/api/forms', { title: 'Plain' })).body;
+  assert.equal((await a('POST', `/api/forms/${plain.id}/copy`, { template: true })).status, 404);
+  await a('PUT', `/api/forms/${f.id}/my-template`, { template: false });
+  assert.deepEqual((await a('GET', '/api/forms/my-templates')).body, []);
+});
+
 test('Forms: templates to start from, each a valid form with its settings', async () => {
   const fa = client();
   assert.equal((await owner('POST', '/api/users', { local: 'tplmaker', domain: 'acme.com', name: 'Tess Template', password: 'password123' })).status, 201);

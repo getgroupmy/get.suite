@@ -56,6 +56,11 @@ function FormList() {
     try { const r = await post('/forms/batch', { ids: [...picked], action }); toast(say(r)); setPicked(new Set()); reload(); return r; } catch (e) { toast(e.message, 'error'); return null; }
   };
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
+  const [mine, setMine] = useState([]); // your own templates (forms you keep as one)
+  useEffect(() => { get('/forms/my-templates').then(setMine).catch(() => {}); }, []);
+  const fromMine = async (t) => {
+    try { const f = await post(`/forms/${t.id}/copy`, { template: true }); navigate(`/forms/${f.id}`); } catch (e) { toast(e.message, 'error'); }
+  };
   // One new form per press: pressed again while the first is on its way, nothing more is made.
   const creating = useRef(false);
   const create = async (template) => {
@@ -70,11 +75,16 @@ function FormList() {
       <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={18} /> Recently deleted</button><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
       {bin && <RecentlyDeleted title="Recently deleted forms" what="Forms" list="/forms/bin/list" restore={(id) => `/forms/bin/${id}/restore`}
         onClose={() => setBin(false)} onRestored={(b) => navigate(`/forms/${b.form_id}`)} />}
-      {templates.length > 0 && (
+      {(templates.length > 0 || mine.length > 0) && (
         <section className="form-gallery" aria-label="Start a new form">
           <h2 className="small muted">Start a new form</h2>
           <ul>
             <li><button type="button" className="form-tpl blank" onClick={() => create()}><span className="form-tpl-mark" aria-hidden="true">＋</span><strong>Blank form</strong><span className="muted small">Your own questions</span></button></li>
+            {[...mine].sort((a, b) => (b.used_at || 0) - (a.used_at || 0) || a.title.localeCompare(b.title)).map((t) => (
+              <li key={t.id}><button type="button" className="form-tpl mine" aria-label={`Start from your template ${t.title}`} onClick={() => fromMine(t)}>
+                <span className="form-tpl-mark" aria-hidden="true">⭐</span><strong>{t.title}</strong><span className="muted small">Your template · {t.questions} question{t.questions === 1 ? '' : 's'}</span>
+              </button></li>
+            ))}
             {[...lately, ...templates.filter((t) => !lately.includes(t))].map((t) => (
               <li key={t.id}><button type="button" className="form-tpl" aria-label={`Start from the ${t.title} template`} onClick={() => create(t.id)}>
                 <span className="form-tpl-mark" aria-hidden="true">{{ event: '📅', feedback: '⭐', rsvp: '✉️', contact: '👤', job: '💼', quiz: '❓', timeoff: '🌴', order: '🛒' }[t.id] || '📝'}</span>
@@ -283,6 +293,10 @@ function FormEditor({ id }) {
           { label: 'Embed in a website', icon: 'link', onClick: () => setEmbedOpen(true) },
           { label: 'Import questions…', icon: 'upload', onClick: async () => { await flush(); setImporting(true); } },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
+          form.role === 'owner' && { label: form.my_template ? 'Remove from my templates' : 'Use as my template', icon: 'copy', onClick: async () => {
+            try { await flush(); const r = await put(`/forms/${id}/my-template`, { template: !form.my_template }); setForm((x) => ({ ...x, my_template: r.my_template })); toast(r.my_template ? 'Added to your templates: it’s under Start a new form' : 'Removed from your templates'); }
+            catch (e) { toast(e.message, 'error'); }
+          } },
           { label: 'Print a blank copy', icon: 'print', onClick: async () => { await flush(); printHtml(blankFormHtml(form)); } },
           form.role === 'owner' && { label: form.archived_at ? 'Bring back from the archive' : 'Archive', icon: 'archive', onClick: async () => {
             try { await flush(); const r = await put(`/forms/${id}/archived`, { archived: !form.archived_at }); setForm((x) => ({ ...x, archived_at: r.archived_at, closed: r.closed })); toast(r.archived_at ? 'Archived: out of your forms list, and it no longer takes responses' : 'Back from the archive'); } catch (e) { toast(e.message, 'error'); }

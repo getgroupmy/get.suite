@@ -81,6 +81,23 @@ await step('The templates you started from last come first in the gallery (after
   if (order.slice(3).join('|') !== rest.join('|')) throw new Error('the rest as usual: ' + order.join('|'));
   await page.screenshot({ path: `${SP}/shots/formtpl-lately.png` });
 });
+await step('Use as my template: one of your forms under Start a new form, starting new ones with its title', async () => {
+  await page.goto(`${B}/forms/${formId}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Use as my template' }).click();
+  await page.getByText('Added to your templates').waitFor();
+  await page.goto(`${B}/forms`);
+  const gallery = page.getByRole('region', { name: 'Start a new form' });
+  await gallery.getByRole('button', { name: 'Start from your template Event sign-up' }).click();
+  await page.waitForURL((u) => /\/forms\/[^/]+$/.test(u.pathname) && !u.pathname.endsWith(formId));
+  const id = page.url().split('/forms/')[1];
+  const f = (await api(page, 'GET', `/forms/${id}`)).body;
+  if (f.title !== 'Event sign-up' || f.my_template || f.questions.length < 2) throw new Error(JSON.stringify({ title: f.title, my: f.my_template, q: f.questions.length }));
+  await page.getByRole('button', { name: 'More' }).click();
+  if (!(await page.getByRole('menuitem', { name: 'Use as my template' }).count())) throw new Error('the new form offers it too');
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: `${SP}/shots/formtpl-mine.png` });
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
