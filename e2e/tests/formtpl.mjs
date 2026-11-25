@@ -75,10 +75,11 @@ await step('The templates you started from last come first in the gallery (after
   await g.getByRole('button', { name: 'Start from the Quiz template' }).waitFor();
   const order = await g.locator('button.form-tpl strong').allTextContents();
   const all = (await api(page, 'GET', '/forms/templates')).body;
-  if (order[0] !== 'Blank form' || order[1] !== 'Quiz' || order[2] !== 'Event sign-up') throw new Error(order.join('|'));
-  if (order.length !== all.length + 1 || new Set(order).size !== order.length) throw new Error('each once: ' + order.join('|'));
+  // (Blank form and From a spreadsheet, then the templates)
+  if (order[0] !== 'Blank form' || order[1] !== 'From a spreadsheet' || order[2] !== 'Quiz' || order[3] !== 'Event sign-up') throw new Error(order.join('|'));
+  if (order.length !== all.length + 2 || new Set(order).size !== order.length) throw new Error('each once: ' + order.join('|'));
   const rest = all.filter((t) => !['Quiz', 'Event sign-up'].includes(t.title)).map((t) => t.title);
-  if (order.slice(3).join('|') !== rest.join('|')) throw new Error('the rest as usual: ' + order.join('|'));
+  if (order.slice(4).join('|') !== rest.join('|')) throw new Error('the rest as usual: ' + order.join('|'));
   await page.screenshot({ path: `${SP}/shots/formtpl-lately.png` });
 });
 await step('Use as my template: one of your forms under Start a new form, starting new ones with its title', async () => {
@@ -97,6 +98,19 @@ await step('Use as my template: one of your forms under Start a new form, starti
   if (!(await page.getByRole('menuitem', { name: 'Use as my template' }).count())) throw new Error('the new form offers it too');
   await page.keyboard.press('Escape');
   await page.screenshot({ path: `${SP}/shots/formtpl-mine.png` });
+});
+await step('Start a new form → From a spreadsheet: a spreadsheet in Drive picked, its headings the questions', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Workshop interest', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Which workshop?', B1: 'Anything else?', A2: 'Pottery', A3: 'Painting', A4: 'Pottery' } }] } });
+  await page.goto(`${B}/forms`);
+  await page.getByRole('region', { name: 'Start a new form' }).getByRole('button', { name: /From a spreadsheet/ }).click();
+  const pick = page.getByRole('dialog', { name: 'Make a form from a spreadsheet' });
+  await pick.getByLabel('Search your files').fill('Workshop interest');
+  await pick.getByRole('button', { name: /Workshop interest/ }).click();
+  await page.waitForURL(/\/forms\/[\w-]+/);
+  await page.getByText('Made the form “Workshop interest”').waitFor();
+  const id = page.url().split('/forms/')[1].split(/[?#/]/)[0];
+  const f = (await api(page, 'GET', `/forms/${id}`)).body;
+  if (f.questions.map((x) => `${x.type}:${x.title}:${(x.options || []).join('/')}`).join('|') !== 'choice:Which workshop?:Pottery/Painting|short:Anything else?:' || !f.linked_sheet) throw new Error(JSON.stringify(f));
 });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();

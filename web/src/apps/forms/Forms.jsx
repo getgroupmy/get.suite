@@ -5,6 +5,7 @@ import { colleagueAddress } from '../../components/colleagues.js';
 import { has } from '../../fold.js';
 import { mergeList } from './listmerge.js';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
 import { matchesFilter, filterOptions, ANSWERED, BLANK } from './formfilter.js';
@@ -50,6 +51,7 @@ function FormList() {
   const [picked, setPicked] = useState(null); // a Set of ids while selecting, or null
   const [deletingMany, setDeletingMany] = useState(false);
   const [addingEditor, setAddingEditor] = useState(false);
+  const [pickingSheet, setPickingSheet] = useState(false); // From a spreadsheet: the spreadsheet to make it from
   const chosen = (forms || []).filter((f) => picked?.has(f.id));
   const reload = () => get('/forms').then(setForms).catch(() => {});
   const many = async (action, say) => {
@@ -73,6 +75,12 @@ function FormList() {
   return (
     <div className="page">
       <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={18} /> Recently deleted</button><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
+      {pickingSheet && <DrivePicker title="Make a form from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPickingSheet(false)}
+        onPick={async (x) => {
+          setPickingSheet(false);
+          try { const f = await post('/forms/from-sheet', { file: x.id }); toast(`Made the form “${f.title}”: each response is added to the spreadsheet as a row`); navigate(`/forms/${f.id}`); }
+          catch (e) { toast(e.message, 'error'); }
+        }} />}
       {bin && <RecentlyDeleted title="Recently deleted forms" what="Forms" list="/forms/bin/list" restore={(id) => `/forms/bin/${id}/restore`} forever={(id) => `/forms/bin/${id}`} empty="/forms/bin"
         onClose={() => setBin(false)} onRestored={(b) => navigate(`/forms/${b.form_id}`)} />}
       {(templates.length > 0 || mine.length > 0) && (
@@ -80,6 +88,7 @@ function FormList() {
           <h2 className="small muted">Start a new form</h2>
           <ul>
             <li><button type="button" className="form-tpl blank" onClick={() => create()}><span className="form-tpl-mark" aria-hidden="true">＋</span><strong>Blank form</strong><span className="muted small">Your own questions</span></button></li>
+            <li><button type="button" className="form-tpl blank" onClick={() => setPickingSheet(true)}><span className="form-tpl-mark" aria-hidden="true">▦</span><strong>From a spreadsheet</strong><span className="muted small">Its headings as questions, answers as rows</span></button></li>
             {[...mine].sort((a, b) => (b.used_at || 0) - (a.used_at || 0) || a.title.localeCompare(b.title)).map((t) => (
               <li key={t.id}><button type="button" className="form-tpl mine" aria-label={`Start from your template ${t.title}`} onClick={() => fromMine(t)}>
                 <span className="form-tpl-mark" aria-hidden="true">⭐</span><strong>{t.title}</strong><span className="muted small">Your template · {t.questions} question{t.questions === 1 ? '' : 's'}</span>
