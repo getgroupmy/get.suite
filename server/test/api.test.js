@@ -11789,6 +11789,15 @@ test('drive: labels of your own on files and folders', async () => {
   await a('PUT', '/api/files/labels/order', { labels: [] });
   assert.deepEqual((await a('GET', '/api/files/labels')).body.map((l) => l.name), ['Invoices', 'Taxes 2026'], 'back to by name');
   assert.equal((await x('PUT', `/api/files/${doc.id}/labels`, { labels: ['Mine'] })).status, 404);
+  // Everything with a label as one .zip, named after it; only your own label's files.
+  const JSZip = (await import('jszip')).default;
+  const z = await a('GET', `/api/files/zip?label=${encodeURIComponent('Taxes 2026')}`, undefined, { binary: true });
+  assert.equal(z.status, 200);
+  assert.match(z.headers.get('content-disposition'), /Taxes%202026\.zip/);
+  assert.deepEqual(Object.keys((await JSZip.loadAsync(z.body)).files).sort(), ['March invoice.docx', 'Tax sums.xlsx']);
+  assert.equal((await b('GET', `/api/files/zip?label=${encodeURIComponent('Taxes 2026')}`)).status, 404, 'Ben has no such label');
+  const zb = await b('GET', `/api/files/zip?label=${encodeURIComponent('From Ann')}`, undefined, { binary: true });
+  assert.deepEqual(Object.keys((await JSZip.loadAsync(zb.body)).files), ['March invoice.docx'], 'Ben’s own label, on Ann’s shared file');
   // Trashed files leave the counts; an empty list takes them off.
   await a('DELETE', `/api/files/${sheet.id}`);
   assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 1 }, { name: 'Taxes 2026', count: 1 }]);

@@ -728,6 +728,7 @@ export default function Drive() {
             <Menu align="right" trigger={(p) => <button type="button" className="icon-btn drive-label-menu" aria-label={`Edit label ${l.name}`} title="Rename or delete" {...p}><Icon name="more" size={16} /></button>}
               items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${l.color === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l.name, c) })), { label: 'No colour', onClick: () => setLabelColor(l.name, null) }, '-',
                 ...(i > 0 ? [{ label: 'Move up', onClick: () => orderLabels(i, -1) }] : []), ...(i < myLabels.length - 1 ? [{ label: 'Move down', onClick: () => orderLabels(i, 1) }] : []),
+                { label: 'Download all (.zip)', onClick: () => { window.location.href = `/api/files/zip?label=${encodeURIComponent(l.name)}`; } },
                 { label: 'Rename label…', onClick: () => setDialog({ type: 'label-rename', label: l.name }) }, { label: 'Delete label', danger: true, onClick: () => setDialog({ type: 'label-delete', label: l.name }) }]} />
           </div>
         ))}

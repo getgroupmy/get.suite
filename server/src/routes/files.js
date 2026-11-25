@@ -863,9 +863,14 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Download several files and folders as one .zip; documents, spreadsheets and presentations as
   // Word, Excel and PowerPoint files (or OpenDocument). Only what you can open, and not what's in the bin.
+  // ?label=Invoices instead of ids: everything with that label of yours (that you can still open).
   r.get('/zip', async (req, res) => {
-    const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 500);
-    if (!ids.length) throw bad('Choose files to download');
+    const label = req.query.label !== undefined ? String(req.query.label).trim() : null;
+    const ids = label !== null
+      ? q('SELECT file_id FROM file_labels WHERE user_id = ? AND label = ?').all(req.user.id, label).map((x) => x.file_id)
+        .filter((id) => { try { return !loadFile(id, req.user).trashed; } catch { return false; } }).slice(0, 500)
+      : String(req.query.ids || '').split(',').filter(Boolean).slice(0, 500);
+    if (!ids.length) throw label !== null ? notFound('Nothing has that label') : bad('Choose files to download');
     const entries = [];
     let total = 0;
     const used = new Set();
@@ -898,8 +903,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (f.kind === 'file') zip.file(e.path, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true });
       else zip.file(e.path, await exportedAs(q('SELECT * FROM files WHERE id = ?').get(f.id), odf ? { doc: 'odt', sheet: 'ods', slides: 'odp' }[f.kind] : EXPORT_AS[f.kind]));
     }
-    const one = ids.length === 1 ? q('SELECT name FROM files WHERE id = ?').get(ids[0])?.name : null;
-    const name = `${one ? safe(one) : 'Workspace files'}.zip`;
+    const one = label === null && ids.length === 1 ? q('SELECT name FROM files WHERE id = ?').get(ids[0])?.name : null;
+    const name = `${label !== null ? safe(label) : one ? safe(one) : 'Workspace files'}.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);

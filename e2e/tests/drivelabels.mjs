@@ -134,6 +134,19 @@ await step('Move up and Move down put labels on the left in your own order', asy
   await page.locator('.drive-label-row', { hasText: 'Zeta' }).waitFor();
   if ((await order()).join() !== 'Alpha,Zeta,Q1') throw new Error(`after reload: ${(await order()).join()}`);
 });
+await step('Download all (.zip): everything with a label, in a .zip named after it', async () => {
+  await page.goto(`${B}/drive`);
+  const row = page.locator('.drive-label-row', { hasText: 'Alpha' });
+  await row.waitFor();
+  await row.hover();
+  await row.getByRole('button', { name: 'Edit label Alpha' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download all (.zip)' }).click()]);
+  if (dl.suggestedFilename() !== 'Alpha.zip') throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const fs = await import('node:fs');
+  const names = Object.keys((await JSZip.loadAsync(fs.readFileSync(await dl.path()))).files);
+  if (names.join() !== 'March invoice.docx') throw new Error(names.join());
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
