@@ -1175,6 +1175,19 @@ test('mark all as read: every unread message in a folder', async () => {
   assert.ok(r.body.marked >= 2);
   assert.ok((await inbox(olivia)).every((m) => m.seen), 'nothing unread left');
   assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' })).body.marked, 0);
+  // With a label: only the unread ones with it.
+  for (const s of ['Labelled unread', 'Plain unread']) await t.sendMail({ from: 'Someone <someone@acme.com>', to: 'olivia@acme.com', subject: s, text: 'x' });
+  const two = await eventually(async () => { const l = (await inbox(olivia)).filter((m) => /^(Labelled|Plain) unread$/.test(m.subject) && !m.seen); return l.length === 2 && l; }, 20000);
+  const lab = (await olivia('POST', '/api/mail/labels', { name: 'Read-all test' })).body;
+  await olivia('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [two.find((m) => m.subject === 'Labelled unread').uid], add: [lab.id] });
+  assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX', label: lab.id })).body.marked, 1);
+  const after = await inbox(olivia);
+  assert.equal(after.find((m) => m.subject === 'Labelled unread').seen, true);
+  assert.equal(after.find((m) => m.subject === 'Plain unread').seen, false, 'others untouched');
+  assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX', label: 'nope' })).status, 404);
+  assert.equal((await gina('POST', '/api/mail/messages/read-all', { folder: 'INBOX', label: lab.id })).status, 404, 'not someone else’s label');
+  await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' });
+  await olivia('DELETE', `/api/mail/labels/${lab.id}`);
 });
 
 test('manage subscriptions: lists in the Inbox by sender, most frequent first', async () => {

@@ -125,6 +125,21 @@ await step('Move up and Move down put labels in your own order (new ones after, 
   await page.locator('.subnav .folder-row', { hasText: 'Aardvark' }).waitFor();
   if ((await order()).join() !== 'Gamma,Alpha,Beta,Aardvark') throw new Error(`after reload: ${(await order()).join()}`);
 });
+await step('in a label view, Mark all as read marks only the labelled mail', async () => {
+  const call = (method, url, body) => page.evaluate(async ([m, u, b]) => { const r = await fetch('/api' + u, { method: m, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }); return r.json(); }, [method, url, body]);
+  const lab = await call('POST', '/mail/labels', { name: 'To read' });
+  for (const s of ['Labelled newsletter', 'Unlabelled note']) await send(s);
+  let mine = [];
+  await until(async () => { mine = (await call('GET', '/mail/messages?folder=INBOX')).messages.filter((m) => /^(Labelled newsletter|Unlabelled note)$/.test(m.subject)); return mine.length === 2; }, 20000);
+  await call('POST', '/mail/messages/labels', { folder: 'INBOX', uids: [mine.find((m) => m.subject === 'Labelled newsletter').uid], add: [lab.id] });
+  await page.goto(`${B}/mail?label=${lab.id}`);
+  await row('Labelled newsletter').waitFor();
+  await page.getByRole('button', { name: 'Mark all as read' }).click();
+  await page.locator('.toast', { hasText: '1 marked as read' }).waitFor();
+  const now = (await call('GET', '/mail/messages?folder=INBOX')).messages;
+  if (!now.find((m) => m.subject === 'Labelled newsletter').seen) throw new Error('labelled one still unread');
+  if (now.find((m) => m.subject === 'Unlabelled note').seen) throw new Error('the unlabelled one was marked too');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
