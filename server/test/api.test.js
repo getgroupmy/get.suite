@@ -1852,13 +1852,14 @@ test('tasks: your own order for the lists on the left; a colleague’s list plac
     const l = (await a('GET', `/api/tasks/lists?today=${today}`)).body;
     return { planned: (await a('GET', '/api/tasks/planned')).body.some((t) => t.id === due.id), important: (await a('GET', '/api/tasks/important')).body.some((t) => t.id === due.id),
       suggested: (await a('GET', `/api/tasks/myday/suggestions?today=${today}`)).body.some((t) => t.id === due.id), counts: [l.planned, l.important],
-      calendar: (await a('GET', `/api/tasks/due?from=${today}&to=${today}`)).body.some((t) => t.id === due.id) };
+      calendar: (await a('GET', `/api/tasks/due?from=${today}&to=${today}`)).body.some((t) => t.id === due.id),
+      home: (await a('GET', `/api/tasks/today?today=${today}`)).body.some((t) => t.id === due.id) };
   };
   const shown = await views();
-  assert.deepEqual([shown.planned, shown.important, shown.suggested, shown.calendar], [true, true, true, true]);
+  assert.deepEqual([shown.planned, shown.important, shown.suggested, shown.calendar, shown.home], [true, true, true, true, true]);
   await a('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: true });
   const gone = await views();
-  assert.deepEqual([gone.planned, gone.important, gone.suggested, gone.calendar], [false, false, false, false]);
+  assert.deepEqual([gone.planned, gone.important, gone.suggested, gone.calendar, gone.home], [false, false, false, false, false]);
   assert.deepEqual(gone.counts, [shown.counts[0] - 1, shown.counts[1] - 1]);
   assert.deepEqual(await hiddenOf(a), ['Shared by Ben', 'Work']);
   assert.deepEqual(await hiddenOf(b), [], 'Ben still sees his list');

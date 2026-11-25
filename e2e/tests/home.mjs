@@ -79,6 +79,20 @@ await step('updates live when a task is done elsewhere', async () => {
   await api(page, 'PATCH', `/tasks/tasks/${t.id}`, { done: true, today: iso(new Date()) });
   await sec('Tasks for today').getByText('Nothing in My Day or due today. 🎉').waitFor();
 });
+await step('a list hidden in Tasks: its tasks leave Tasks for today (shown again when it is)', async () => {
+  const lid = (await api(page, 'POST', '/tasks/lists', { name: 'Old project' })).body.id;
+  await api(page, 'POST', `/tasks/lists/${lid}/tasks`, { title: 'Archive the files', due: iso(new Date()) });
+  await api(page, 'POST', `/tasks/lists/${(await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.inbox).id}/tasks`, { title: 'Water plants', due: iso(new Date()) });
+  await page.goto(`${B}/home`);
+  await sec('Tasks for today').getByText('Archive the files').waitFor();
+  await api(page, 'PUT', `/tasks/lists/${lid}/hidden`, { hidden: true });
+  await page.reload();
+  await sec('Tasks for today').getByText('Water plants').waitFor(); // loaded
+  if (await sec('Tasks for today').getByText('Archive the files').count()) throw new Error('a hidden list’s task on Home');
+  await api(page, 'PUT', `/tasks/lists/${lid}/hidden`, { hidden: false });
+  await page.reload();
+  await sec('Tasks for today').getByText('Archive the files').waitFor();
+});
 await step('phone width', async () => {
   await page.setViewportSize({ width: 390, height: 800 });
   const w = await page.evaluate(() => document.documentElement.scrollWidth);

@@ -1175,8 +1175,9 @@ export default function taskRoutes() {
     const picked = q(`${TASK} JOIN task_myday m ON m.task_id = t.id AND m.user_id = ? AND m.day = ? WHERE t.done_at IS NULL AND ${ON_MY_LISTS}
                       ORDER BY m.added_at`).all(me, day, me, me).map((t) => ({ ...shape(t), my_day: true }));
     const ids = new Set(picked.map((t) => t.id));
-    const due = q(`${TASK} WHERE t.done_at IS NULL AND t.due <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
-                   ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(day, me, me).map(shape).filter((t) => !ids.has(t.id));
+    // (Not lists you've hidden from the left; ones you put in My Day yourself stay above.)
+    const due = q(`${TASK} WHERE t.done_at IS NULL AND t.due <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?)) AND ${NOT_HIDDEN}
+                   ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(day, me, me, me).map(shape).filter((t) => !ids.has(t.id));
     res.json([...picked, ...due]);
   });
 
