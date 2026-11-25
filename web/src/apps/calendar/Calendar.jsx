@@ -206,6 +206,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [binOpen, setBinOpen] = useState(false); // Recently deleted events
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
   const importInput = useRef();
+  const [pickingSheet, setPickingSheet] = useState(false); // Import from Sheets…
   const importIcs = async (file, calendar = null) => {
     if (!file) return;
     try {
@@ -510,6 +511,16 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics or .csv)</span></button>
         <input ref={importInput} type="file" accept=".ics,.csv,text/calendar,text/csv" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
+        <button type="button" className="subnav-item" title="A spreadsheet in your Drive laid out as a calendar's CSV (Subject, Start Date, Start Time…), its first sheet" onClick={() => setPickingSheet(true)}><Icon name="sheet" /><span className="grow">Import from Sheets…</span></button>
+        {pickingSheet && <DrivePicker title="Import events from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setPickingSheet(false)}
+          onPick={async (x) => {
+            setPickingSheet(false);
+            try {
+              const r = await post(`/files/${x.id}/add-events`, { sheet: 0, tz: TZ });
+              toast([`${r.added} event${r.added === 1 ? '' : 's'} imported from “${x.name}”`, r.skipped && `${r.skipped} already here`, r.failed && `${r.failed} couldn’t be read`].filter(Boolean).join(', '));
+              load();
+            } catch (e) { toast(e.message, 'error'); }
+          }} />}
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         <a className="subnav-item" href={`/api/events/export?format=csv&tz=${encodeURIComponent(TZ)}`} download><Icon name="download" /><span className="grow">Export as CSV</span></a>
         <button type="button" className="subnav-item" onClick={() => setBinOpen(true)}><Icon name="trash" /><span className="grow">Recently deleted</span></button>

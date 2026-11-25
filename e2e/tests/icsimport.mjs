@@ -77,6 +77,20 @@ await step('Export as CSV downloads the events as a spreadsheet, times in your z
   if (!/Team day,[^,]+,,[^,]+,,True/.test(body)) throw new Error(body);
   if (!dl.suggestedFilename().endsWith('.csv')) throw new Error(dl.suggestedFilename());
 });
+await step('Import from Sheets…: a spreadsheet in Drive laid out as a calendar, its rows imported (not twice)', async () => {
+  const t = new Date(); const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Rota from HR', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Subject', B1: 'Start Date', C1: 'Start Time', D1: 'End Date', E1: 'End Time', A2: 'Front desk shift', B2: day, C2: '13:00', D2: day, E2: '17:00' } }] } });
+  await page.goto(`${B}/calendar`);
+  for (const first of [true, false]) {
+    await page.getByRole('button', { name: 'Import from Sheets…' }).click();
+    const pick = page.getByRole('dialog', { name: 'Import events from a spreadsheet' });
+    await pick.getByLabel('Search your files').fill('Rota from HR');
+    await pick.getByRole('button', { name: /Rota from HR/ }).click();
+    await page.getByText(first ? '1 event imported from “Rota from HR”' : '0 events imported from “Rota from HR”, 1 already here').waitFor();
+  }
+  await page.getByText('Front desk shift').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
