@@ -953,6 +953,9 @@ function Groups({ filter }) {
                     { label: 'vCard (.vcf)', onClick: () => { window.location.href = `/api/contacts/groups/${g.id}/export`; } },
                     { label: 'CSV (Gmail, Outlook)', onClick: () => { window.location.href = `/api/contacts/groups/${g.id}/export?format=csv`; } },
                   ]} />}
+                  <button className="icon-btn" aria-label={`Make a copy of ${g.name}`} title="A copy with the same people, to change into a similar group" onClick={async () => {
+                    try { const c = await post(`/contacts/groups/${g.id}/copy`); toast(`“${c.name}” made`); load(); setEditing(c); } catch (e) { toast(e.message, 'error'); }
+                  }}><Icon name="copy" size={18} /></button>
                   <button className="icon-btn" aria-label={`Edit ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={18} /></button>
                   {!filter && groups.length > 1 && <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Move ${g.name}`} title="Put your groups in your own order" {...p}><Icon name="move" size={18} /></button>} items={[
                     ...(groups[0].id !== g.id ? [{ label: 'Move up', icon: 'move', onClick: () => orderGroup(g, -1) }] : []),

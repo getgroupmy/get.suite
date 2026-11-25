@@ -412,6 +412,15 @@ export default function contactRoutes() {
   });
   // A group's members saved as contacts of yours (a group made from an email, an event or a form holds addresses, not
   // contacts): colleagues, you and anyone already there are left out.
+  // A copy of one of your groups, to change into a similar one: "Copy of …" (numbered if that's taken), same people.
+  r.post('/groups/:id/copy', (req, res) => {
+    const g = ownGroup(req);
+    const taken = new Set(groupsOf(req.user.id).map((x) => x.name.toLowerCase()));
+    const base = `Copy of ${g.name}`.slice(0, 92);
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+    res.status(201).json(makeGroup(req.user.id, name, g.members));
+  });
   r.post('/groups/:id/add-to-contacts', (req, res) => {
     const g = ownGroup(req);
     if (!g.members.length) throw bad('This group has nobody in it yet');

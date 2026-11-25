@@ -2484,6 +2484,20 @@ test('booking pages: Recently deleted lists yours, and restoring brings the page
   assert.deepEqual((await a('GET', '/api/bookings/bin')).body, []);
 });
 
+test('contact groups: Make a copy — same people, "Copy of …" (numbered when taken); only your own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cgca', 'Cgc Ann'], ['cgcb', 'Cgc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cgca@acme.com'); await login(b, 'cgcb@acme.com');
+  const g = (await a('POST', '/api/contacts/groups', { name: 'Board', members: [{ name: 'Ann One', email: 'one@ex.org' }, { email: 'two@ex.org' }] })).body;
+  const c1 = await a('POST', `/api/contacts/groups/${g.id}/copy`);
+  assert.equal(c1.status, 201);
+  assert.equal(c1.body.name, 'Copy of Board');
+  assert.deepEqual(c1.body.members, g.members);
+  assert.equal((await a('POST', `/api/contacts/groups/${g.id}/copy`)).body.name, 'Copy of Board (2)', 'numbered when the name is taken');
+  assert.equal((await b('POST', `/api/contacts/groups/${g.id}/copy`)).status, 404, 'not Ben’s');
+  assert.equal((await a('GET', '/api/contacts/groups')).body.length, 3);
+});
+
 test('contact groups: in your own order; renaming keeps the place, new ones come after by name', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cgoa', 'Cgo Ann'], ['cgob', 'Cgo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

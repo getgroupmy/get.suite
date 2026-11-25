@@ -319,6 +319,21 @@ await step('Groups → Recently deleted: a deleted group put back after its Undo
   const back = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Book club');
   if (back?.members[0]?.email !== 'reader@example.org') throw new Error(JSON.stringify(back));
 });
+await step('Make a copy of a group: "Copy of …" with the same people, opened to change', async () => {
+  const g = (await api(page, 'POST', '/contacts/groups', { name: 'Choir', members: [{ email: 'alto@example.org' }, { email: 'bass@example.org' }] })).body;
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  await page.getByRole('button', { name: 'Make a copy of Choir' }).click();
+  await page.getByText('“Copy of Choir” made').waitFor();
+  const d = page.getByRole('dialog', { name: 'Edit group' });
+  await d.getByLabel('Group name').fill('Choir trip');
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.waitFor({ state: 'detached' });
+  const all = (await api(page, 'GET', '/contacts/groups')).body;
+  const c = all.find((x) => x.name === 'Choir trip');
+  if (!c || c.id === g.id || c.members.map((m) => m.email).join() !== 'alto@example.org,bass@example.org') throw new Error(JSON.stringify(all));
+  if (!all.find((x) => x.id === g.id && x.name === 'Choir')) throw new Error('original changed');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
