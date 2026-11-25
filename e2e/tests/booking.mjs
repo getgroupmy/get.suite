@@ -224,6 +224,21 @@ await step('“No bookings while my vacation reply is on”: ticked and saved', 
   await page.keyboard.press('Escape');
   if ((await api(page, 'GET', '/bookings')).body[0].skip_away !== true) throw new Error('not saved');
 });
+await step('pausing days that already have a booking: saved, and the message says it stays on the calendar', async () => {
+  const ev = (await api(page, 'GET', `/events?from=${Date.now()}&to=${Date.now() + 60 * 864e5}`)).body.find((e) => e.title === 'Intro call: Quinn Quick');
+  if (!ev) throw new Error('no booking to pause over');
+  const ymd = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('Paused from').fill(ymd(ev.start));
+  await dlg.getByLabel('Paused until').fill(ymd(ev.start + 2 * 864e5));
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/^Booking page saved\. 1 booking is already on the paused days: it stays on your calendar/).waitFor();
+  await page.keyboard.press('Escape');
+  await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { paused_from: null, paused_until: null });
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

@@ -214,7 +214,15 @@ function readPage(b, current = {}) {
   if (pausedFrom && pausedFrom >= pausedUntil) throw bad('Paused from must be before Paused until');
   return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, add_contacts: addContacts, questions, hosts, where_kind: whereKind, where_text: whereText, seats, paused_until: pausedUntil, paused_from: pausedFrom, skip_away: skipAway };
 }
-const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
+/** Bookings still to come that fall in the page's paused days (they stay: it's for their owner to move or cancel them). */
+function inPause(p) {
+  const today = todayIn(zoneOrUtc(p.tz));
+  if (!p.paused_until || p.paused_until <= today) return 0;
+  const from = p.paused_from && p.paused_from > today ? p.paused_from : today;
+  return q(`SELECT e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start > ?`).all(p.id, Date.now())
+    .filter((x) => { const d = todayIn(zoneOrUtc(p.tz), x.start); return d >= from && d < p.paused_until; }).length;
+}
+const shapePage = (p, req) => ({ ...p, in_pause: inPause(p), days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
   host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, skip_away: !!p.skip_away, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
   booked_by: q('SELECT COUNT(DISTINCT LOWER(email)) AS n FROM bookings WHERE page_id = ? AND email IS NOT NULL').get(p.id).n }); // (cancelled too: for Add to Contacts)

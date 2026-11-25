@@ -2403,6 +2403,9 @@ test('booking pages: paused until a day — no times before it, bookings again f
   assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(4), paused_until: day(2) })).status, 400, 'from before until');
   const ahead = await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(2), paused_until: day(4) });
   assert.deepEqual([ahead.body.paused_from, ahead.body.paused_until], [day(2), day(4)]);
+  assert.equal(ahead.body.in_pause, 1, 'Later’s booking on the third day stays, and is counted for its owner to see');
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(4), paused_until: day(5) })).body.in_pause, 0);
+  await a('PATCH', `/api/bookings/${pg.id}`, { paused_from: day(2), paused_until: day(4) });
   const pub2 = (await outsider('GET', `/api/public/book/${tk}`)).body;
   const ds = pub2.days.map((d) => d.date);
   assert.deepEqual([pub2.paused_from, pub2.paused_until], [day(2), day(4)]);

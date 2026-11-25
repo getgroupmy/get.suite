@@ -2738,9 +2738,10 @@ function BookingPagesDialog({ onClose }) {
       const body = shape(p);
       // Changing a page: only what was changed here, so a change made elsewhere meanwhile stays.
       const was = p.id ? shape(editing) : null;
-      if (p.id) await patch(`/bookings/${p.id}`, Object.fromEntries(Object.entries(body).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(was[k]))));
-      else await post('/bookings', body);
-      toast(p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it');
+      const saved = p.id ? await patch(`/bookings/${p.id}`, Object.fromEntries(Object.entries(body).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(was[k]))))
+        : await post('/bookings', body);
+      const kept = saved?.in_pause || 0; // bookings already made on the paused days: they stay, for you to move or cancel
+      toast(`${p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it'}${kept ? `. ${kept === 1 ? '1 booking is' : `${kept} bookings are`} already on the paused days: ${kept === 1 ? 'it stays' : 'they stay'} on your calendar, to move or cancel` : ''}`, kept ? 'info' : undefined, kept ? { duration: 10000 } : undefined);
       setEditing(null); load();
     } catch (e) { toast(e.message, 'error'); } finally { saving.current = false; }
   }
