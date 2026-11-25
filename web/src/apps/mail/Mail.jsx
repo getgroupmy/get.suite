@@ -642,8 +642,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           {q && !shared && <button className="icon-btn" aria-label="List these in Sheets" title="The emails this search finds, in a new spreadsheet" onClick={() => listInSheets(folder, q)}><Icon name="sheet" size={20} /></button>}
           {current?.unseen > 0 && (() => {
             const label = labelId ? labels.find((l) => l.id === labelId) : null; // a label or a search open: only its messages
-            return <button className="icon-btn" aria-label="Mark all as read" title={q ? `Mark the unread this search finds in ${current.name} as read` : label ? `Mark the unread labelled ${label.name} in ${current.name} as read` : `Mark all ${current.unseen} unread in ${current.name} as read`}
-              onClick={async () => { try { const r = await post('/mail/messages/read-all', { folder, ...(label && { label: label.id }), ...(q && { q }) }); toast(`${r.marked} marked as read`); refresh(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="check" size={20} /></button>;
+            return <button className="icon-btn" aria-label="Mark all as read" title={q ? `Mark the unread this search finds in ${current.name} as read` : label ? `Mark the unread labelled ${label.name} in ${current.name} as read` : tabbed ? `Mark the unread in ${tab === 'primary' ? 'Primary' : 'Updates'} as read` : `Mark all ${current.unseen} unread in ${current.name} as read`}
+              onClick={async () => { try { const r = await post('/mail/messages/read-all', { folder, ...(label && { label: label.id }), ...(q && { q }), ...(tabbed && { tab }) }); toast(`${r.marked} marked as read`); refresh(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="check" size={20} /></button>;
           })()}
         </div>
         {!shared && vacation?.enabled && (vacation.active || vacation.scheduled) && (

@@ -86,6 +86,18 @@ await step('one picked to be read moves to Primary and stays there', async () =>
   await inboxRow('Build 512 passed').waitFor();
   await inboxRow('Lunch on Friday?').waitFor();
 });
+await step('Mark all as read in the Updates tab leaves Primary unread', async () => {
+  const tabs = page.getByRole('tablist', { name: 'Inbox tabs' });
+  await tabs.getByRole('tab', { name: /Updates/ }).click();
+  await inboxRow('Autumn sale: 30% off').waitFor();
+  await page.getByRole('button', { name: 'Mark all as read' }).click();
+  await page.locator('.toast', { hasText: '1 marked as read' }).waitFor();
+  const all = (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages;
+  if (!all.find((m) => m.subject === 'Autumn sale: 30% off').seen) throw new Error('Updates still unread');
+  if (all.find((m) => m.subject === 'Lunch on Friday?').seen) throw new Error('Primary was marked too');
+  await tabs.getByRole('tab', { name: /Primary/ }).click();
+  await inboxRow('Lunch on Friday?').waitFor();
+});
 await step('turned off in Filters: one Inbox again', async () => {
   await page.getByRole('button', { name: /Filters/ }).first().click();
   const dlg = page.getByRole('dialog', { name: 'Filters' });

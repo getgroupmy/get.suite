@@ -2041,8 +2041,10 @@ export default function webmailRoutes() {
     if (req.body?.label && !only) throw notFound('Label not found');
     const parsed = parseMailQuery(String(req.body?.q || '').trim());
     if (parsed.error) throw bad(parsed.error);
+    // { tab }: only that Inbox tab's (Primary or Updates), as the list shows it.
+    const tab = folder === 'INBOX' && !parsed.query && !parsed.files && !only && TABS.includes(req.body?.tab) && inboxTabsOn(req.user.id) ? req.body.tab : null;
     const n = await withFolder(req.user, folder, async (client) => {
-      let unread = (await client.search(allOf([{ seen: false }, ...(only ? [{ keyword: only.keyword }] : []), ...(parsed.query ? [parsed.query] : [])]), { uid: true })) || [];
+      let unread = (await client.search(allOf([{ seen: false }, ...(only ? [{ keyword: only.keyword }] : []), ...(parsed.query ? [parsed.query] : []), ...(tab ? [tabQuery(tab)] : [])]), { uid: true })) || [];
       if (parsed.files) unread = await withFileNames(client, unread, parsed.files);
       if (unread.length) await client.messageFlagsAdd(unread, ['\\Seen'], { uid: true });
       return unread.length;

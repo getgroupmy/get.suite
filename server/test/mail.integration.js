@@ -2072,6 +2072,10 @@ test('inbox tabs: newsletters and automatic mail in Updates, people in Primary; 
   assert.deepEqual(subjects(await tab('primary')), ['Lunch on Friday?', 'Meeting minutes']);
   assert.deepEqual(subjects(await tab('updates')), ['Contract draft', 'Our autumn sale', 'Your receipt']);
   assert.equal((await tabby('POST', `/api/mail/messages/${kim.uid}/tab`, { tab: 'other' })).status, 400);
+  // Mark all as read in one tab: the other tab's stay unread.
+  assert.equal((await tabby('POST', '/api/mail/messages/read-all', { folder: 'INBOX', tab: 'updates' })).body.marked, 3);
+  assert.ok((await tab('updates')).messages.every((m) => m.seen));
+  assert.ok((await tab('primary')).messages.every((m) => !m.seen), 'Primary untouched');
   // Turned off: one Inbox, whatever the tab asked for.
   assert.deepEqual((await tabby('PUT', '/api/mail/inbox-tabs', { on: false })).body, { on: false });
   const all = await tab('primary');
