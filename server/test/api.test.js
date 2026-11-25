@@ -2174,6 +2174,7 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   const pg = (await a('POST', '/api/bookings', { title: 'Tour', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2 })).body;
   const tk = pg.url.split('/b/')[1];
   assert.equal((await a('POST', `/api/bookings/${pg.id}/contacts`, {})).status, 400, 'nobody yet');
+  assert.equal((await a('POST', `/api/bookings/${pg.id}/bookings/sheet`, {})).status, 400, 'no bookings to put in a sheet');
   await a('POST', '/api/contacts', { name: 'Kai Known', email: 'kai@visit.example' });
   const slots = (await outsider('GET', `/api/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
   const who = [['Liv Visit', 'Liv@Visit.example'], ['Kai K', 'kai@visit.example'], ['Bo Other', 'bother@acme.com']];
@@ -2209,6 +2210,12 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   assert.match(lines[2], /,Cancelled \d{4}-\d\d-\d\d \d\d:\d\d,$/);
   assert.match(lines[1], /,Booked,$/);
   assert.equal((await other('GET', `/api/bookings/${pg.id}/bookings.csv`)).status, 404);
+  // The same rows as a spreadsheet in Drive.
+  const sh = await a('POST', `/api/bookings/${pg.id}/bookings/sheet`, {});
+  assert.deepEqual([sh.status, sh.body.name, sh.body.bookings], [201, 'Tour bookings', 3]);
+  const sheetCells = JSON.parse((await import('../src/db.js')).q('SELECT content FROM files WHERE id = ?').get(sh.body.id).content).sheets[0].cells;
+  assert.deepEqual([sheetCells.A1, sheetCells.B2, sheetCells.H3], ['Name', 'bother@acme.com', lines[2].split(',')[7]]);
+  assert.equal((await other('POST', `/api/bookings/${pg.id}/bookings/sheet`, {})).status, 404);
   resetBookingLimits();
 });
 

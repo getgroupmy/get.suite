@@ -13,6 +13,8 @@ import { uid, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
 import { csvText } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { freeSlots as openSlots } from '../freeslots.js';
 import { expand } from '../calserver.js';
@@ -254,6 +256,25 @@ export function importBookingPages(user, list) {
   return { added, skipped };
 }
 
+/** Every booking made through a page, as rows (a heading row first) for Download the bookings and Open in Sheets. */
+function bookingRows(p) {
+  const tz = zoneOrUtc(p.tz);
+  const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const at = (t) => (t == null ? '' : fmt.format(new Date(t)));
+  const rows = q(`SELECT b.name, b.email, b.created_at, b.cancelled_at, b.answers, b.note, e.start, e."end" AS fin, u.name AS host FROM bookings b
+                  LEFT JOIN events e ON e.id = b.event_id LEFT JOIN users u ON u.id = e.owner_id
+                  WHERE b.page_id = ? ORDER BY e.start DESC, b.created_at DESC`).all(p.id);
+  // A column for each question the page asks now, then any asked before that bookings answered; then the note.
+  const answersOf = (b) => { try { return JSON.parse(b.answers || '[]'); } catch { return []; } };
+  const labels = [...new Set([...JSON.parse(p.questions || '[]').map((x) => x.label), ...rows.flatMap((b) => answersOf(b).map((x) => x.label))])];
+  const lines = [['Name', 'Email', 'Starts', 'Ends', 'Time zone', 'Host', 'Booked', 'Status', ...labels, 'Note'],
+    ...rows.map((b) => {
+      const given = new Map(answersOf(b).map((x) => [x.label, x.value]));
+      return [b.name || '', b.email || '', at(b.start), at(b.fin), tz, b.host || '', at(b.created_at), b.cancelled_at ? `Cancelled ${at(b.cancelled_at)}` : 'Booked', ...labels.map((l) => given.get(l) || ''), b.note || ''];
+    })];
+  return lines;
+}
+
 export default function bookingRoutes() {
   const r = Router();
   r.get('/', (req, res) => res.json(q('SELECT * FROM booking_pages WHERE user_id = ? ORDER BY created_at').all(req.user.id).map((p) => shapePage(p, req))));
@@ -303,24 +324,19 @@ export default function bookingRoutes() {
   // which host it went to, when it was booked, whether it still stands or was cancelled, and what they answered and wrote.
   r.get('/:id/bookings.csv', (req, res) => {
     const p = mine(req);
-    const tz = zoneOrUtc(p.tz);
-    const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-    const at = (t) => (t == null ? '' : fmt.format(new Date(t)));
-    const rows = q(`SELECT b.name, b.email, b.created_at, b.cancelled_at, b.answers, b.note, e.start, e."end" AS fin, u.name AS host FROM bookings b
-                    LEFT JOIN events e ON e.id = b.event_id LEFT JOIN users u ON u.id = e.owner_id
-                    WHERE b.page_id = ? ORDER BY e.start DESC, b.created_at DESC`).all(p.id);
-    // A column for each question the page asks now, then any asked before that bookings answered; then the note.
-    const answersOf = (b) => { try { return JSON.parse(b.answers || '[]'); } catch { return []; } };
-    const labels = [...new Set([...JSON.parse(p.questions || '[]').map((x) => x.label), ...rows.flatMap((b) => answersOf(b).map((x) => x.label))])];
-    const lines = [['Name', 'Email', 'Starts', 'Ends', 'Time zone', 'Host', 'Booked', 'Status', ...labels, 'Note'],
-      ...rows.map((b) => {
-        const given = new Map(answersOf(b).map((x) => [x.label, x.value]));
-        return [b.name || '', b.email || '', at(b.start), at(b.fin), tz, b.host || '', at(b.created_at), b.cancelled_at ? `Cancelled ${at(b.cancelled_at)}` : 'Booked', ...labels.map((l) => given.get(l) || ''), b.note || ''];
-      })];
     const file = `${p.title} bookings.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.replace(/[^\w .-]+/g, '').trim() || 'bookings.csv'}"; filename*=UTF-8''${encodeURIComponent(file)}`);
-    res.send(`\ufeff${csvText(lines)}`);
+    res.send(`\ufeff${csvText(bookingRows(p))}`);
+  });
+  // The same, as a spreadsheet in your Drive (the ⬇ menu's Open in Sheets): { id, name, bookings }.
+  r.post('/:id/bookings/sheet', (req, res) => {
+    const p = mine(req);
+    const rows = bookingRows(p);
+    if (rows.length < 2) throw bad('Nobody has booked through this page yet');
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: p.title.slice(0, 31) }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${p.title} bookings`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, bookings: rows.length - 1 });
   });
   // Add the people who booked through this page to your contacts (name and address as they gave them; cancelled
   // bookings too). Colleagues and anyone already there are left out.

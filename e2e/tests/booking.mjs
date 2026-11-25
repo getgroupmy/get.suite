@@ -151,7 +151,8 @@ await step('Booking pages → Download the bookings: a CSV of who booked, when, 
   await page.goto(`${B}/calendar`);
   await page.getByRole('button', { name: 'Booking pages' }).click();
   const dlg = page.getByRole('dialog', { name: 'Booking pages' });
-  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download the bookings of Intro call' }).click()]);
+  await dlg.getByRole('button', { name: 'The bookings of Intro call' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download (.csv)' }).click()]);
   if (dl.suggestedFilename() !== 'Intro call bookings.csv') throw new Error(dl.suggestedFilename());
   const text = (await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8')).replace(/^\ufeff/, '');
   const lines = text.trim().split('\r\n');
@@ -161,6 +162,20 @@ await step('Booking pages → Download the bookings: a CSV of who booked, when, 
   // The page's question has a column of its own, with Quinn's answer in it.
   if (lines[0] !== 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Note' || !quinn.endsWith(',Booked,+1 555 0111,')) throw new Error(`${lines[0]} | ${quinn}`);
   await page.keyboard.press('Escape');
+});
+await step('Booking pages → bookings → Open in Sheets: a spreadsheet in Drive with the same rows', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'The bookings of Intro call' }).click();
+  await page.getByRole('menuitem', { name: 'Open in Sheets' }).click();
+  const toast = page.locator('.toast', { hasText: 'Made “Intro call bookings” in your Drive' });
+  await toast.getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await page.getByText('Quinn Quick', { exact: true }).first().waitFor();
+  await page.getByText('Phone number', { exact: true }).first().waitFor();
+  await page.getByText('+1 555 0111', { exact: true }).first().waitFor(); // (kept as written, not a sum)
 });
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
