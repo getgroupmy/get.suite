@@ -9961,7 +9961,7 @@ test('tasks: a CSV comes in at the end of a list; a downloaded list goes back in
   const csv = 'Task,Due,Tags,Status,Steps\r\nPaint walls,1/12/2026,#home,,"[x] Buy paint\n[ ] Tape"\r\nOld job,,,Done,\r\n,,,,\r\n';
   const r = await kay('POST', `/api/tasks/lists/${list.id}/import`, csv, { raw: true, headers: { 'content-type': 'text/csv' } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body, { added: 2, done: 1, skipped: 0 }); // the empty row isn't a row
+  assert.deepEqual(r.body, { added: 2, done: 1, skipped: 0, already: 0 }); // the empty row isn't a row
   const tasks = (await kay('GET', `/api/tasks/lists/${list.id}/tasks`)).body;
   assert.deepEqual(tasks.filter((t) => !t.done).map((t) => t.title), ['Already here', 'Paint walls'], 'at the end, in order');
   const paint = tasks.find((t) => t.title === 'Paint walls');
@@ -9975,6 +9975,14 @@ test('tasks: a CSV comes in at the end of a list; a downloaded list goes back in
   assert.equal((await kay('POST', `/api/tasks/lists/${copy.id}/import`, exported, { raw: true, headers: { 'content-type': 'text/csv' } })).body.added, 3);
   const again = (await kay('GET', `/api/tasks/lists/${copy.id}/tasks`)).body.find((t) => t.title === 'Paint walls');
   assert.deepEqual([again.due, again.tags, again.steps.length], ['2026-12-01', ['home'], 2]);
+  // Brought back into the list it came from: what's there already isn't doubled; a new row, or one with a new due date, is added.
+  const back = exported.replace(/\r?\n?$/, '') + '\r\nBuy curtains,,,,\r\n';
+  const re = await kay('POST', `/api/tasks/lists/${list.id}/import`, back, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual([re.body.added, re.body.already], [1, 3]);
+  const titles = (await kay('GET', `/api/tasks/lists/${list.id}/tasks`)).body.map((t) => t.title);
+  assert.deepEqual([titles.filter((t) => t === 'Paint walls').length, titles.includes('Buy curtains')], [1, true]);
+  const moved = await kay('POST', `/api/tasks/lists/${list.id}/import`, 'Task,Due\r\nPAINT WALLS,2/12/2026\r\npaint walls,1/12/2026\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual([moved.body.added, moved.body.already], [1, 1], 'capitals aside the same; another due date a new task');
   assert.equal((await kay('POST', `/api/tasks/lists/${list.id}/import`, 'Foo,Bar\n1,2', { raw: true, headers: { 'content-type': 'text/csv' } })).status, 400);
   const sid = client(); await login(sid, 'phv@keepco.com');
   assert.equal((await sid('POST', `/api/tasks/lists/${list.id}/import`, csv, { raw: true, headers: { 'content-type': 'text/csv' } })).status, 404);

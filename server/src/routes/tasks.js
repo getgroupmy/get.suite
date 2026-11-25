@@ -969,16 +969,21 @@ export default function taskRoutes() {
 
   // Tasks read from a CSV (or a sheet laid out as one) added to the end of a list.
   const importInto = (list, csvText, user) => {
-    const found = tasksFromCsv(csvText);
-    if (found.error) throw bad(found.error);
+    const read = tasksFromCsv(csvText);
+    if (read.error) throw bad(read.error);
+    // A row for a task the list has already (the same title, whatever the capitals, and the same due date, or none) is left
+    // out: the list's own download, or a sheet made from it, brought back in isn't doubled. Changed and new rows come in.
+    const key = (title, due) => `${String(title || '').trim().toLowerCase()}\n${due || ''}`;
+    const there = new Set(q('SELECT title, due FROM tasks WHERE list_id = ?').all(list.id).map((x) => key(x.title, x.due)));
+    const found = { ...read, tasks: read.tasks.filter((x) => !there.has(key(x.title, x.due))) };
+    const already = read.tasks.length - found.tasks.length;
     const have = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n;
     if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
     const secs0 = sectionsOf(list.id);
     const fresh0 = [...new Set(found.tasks.map((x) => x.section).filter(Boolean))].filter((n) => !secs0.some((x) => x.name.toLowerCase() === n.toLowerCase()));
     if (secs0.length + fresh0.length > MAX_SECTIONS) throw bad(`A list can have ${MAX_SECTIONS} sections`);
-    tx(() => addCsvTasks(list, found, user));
-    changed(list);
-    return { added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped };
+    if (found.tasks.length) { tx(() => addCsvTasks(list, found, user)); changed(list); }
+    return { added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped, already };
   };
   r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
     res.json(importInto(loadList(req.params.id, req.user), req.body, req.user));

@@ -142,6 +142,19 @@ await step('List actions → Import from Sheets…: a spreadsheet in Drive adds 
   const van = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.find((x) => x.title === 'Book the van');
   if (van?.due !== '2026-12-20') throw new Error(JSON.stringify(van));
 });
+await step('the list’s own spreadsheet read back with Import from Sheets…: nothing doubled', async () => {
+  const sheet = (await api(page, 'POST', `/tasks/lists/${list.id}/sheet`, {})).body;
+  const before = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.length;
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Import from Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: /^Import into .* from a spreadsheet$/ });
+  await pick.getByLabel('Search your files').fill(sheet.name);
+  await pick.getByRole('button', { name: new RegExp(sheet.name.replace(/[()]/g, '\\$&')) }).first().click();
+  await page.getByText(new RegExp(`^Added 0 tasks from “${sheet.name.replace(/[()]/g, '\\$&')}”; ${before} already in the list`)).waitFor();
+  const after = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.length;
+  if (after !== before) throw new Error(`${before} tasks before, ${after} after`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

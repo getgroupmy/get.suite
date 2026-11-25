@@ -514,7 +514,7 @@ export default function Tasks() {
             if (!file || !list) return;
             try {
               const r = await postText(`/tasks/lists/${list.id}/import`, await file.text());
-              toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'}${r.done ? ` (${r.done} already done)` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
+              toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'}${r.done ? ` (${r.done} already done)` : ''}${r.already ? `; ${r.already} already in the list` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
               loadTasks();
             } catch (err) { toast(err.message, 'error'); }
           }} />
@@ -809,7 +809,7 @@ export default function Tasks() {
           setDialog(null);
           try {
             const r = await post(`/tasks/lists/${list.id}/from-sheet`, { file: x.id, sheet: 0 });
-            toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'} from “${x.name}”${r.done ? ` (${r.done} already done)` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
+            toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'} from “${x.name}”${r.done ? ` (${r.done} already done)` : ''}${r.already ? `; ${r.already} already in the list` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
             loadTasks();
           } catch (e) { toast(e.message, 'error'); }
         }} />}

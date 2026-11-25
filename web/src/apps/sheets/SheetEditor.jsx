@@ -1837,7 +1837,7 @@ export default function SheetEditor() {
           toast(`Made the group “${g.name}” (${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}${g.left_out ? `; ${g.left_out} row${g.left_out === 1 ? '' : 's'} without an address left out` : ''})`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
         }} />}
       {dialog?.type === 'to-tasks' && <SheetToTasksDialog fileId={id} sheet={active} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
-        onDone={(r) => { setDialog(null); toast(`Added ${r.added} task${r.added === 1 ? '' : 's'} to ${r.list.name}${r.skipped ? ` (${r.skipped} row${r.skipped === 1 ? '' : 's'} left out)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); }} />}
+        onDone={(r) => { setDialog(null); toast(`Added ${r.added} task${r.added === 1 ? '' : 's'} to ${r.list.name}${r.already ? ` (${r.already} already there)` : ''}${r.skipped ? ` (${r.skipped} row${r.skipped === 1 ? '' : 's'} left out)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); }} />}
       {dialog?.type === 'mailmerge' && <MailMergeDialog cells={cells} shown={shown} from={mail?.address || user.username} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'protect' && (
         <ProtectDialog fileId={file.id} sheetName={sheet.name} list={sheet.protected} initial={dialog.initial} me={user.id} ownerId={file.owner_id} ownerName={file.owner_name}
