@@ -99,6 +99,17 @@ await step('Open in Sheets: your events as a spreadsheet in Drive, in the Export
   await page.locator('[data-k="A1"]', { hasText: 'Subject' }).waitFor();
   await page.getByText('Front desk shift', { exact: true }).first().waitFor();
 });
+await step('that spreadsheet read back with Import from Sheets…: your own events recognised, none doubled', async () => {
+  const before = (await api(page, 'GET', `/events?from=0&to=${Date.now() + 400 * 864e5}`)).body.length;
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Import from Sheets…' }).click();
+  const pick = page.getByRole('dialog', { name: 'Import events from a spreadsheet' });
+  await pick.getByLabel('Search your files').fill('My calendar (events)');
+  await pick.getByRole('button', { name: /My calendar \(events\)/ }).first().click();
+  await page.getByText(/^0 events imported from “My calendar \(events\)”, \d+ already here$/).waitFor();
+  const after = (await api(page, 'GET', `/events?from=0&to=${Date.now() + 400 * 864e5}`)).body.length;
+  if (after !== before) throw new Error(`${before} events before, ${after} after`);
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

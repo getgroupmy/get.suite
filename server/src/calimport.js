@@ -31,7 +31,8 @@ const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.unt
 /** Add the file's events to this person's calendar: { added, skipped, failed }. With `calendarByName` (from Download your data),
  *  an event marked as in one of your other calendars (X-WORKSPACE-CALENDAR) goes into the one it gives for that name. */
 export function importCalendar(userId, text, tz = 'UTC', calendarId = null, color = null, { calendarByName } = {}) {
-  if (!/BEGIN:VCALENDAR/i.test(String(text || ''))) {
+  const fromCsv = !/BEGIN:VCALENDAR/i.test(String(text || ''));
+  if (fromCsv) {
     const csv = icsFromCsv(text, zoneOrUtc(tz));
     if (!csv) return { error: 'This isn’t a calendar file (.ics) or a calendar exported as CSV' };
     if (csv.error) return csv;
@@ -45,6 +46,12 @@ export function importCalendar(userId, text, tz = 'UTC', calendarId = null, colo
       const e = parseIcsEvent(part, { tz: zoneOrUtc(tz) });
       if (e.error) { failed++; continue; }
       if (e.uid && q('SELECT 1 FROM events WHERE owner_id = ? AND ical_uid = ?').get(userId, e.uid)) { skipped++; continue; }
+      // A CSV row has no id of its own: one of your events with the same title (a quote kept from running as a formula
+      // aside) at the same moment is taken to be it, so your own events exported and read back aren't doubled.
+      if (fromCsv) {
+        const bare = String(e.title || '').replace(/^'/, '');
+        if (q("SELECT 1 FROM events WHERE owner_id = ? AND recur_parent IS NULL AND start = ? AND all_day = ? AND (title = ? OR title = ?)").get(userId, e.start, e.all_day ? 1 : 0, bare, `'${bare}`)) { skipped++; continue; }
+      }
       const id = uid();
       const inCal = (/\nX-WORKSPACE-CALENDAR:(.*)/i.exec(part)?.[1] || '').trim().replace(/\\([\\;,])/g, '$1');
       const calId = calendarId ?? (inCal && calendarByName ? calendarByName(inCal) ?? null : null);

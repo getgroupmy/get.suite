@@ -14898,16 +14898,21 @@ test('calendar: export as CSV in your time zone (formula-like text kept as text)
   const cells = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(sh.body.id).content).sheets[0].cells;
   assert.deepEqual([cells.A1, cells.I1], ['Subject', 'Repeats']);
   assert.ok(Object.values(cells).includes('Offsite'));
-  // (as with the CSV, rows read in are recognised by what they were read from: the first time they're added, the same again)
-  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 2, skipped: 0, failed: 0 });
-  const mine = q("SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = 'calcsvexp@acme.com' ORDER BY start, created_at").all();
-  const byTitle = (t) => mine.filter((e) => e.title.replace(/^'/, '') === t);
-  for (const t of ['=Budget, review', 'Offsite']) {
-    const [x, y] = byTitle(t);
-    assert.ok(x && y, `${t} twice`);
-    assert.deepEqual([y.start, y.all_day, Math.round((y.end - y.start) / 6e4)], [x.start, x.all_day, Math.round((x.end - x.start) / 6e4)], `${t}: the same times through the spreadsheet`);
-  }
-  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 0, skipped: 2, failed: 0 }, 'the same sheet again: skipped');
+  // Read back into the same calendar: your own events (same title, same moment) are recognised, not doubled…
+  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 0, skipped: 2, failed: 0 }, 'already there');
+  // …and into an empty one they come out at the same times as the originals.
+  const fresh = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'calcsvexp4', domain: 'acme.com', name: 'Cal Fresh', password: 'password123' })).status, 201);
+  await login(fresh, 'calcsvexp4@acme.com');
+  const csvOfSheet = (await a('GET', `/api/files/${sh.body.id}/export?format=csv`, undefined, { raw: true })).body;
+  assert.deepEqual((await fresh('POST', '/api/events/import?tz=Europe/Berlin', csvOfSheet, { raw: true, headers: { 'content-type': 'text/csv' } })).body, { added: 2, skipped: 0, failed: 0 });
+  const orig = q("SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = 'calcsvexp@acme.com' ORDER BY start").all();
+  const copies = q("SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = 'calcsvexp4@acme.com' ORDER BY start").all();
+  assert.deepEqual(copies.map((e) => [e.start, e.all_day, Math.round((e.end - e.start) / 6e4)]), orig.map((e) => [e.start, e.all_day, Math.round((e.end - e.start) / 6e4)]), 'the same times through the spreadsheet');
+  // A different time, or a different title, is a new event.
+  const moved = q("SELECT content FROM files WHERE id = ?").get(sh.body.id).content.replace('Offsite', 'Offsite (day 2)');
+  q('UPDATE files SET content = ? WHERE id = ?').run(moved, sh.body.id);
+  assert.deepEqual((await a('POST', `/api/files/${sh.body.id}/add-events`, { sheet: 0, tz: 'Europe/Berlin' })).body, { added: 1, skipped: 1, failed: 0 });
   const none = client();
   assert.equal((await owner('POST', '/api/users', { local: 'calcsvexp3', domain: 'acme.com', name: 'Cal None', password: 'password123' })).status, 201);
   await login(none, 'calcsvexp3@acme.com');
