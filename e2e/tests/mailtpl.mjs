@@ -87,6 +87,23 @@ await step('with several templates, the ones you used last come first in the men
   if (names.slice(0, 2).join() !== 'Zulu,Late' || names.indexOf('Alpha') < 2 || names.indexOf('Alpha') > names.indexOf('Bravo')) throw new Error(names.join('|'));
   await page.keyboard.press('Escape');
 });
+await step('Manage templates → Make a copy: "Copy of …" with the same text, opened to rename', async () => {
+  await page.goto(`${B}/mail`);
+  await page.waitForTimeout(800);
+  if (!(await page.getByRole('textbox', { name: 'Message' }).count())) await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByRole('button', { name: 'Templates' }).click();
+  await page.getByRole('menuitem', { name: 'Manage templates…' }).click();
+  const d = page.getByRole('dialog', { name: 'Templates' });
+  await d.getByRole('button', { name: 'Make a copy of Thanks' }).click();
+  await page.getByText('“Copy of Thanks” made').waitFor();
+  await d.getByLabel('Name').fill('Thanks (wholesale)');
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.getByText('Thanks (wholesale)').waitFor();
+  const all = (await api(page, 'GET', '/mail/templates')).body;
+  const orig = all.find((t) => t.name === 'Thanks'), c = all.find((t) => t.name === 'Thanks (wholesale)');
+  if (!orig || !c || c.id === orig.id || c.html !== orig.html || c.subject !== orig.subject) throw new Error(JSON.stringify(all));
+  await page.keyboard.press('Escape');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

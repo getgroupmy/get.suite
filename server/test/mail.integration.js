@@ -493,6 +493,19 @@ test('templates: saved, changed, listed, deleted; only your own', async () => {
   assert.deepEqual((await olivia('GET', '/api/mail/templates')).body, []);
 });
 
+test('templates: Make a copy — "Copy of …" (numbered when taken), same subject and text; only your own', async () => {
+  const a = (await olivia('POST', '/api/mail/templates', { name: 'Welcome', subject: 'Hello', html: '<p>Glad you’re here</p>' })).body;
+  const c1 = await olivia('POST', `/api/mail/templates/${a.id}/copy`);
+  assert.equal(c1.status, 201);
+  assert.deepEqual([c1.body.name, c1.body.subject, c1.body.html], ['Copy of Welcome', 'Hello', '<p>Glad you’re here</p>']);
+  assert.notEqual(c1.body.id, a.id);
+  assert.equal((await olivia('POST', `/api/mail/templates/${a.id}/copy`)).body.name, 'Copy of Welcome (2)');
+  assert.equal((await gina('POST', `/api/mail/templates/${a.id}/copy`)).status, 404);
+  const list = (await olivia('GET', '/api/mail/templates')).body;
+  assert.deepEqual(list.map((t) => t.name), ['Copy of Welcome', 'Copy of Welcome (2)', 'Welcome']);
+  for (const t of list) await olivia('DELETE', `/api/mail/templates/${t.id}`);
+});
+
 // ---- filter rules (Sieve) ----
 test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
   const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });

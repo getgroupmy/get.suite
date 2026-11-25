@@ -3555,6 +3555,9 @@ function TemplatesDialog({ templates, onClose, onChanged }) {
             ) : <>
               <span className="grow"><strong>{t.name}</strong>{t.subject && <span className="muted small"> · {t.subject}</span>}</span>
               <button type="button" className="icon-btn" aria-label={`Edit ${t.name}`} onClick={() => setEditing(t)}><Icon name="edit" size={16} /></button>
+              <button type="button" className="icon-btn" aria-label={`Make a copy of ${t.name}`} title="A copy with the same subject and text, to change into a similar template" onClick={async () => {
+                try { const c = await post(`/mail/templates/${t.id}/copy`); onChanged(); setEditing(c); toast(`“${c.name}” made`); } catch (err) { toast(err.message, 'error'); }
+              }}><Icon name="copy" size={16} /></button>
               <button type="button" className="icon-btn" aria-label={`Delete ${t.name}`} onClick={async () => { await del(`/mail/templates/${t.id}`); onChanged(); toast('Template deleted'); }}><Icon name="trash" size={16} /></button>
             </>}
           </li>

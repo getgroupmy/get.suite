@@ -1030,6 +1030,19 @@ export default function webmailRoutes() {
     q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, t.name, t.subject, t.html, now());
     res.status(201).json({ id, ...t });
   });
+  // A copy of one of your templates, to change into a similar one: "Copy of …" (numbered if that's taken), same subject and text.
+  r.post('/templates/:id/copy', (req, res) => {
+    const cur = q('SELECT * FROM mail_templates WHERE id = ? AND user_id = ?').get(String(req.params.id), req.user.id);
+    if (!cur) throw notFound('Template not found');
+    if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('Too many templates');
+    const taken = new Set(q('SELECT name FROM mail_templates WHERE user_id = ?').all(req.user.id).map((x) => x.name.toLowerCase()));
+    const base = `Copy of ${cur.name}`.slice(0, 92);
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+    const id = newId();
+    q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, name, cur.subject, cur.html, now());
+    res.status(201).json({ id, name, subject: cur.subject, html: cur.html });
+  });
   r.patch('/templates/:id', (req, res) => {
     const cur = q('SELECT * FROM mail_templates WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
     if (!cur) throw notFound('Template not found');
