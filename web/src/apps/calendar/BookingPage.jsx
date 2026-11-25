@@ -145,7 +145,8 @@ export default function BookingPage({ token }) {
           const long = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
           return page.paused_from ? `Not taking bookings from ${long(page.paused_from)} until ${long(page.paused_until)}.` : `Not taking bookings until ${long(page.paused_until)}${days.length ? ': the times shown are from then on' : ''}.`;
         })()}</p>}
-        {!days.length ? (page.paused_until ? null : <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p>) : !slot ? <>
+        {page.full && <p role="status">This page is fully booked. Please get in touch with {page.owner.name} another way.</p>}
+        {!days.length ? (page.paused_until || page.full ? null : <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p>) : !slot ? <>
           <div className="booking-days" role="tablist" aria-label="Days">
             {days.map(([k, list]) => (
               <button key={k} type="button" role="tab" aria-selected={k === chosen} className={k === chosen ? 'on' : ''} onClick={() => setDay(k)}>

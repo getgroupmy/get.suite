@@ -239,6 +239,21 @@ await step('pausing days that already have a booking: saved, and the message say
   await page.keyboard.press('Escape');
   await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { paused_from: null, paused_until: null });
 });
+await step('Bookings in all: at the limit the page is full, says so to visitors, and offers no times', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('Bookings in all').selectOption({ label: 'At most 1' });
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/^Booking page saved/).first().waitFor();
+  await dlg.getByText(/ · full/).waitFor();
+  await page.keyboard.press('Escape');
+  await visitor.goto(url.replace(/^https?:\/\/[^/]+/, B));
+  await visitor.getByRole('status').filter({ hasText: 'This page is fully booked' }).waitFor();
+  if ((await api(visitor, 'GET', `/public/book/${url.split('/b/')[1]}`)).body.days.length) throw new Error('times offered');
+  await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { max_total: 0 });
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

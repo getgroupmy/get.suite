@@ -2438,6 +2438,34 @@ test('booking pages: “No bookings while I’m away” leaves out the days the 
   resetBookingLimits();
 });
 
+test('booking pages: at most N bookings in all — then full (no times, and the page says so); a cancellation frees a place', async () => {
+  const { resetBookingLimits } = await import('../src/routes/booking.js');
+  resetBookingLimits();
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bfull', domain: 'acme.com', name: 'Bo Full', password: 'password123' })).status, 201);
+  await login(a, 'bfull@acme.com');
+  assert.equal((await a('POST', '/api/bookings', { title: 'x', max_total: -1 })).status, 400);
+  const pg = (await a('POST', '/api/bookings', { title: 'Interview', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 3, max_total: 2 })).body;
+  assert.equal(pg.max_total, 2);
+  const tk = pg.url.split('/b/')[1];
+  const slots = (await outsider('GET', `/api/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const first = await outsider('POST', `/api/public/book/${tk}`, { start: slots[0], name: 'One', email: 'one@example.org' });
+  assert.ok(first.status < 300);
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: slots[3], name: 'Two', email: 'two@example.org' })).status < 300);
+  const full = (await outsider('GET', `/api/public/book/${tk}`)).body;
+  assert.deepEqual([full.full, full.days.length], [true, 0]);
+  assert.equal((await outsider('POST', `/api/public/book/${tk}`, { start: slots[6], name: 'Three', email: 'three@example.org' })).status, 409, 'no third');
+  // One cancels: a place again.
+  const ct = first.body.cancel_url.split('/b/cancel/')[1];
+  assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`, {})).status, 200);
+  const again = (await outsider('GET', `/api/public/book/${tk}`)).body;
+  assert.equal(again.full, undefined);
+  assert.ok(again.days.length > 0);
+  // No limit again: free as before.
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { max_total: 0 })).body.max_total, 0);
+  resetBookingLimits();
+});
+
 test('booking pages: questions for the visitor; required ones must be answered; answers go in the event', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker3', domain: 'acme.com', name: 'Bo Booker', password: 'password123' })).status, 201);
