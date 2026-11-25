@@ -5,11 +5,12 @@
 // The shares table keeps each person's effective role on a file (so every access check stays the same);
 // direct_role is what they were given one by one, and group_shares what groups were given. sync()
 // works out the effective role from both whenever either changes.
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { q, tx, widenRoles } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
 import { requireAdmin } from './auth.js';
 import { csvText } from './csvcell.js';
+import { parseCsv } from './sheetcalc/csvread.js';
 import { validAddress } from './tenancy.js';
 import { scheduleMailConfig } from './mail/config.js';
 import { sendTo } from './hub.js';
@@ -139,6 +140,56 @@ export function groupRoutes() {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="groups.csv"');
     res.send(`\ufeff${csvText(rows)}`);
+  });
+  // Admins: groups and members from a CSV (columns Group, and Member email or Email; Description if there):
+  // groups not there yet are made, and the people named are added. Nobody is taken off; addresses not in
+  // the company are listed back. All checked first; nothing changes if the file can't be used.
+  r.post('/import', requireAdmin, express.text({ type: () => true, limit: '2mb' }), (req, res) => {
+    const rows = parseCsv(String(req.body || ''));
+    if (rows.length < 2) throw bad('The file has no rows under its headings');
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (...names) => head.findIndex((h) => names.includes(h));
+    const gi = col('group', 'group name', 'name'), mi = col('member email', 'email', 'e-mail', 'member e-mail', 'address'), di = col('description');
+    if (gi < 0) throw bad('The first row needs a column named Group');
+    const people = new Map(q('SELECT id, lower(username) AS e FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id).map((u) => [u.e, u.id]));
+    const byName = new Map(q('SELECT * FROM groups WHERE org_id = ?').all(req.user.org_id).map((g) => [g.name.toLowerCase(), g]));
+    const plan = new Map(); // lower-case name → { name, description, ids }
+    const unknown = new Set();
+    let skipped = 0;
+    for (const r of rows.slice(1)) {
+      const name = String(r[gi] || '').trim().slice(0, 80);
+      if (!name) { skipped++; continue; }
+      const k = name.toLowerCase();
+      if (!plan.has(k)) plan.set(k, { name, description: di >= 0 ? String(r[di] || '').trim().slice(0, 300) : '', ids: new Set() });
+      const email = mi >= 0 ? String(r[mi] || '').trim().toLowerCase() : '';
+      if (email) { if (people.has(email)) plan.get(k).ids.add(people.get(email)); else unknown.add(email); }
+    }
+    const fresh = [...plan.keys()].filter((k) => !byName.has(k));
+    if (byName.size + fresh.length > MAX_GROUPS) throw bad(`A company can have up to ${MAX_GROUPS} groups`);
+    const added = new Map(); // group id → people newly in it
+    let created = 0;
+    tx(() => {
+      for (const [k, p] of plan) {
+        let g = byName.get(k);
+        if (!g) {
+          const id = uid();
+          q('INSERT INTO groups (id, org_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.org_id, p.name, p.description, now());
+          g = q('SELECT * FROM groups WHERE id = ?').get(id); created++;
+        }
+        const now2 = [...p.ids].filter((uid2) => q('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(g.id, uid2).changes);
+        if (now2.length) { added.set(g.id, { g, ids: now2 }); syncGroups([g.id]); syncGroupAlias(g.id); }
+      }
+    });
+    for (const { g, ids } of added.values()) {
+      const files = q('SELECT COUNT(*) AS n FROM group_shares WHERE group_id = ?').get(g.id).n;
+      bell(ids.filter((id) => id !== req.user.id), { kind: 'share', title: `${req.user.name} added you to the group “${g.name}”`,
+        body: files ? `${files} shared ${files === 1 ? 'item' : 'items'} in Drive → Shared with me` : null, link: '/drive/shared', actor: req.user.name });
+      sendTo(ids, { type: 'files-changed', parent_id: null });
+    }
+    const membersAdded = [...added.values()].reduce((n, x) => n + x.ids.length, 0);
+    audit(req, 'group.import', { details: { groups: created, members: membersAdded } });
+    tell(req.user.org_id);
+    res.json({ groups_created: created, members_added: membersAdded, unknown: [...unknown].sort(), skipped });
   });
   const load = (req) => {
     const g = q('SELECT * FROM groups WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);

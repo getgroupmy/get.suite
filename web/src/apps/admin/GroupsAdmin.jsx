@@ -2,7 +2,7 @@
 // everyone in it; people added later get it too, and people taken off lose it.
 import PeopleTicks from '../../components/PeopleTicks.jsx';
 import { useEffect, useState } from 'react';
-import { get, post, put, patch, del } from '../../api.js';
+import { get, post, put, patch, del, postText } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { matchesFilter } from '../contacts/contactfilter.js';
@@ -40,7 +40,22 @@ export default function GroupsAdmin() {
           <button className="btn primary">Create group</button></div>
       </form>
       {groups?.length === 0 && <p className="muted">No groups yet.</p>}
-      {groups?.length > 0 && <div className="row end"><a className="btn small" href="/api/groups/export.csv" download title="Every group and who's in it, one row per person, for a spreadsheet"><Icon name="download" size={16} /> Export as CSV</a></div>}
+      <div className="row end">
+        <label className="btn small" title="A CSV with a Group column and a Member email column (Description if you like), as Export as CSV writes: groups not there yet are made, and the people named added">
+          <Icon name="upload" size={16} /> Import from CSV
+          <input type="file" accept=".csv,text/csv" hidden aria-label="Groups file to import" onChange={async (e) => {
+            const file = e.target.files[0]; e.target.value = '';
+            if (!file) return;
+            try {
+              const r = await postText('/groups/import', await file.text());
+              toast([`${r.groups_created} group${r.groups_created === 1 ? '' : 's'} made, ${r.members_added} ${r.members_added === 1 ? 'person' : 'people'} added`,
+                r.unknown.length && `not in the company: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}`].filter(Boolean).join('; '), r.unknown.length ? 'error' : 'info');
+              load();
+            } catch (err) { toast(err.message, 'error'); }
+          }} />
+        </label>
+        {groups?.length > 0 && <a className="btn small" href="/api/groups/export.csv" download title="Every group and who's in it, one row per person, for a spreadsheet"><Icon name="download" size={16} /> Export as CSV</a>}
+      </div>
       {/* Find a group by its name, its address, or someone in it (words in any order, accents aside). */}
       {groups?.length > 4 && <input type="search" aria-label="Find a group" placeholder="Find a group or someone in one" value={find} onChange={(e) => setFind(e.target.value)} />}
       {groups?.length > 0 && find.trim() && !shown.length && <p className="muted">No group fits “{find.trim()}”.</p>}

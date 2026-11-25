@@ -127,6 +127,18 @@ await step('Export as CSV: every group and who is in it', async () => {
   const want = groups.flatMap((g) => (g.members.length ? g.members.map((m) => `${g.name},${g.description || ''},${g.email || ''},${m.name},${m.username}`) : [`${g.name},${g.description || ''},${g.email || ''},,`]));
   if (!groups.length || lines[0] !== 'Group,Description,Group email,Member,Member email' || lines.slice(1).join('|') !== want.join('|')) throw new Error(`${lines.join(' | ')} vs ${want.join(' | ')}`);
 });
+await step('Import from CSV: groups made and people added, unknown addresses said', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  const fs = await import('node:fs');
+  const file = `${SP}/groups-in.csv`;
+  fs.writeFileSync(file, 'Group,Description,Member email\r\nField team,Out and about,kim@acme.com\r\nField team,,lee@acme.com\r\nField team,,ghost@else.org\r\n');
+  await page.getByLabel('Groups file to import').setInputFiles(file);
+  await page.locator('.toast', { hasText: '1 group made, 2 people added; not in the company: ghost@else.org' }).waitFor();
+  const g = page.getByRole('listitem', { name: 'Group Field team' });
+  await g.getByText('2 people').waitFor();
+  await g.getByText('Kim Park, Lee Chan').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

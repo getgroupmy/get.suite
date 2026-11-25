@@ -5983,6 +5983,21 @@ test('groups: share with a group; joining and leaving it gives and takes access'
   assert.ok(lines.some((l) => /^"?'=Nobody yet"?,,,,$/.test(l)), 'an empty group once, and a name that looks like a formula kept as text: ' + lines.join('|'));
   assert.equal((await own('GET', '/api/groups/export.csv')).status, 403, 'admins only');
   await owner('DELETE', `/api/groups/${empty.id}`);
+  // And back in from a CSV: new groups made, the people named added (nobody taken off), unknown addresses listed.
+  const csvIn = ['Group,Description,Member email', 'Marketing,,grb@acme.com', 'Sales team,Selling things,gra@acme.com', 'Sales team,,nobody@else.org', ',,gra@acme.com'].join('\r\n');
+  const send = (who, text) => who('POST', '/api/groups/import', text, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal((await send(own, csvIn)).status, 403, 'admins only');
+  const imp = await send(owner, csvIn);
+  assert.equal(imp.status, 200, JSON.stringify(imp.body));
+  assert.deepEqual(imp.body, { groups_created: 1, members_added: 2, unknown: ['nobody@else.org'], skipped: 1 });
+  const after = (await owner('GET', '/api/groups')).body;
+  assert.deepEqual(after.find((x) => x.name === 'Marketing').members.map((m) => m.username).sort(), ['gra@acme.com', 'grb@acme.com'], 'added to, not replaced');
+  const sales = after.find((x) => x.name === 'Sales team');
+  assert.deepEqual([sales.description, sales.members.map((m) => m.username)], ['Selling things', ['gra@acme.com']]);
+  assert.deepEqual((await send(owner, csvIn)).body.members_added, 0, 'twice: nothing new');
+  assert.equal((await send(owner, 'Name only\r\nx')).status, 400, 'needs a Group column');
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra] });
+  await owner('DELETE', `/api/groups/${sales.id}`);
 
   const folder = (await own('POST', '/api/files/folder', { name: 'Campaigns' })).body;
   const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: folder.id })).body;
