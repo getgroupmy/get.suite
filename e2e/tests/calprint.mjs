@@ -205,6 +205,19 @@ await step('Sheets ⋮ → Make a form from this sheet: its headings become the 
   await page.locator('input[value="What should we change?"], textarea').filter({ hasText: '' }).first().waitFor();
   if (!(await page.evaluate(() => [...document.querySelectorAll('input, textarea')].some((el) => el.value === 'What should we change?')))) throw new Error('the question is not in the form editor');
 });
+await step('Sheets ⋮ → Copy to a note as a checklist: the column from the selected cell down, one item each (the heading left out)', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Packing', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Item', B1: 'Who', A2: 'Tent', A3: 'Stove', A5: 'Torch', B2: 'Ann' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Tent' }).click();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a note as a checklist' }).click();
+  await page.locator('.toast', { hasText: 'Saved to Notes: a checklist of 3 items' }).getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/notes/);
+  const n = (await api(page, 'GET', '/notes')).body.find((x) => x.title === 'Packing');
+  if (n?.items?.map((i) => `${i.done ? 'x' : ' '}${i.text}`).join('|') !== ' Tent| Stove| Torch') throw new Error(JSON.stringify(n));
+  await page.getByText('Stove').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

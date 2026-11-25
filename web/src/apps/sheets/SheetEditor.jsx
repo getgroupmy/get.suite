@@ -1252,6 +1252,30 @@ export default function SheetEditor() {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  // Copy to a note as a checklist: each row of the selected cells one item (its cells joined with " · "); with one cell
+  // selected, that cell's column from it down (a heading above stays out). Hidden rows are left out.
+  async function copyToNote() {
+    const many = range.c1 !== range.c2 || range.r1 !== range.r2;
+    let area = range;
+    if (!many) {
+      let last = sel.r;
+      for (const k of Object.keys(cells)) { const m = /^([A-Z]+)(\d+)$/.exec(k); if (m && colIndex(m[1]) === sel.c && cells[k] !== '' && cells[k] != null) last = Math.max(last, Number(m[2]) - 1); }
+      area = { c1: sel.c, c2: sel.c, r1: sel.r, r2: last };
+    }
+    const items = [];
+    for (let r = area.r1; r <= area.r2 && items.length < 200; r++) {
+      if (hidden.has(r)) continue;
+      const text = [];
+      for (let c = area.c1; c <= area.c2; c++) { const v = String(shown(cellKey(c, r)) ?? '').trim(); if (v) text.push(v); }
+      if (text.length) items.push({ text: text.join(' · ').slice(0, 1000) });
+    }
+    if (!items.length) { toast('Those cells are empty: select the ones to make a checklist of'); return; }
+    try {
+      const n = await post('/notes', { title: ((data.sheets || []).length > 1 ? `${file.name} - ${sheet.name}` : file.name).slice(0, 300), items });
+      toast(`Saved to Notes: a checklist of ${items.length} item${items.length === 1 ? '' : 's'}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/notes?note=${n.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   // Send as email: a new message in Mail with the selected cells (or the whole sheet) as a table in it, as they look.
   function sendAsEmail() {
     const many = range.c1 !== range.c2 || range.r1 !== range.r2;
@@ -1446,6 +1470,7 @@ export default function SheetEditor() {
             try { const f = await post('/forms/from-sheet', { file: id }); toast(`Made the form “${f.title}”: each response is added here as a row`, 'info'); navigate(`/forms/${f.id}`); }
             catch (e) { toast(e.message, 'error'); }
           } },
+          { label: 'Copy to a note as a checklist', icon: 'note', onClick: copyToNote }, // (the selected cells, or the column from the cell down)
           !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
           !viewOnly(file) && { label: 'Make a contact group…', icon: 'people', onClick: () => setDialog({ type: 'contact-group' }) },
           !viewOnly(file) && { label: 'Add rows to Contacts', icon: 'person', onClick: async () => {

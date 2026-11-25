@@ -714,6 +714,8 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 
 ## Tasks from a spreadsheet (Sheets)
 
+**⋮ → Copy to a note as a checklist** makes a note named after the spreadsheet with an unticked item for each row of the cells selected (several columns joined with ·), or, with one cell selected, for each cell of its column from there down (so a heading above stays out); empty and hidden rows are left out, up to 200 items. **Open** in the message goes to it in Notes.
+
 **⋮ → Add rows to Tasks…** adds each row of the sheet you're on as a task at the end of a list you pick (your own lists and ones shared with you that you can edit). Lay it out as Tasks' **Import from CSV** reads it: a **Title** column, and if you like **Due**, **Notes**, **Steps**, **Done** and the others Tasks exports, with values as the sheet shows them. The message says how many tasks were added (and how many rows were left out), with **Open** to go to the list. A sheet whose owner has turned off copying can't be added.
 
 ## Contacts from a spreadsheet (Sheets)
