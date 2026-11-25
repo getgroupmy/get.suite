@@ -2197,6 +2197,18 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   (await import('../src/db.js')).q("UPDATE bookings SET cancelled_at = ? WHERE page_id = ? AND lower(email) = 'kai@visit.example'").run(Date.now(), pg.id);
   assert.deepEqual((await a('GET', `/api/bookings/${pg.id}/people`)).body.people.map((x) => x.email), ['bother@acme.com', 'liv@visit.example'], 'a cancelled booking is left out');
   assert.equal((await other('GET', `/api/bookings/${pg.id}/people`)).status, 404);
+  // Every booking as a CSV: latest time first, times in the page's zone, a cancelled one said so; the owner's only.
+  const csv = await a('GET', `/api/bookings/${pg.id}/bookings.csv`);
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-disposition'), /Tour%20bookings\.csv/);
+  const lines = csv.body.replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status');
+  assert.deepEqual(lines.slice(1).map((l) => l.split(',')[1]), ['bother@acme.com', 'kai@visit.example', 'liv@visit.example']);
+  const iso = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+  assert.deepEqual(lines[3].split(',').slice(2, 6), [iso(slots[0]), iso(slots[0] + 30 * 60e3), 'UTC', 'Bea Contacts']);
+  assert.match(lines[2], /,Cancelled \d{4}-\d\d-\d\d \d\d:\d\d$/);
+  assert.match(lines[1], /,Booked$/);
+  assert.equal((await other('GET', `/api/bookings/${pg.id}/bookings.csv`)).status, 404);
   resetBookingLimits();
 });
 

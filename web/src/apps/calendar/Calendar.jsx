@@ -2751,6 +2751,7 @@ function BookingPagesDialog({ onClose }) {
                     toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} people`} to your contacts` : 'Everyone who booked is already in your contacts or a colleague');
                   } catch (e) { toast(e.message, 'error'); }
                 }}><Icon name="person" size={16} /></button>}
+                {p.booked_by > 0 && <a className="icon-btn" href={`/api/bookings/${p.id}/bookings.csv`} download aria-label={`Download the bookings of ${p.title}`} title="Every booking made through this page as a spreadsheet (CSV): who, when, and whether it was cancelled"><Icon name="download" size={16} /></a>}
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
                 <button type="button" className="icon-btn" aria-label={`Make a copy of ${p.title}`} title="Make a copy (with a link of its own), to change into another kind of meeting" onClick={async () => {
                   try { const c = await post(`/bookings/${p.id}/copy`); toast(`“${c.title}” made`); load(); setEditing(c); } catch (e) { toast(e.message, 'error'); }

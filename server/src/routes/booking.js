@@ -12,6 +12,7 @@ import { q } from '../db.js';
 import { uid, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
+import { csvText } from '../csvcell.js';
 import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { freeSlots as openSlots } from '../freeslots.js';
 import { expand } from '../calserver.js';
@@ -294,6 +295,23 @@ export default function bookingRoutes() {
       people.push({ name: r.name || '', email });
     }
     res.json({ title: p.title, people });
+  });
+  // Every booking made through this page as a spreadsheet (CSV): who, their address, when (in the page's time zone),
+  // which host it went to, when it was booked, and whether it still stands or was cancelled. Newest first.
+  r.get('/:id/bookings.csv', (req, res) => {
+    const p = mine(req);
+    const tz = zoneOrUtc(p.tz);
+    const fmt = new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    const at = (t) => (t == null ? '' : fmt.format(new Date(t)));
+    const rows = q(`SELECT b.name, b.email, b.created_at, b.cancelled_at, e.start, e."end" AS fin, u.name AS host FROM bookings b
+                    LEFT JOIN events e ON e.id = b.event_id LEFT JOIN users u ON u.id = e.owner_id
+                    WHERE b.page_id = ? ORDER BY e.start DESC, b.created_at DESC`).all(p.id);
+    const lines = [['Name', 'Email', 'Starts', 'Ends', 'Time zone', 'Host', 'Booked', 'Status'],
+      ...rows.map((b) => [b.name || '', b.email || '', at(b.start), at(b.fin), tz, b.host || '', at(b.created_at), b.cancelled_at ? `Cancelled ${at(b.cancelled_at)}` : 'Booked'])];
+    const file = `${p.title} bookings.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.replace(/[^\w .-]+/g, '').trim() || 'bookings.csv'}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+    res.send(`\ufeff${csvText(lines)}`);
   });
   // Add the people who booked through this page to your contacts (name and address as they gave them; cancelled
   // bookings too). Colleagues and anyone already there are left out.

@@ -147,6 +147,19 @@ await step('“Add people who book to my contacts”: ticked and saved, the next
   const list = (await api(page, 'GET', '/contacts')).body;
   if (!list.some((c) => c.email === 'quinn@example.org' && c.name === 'Quinn Quick')) throw new Error(JSON.stringify(list));
 });
+await step('Booking pages → Download the bookings: a CSV of who booked, when, and the cancelled one marked', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download the bookings of Intro call' }).click()]);
+  if (dl.suggestedFilename() !== 'Intro call bookings.csv') throw new Error(dl.suggestedFilename());
+  const text = (await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8')).replace(/^\ufeff/, '');
+  const lines = text.trim().split('\r\n');
+  if (lines[0] !== 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status') throw new Error(lines[0]);
+  const oscar = lines.find((l) => l.startsWith('Oscar Out,')), quinn = lines.find((l) => l.startsWith('Quinn Quick,'));
+  if (!oscar?.includes(',Cancelled ') || !quinn?.endsWith(',Booked')) throw new Error(text);
+  await page.keyboard.press('Escape');
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });
