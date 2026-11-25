@@ -63,6 +63,15 @@ await step('removed for good: the meeting’s organiser is told', async () => {
   if (!bell.includes('Small room was removed') || !bell.includes('“One to one” no longer has a room')) throw new Error('Kim wasn’t told');
   void kim;
 });
+await step('Recently removed: a room removed earlier put back from the list', async () => {
+  await owner.reload();
+  await owner.getByRole('tab', { name: 'Company settings' }).click().catch(() => owner.getByRole('button', { name: 'Company settings' }).click());
+  await owner.getByRole('button', { name: 'Recently removed' }).click();
+  const d = owner.getByRole('dialog', { name: 'Recently removed rooms' });
+  await d.getByRole('button', { name: 'Restore Small room' }).click();
+  await owner.getByText('“Small room” is back').waitFor();
+  await owner.getByRole('button', { name: 'Remove Small room' }).waitFor();
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

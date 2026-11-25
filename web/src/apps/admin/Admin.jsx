@@ -5,6 +5,7 @@ import MigrationAdmin from './MigrationAdmin.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { matchesFilter } from '../contacts/contactfilter.js';
 import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
@@ -862,6 +863,7 @@ function Rooms() {
   const run = (fn, msg) => async () => { try { await fn(); if (msg) toast(msg); load(); } catch (e) { toast(e.message, 'error'); } };
   // Removing a room: asked first (meetings booked in it lose it), with Undo after.
   const [removing, setRemoving] = useState(null); // { room, meetings }
+  const [bin, setBin] = useState(false); // Recently removed rooms
   const askRemove = async (room) => { try { const { meetings } = await get(`/rooms/${room.id}/upcoming`); setRemoving({ room, meetings }); } catch (e) { toast(e.message, 'error'); } };
   const remove = async () => {
     const { room } = removing;
@@ -913,9 +915,13 @@ function Rooms() {
             } catch (err) { toast(err.message, 'error'); }
           }} /></label>
         {rooms?.length > 0 && <a className="btn small" href="/api/rooms/export.csv" download>Export as CSV</a>}
+        <button type="button" className="btn small" onClick={() => setBin(true)}>Recently removed</button>
         <span className="muted small">Columns: Name, Seats, Where, Equipment, Admins only, Check-in (yes or no). Rooms with the same name are updated.</span>
       </div>
       {rooms?.length > 0 && <RoomUsage />}
+      {bin && <RecentlyDeleted title="Recently removed rooms" what="Rooms" list="/rooms/bin" restore={(id) => `/rooms/bin/${id}/restore`}
+        note="Rooms you remove are kept here for 30 days, then deleted for good. Putting one back brings back its bookings too."
+        onClose={() => setBin(false)} onRestored={() => { setBin(false); load(); }} />}
       {removing && <ConfirmModal title={`Remove ${removing.room.name}?`} confirm="Remove room" onClose={() => setRemoving(null)} onConfirm={remove}
         message={removing.meetings ? `${removing.meetings} meeting${removing.meetings === 1 ? ' to come has' : 's to come have'} it booked, and will lose it (their organisers are told). You can undo this straight after.` : 'No meetings to come have it booked. You can undo this straight after.'} />}
     </div>

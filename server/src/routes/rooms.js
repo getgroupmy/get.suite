@@ -1,7 +1,7 @@
 // Meeting rooms (and other things to book, like a projector): a company's admins list them; people
 // add one to an event, and it's booked when it's free then (every time, for a repeating event, over
 // the next six months) or declined when something else has it.
-import { binAndDelete, restoreFromBin, noticeAfterUndo } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, noticeAfterUndo, binOf } from '../recyclebin.js';
 import express, { Router } from 'express';
 import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
@@ -430,6 +430,7 @@ export default function roomRoutes() {
     tellRoomRemoved(binId, room.name, lose, req.user);
     res.json({ ok: true, meetings, bin_id: binId });
   });
+  r.get('/bin', (req, res) => { admin(req); res.json(binOf(req.user.id, 'room')); }); // rooms you removed, kept 30 days
   r.post('/bin/:id/restore', (req, res) => {
     admin(req);
     const back = restoreFromBin(req.params.id, req.user.id);

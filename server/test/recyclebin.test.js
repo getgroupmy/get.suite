@@ -132,8 +132,12 @@ test('a meeting room removed by mistake: Undo puts it back with its bookings', a
   const del = await olivia('DELETE', `/api/rooms/${room.id}`);
   assert.equal(del.body.meetings, 1);
   assert.equal((await roomsOf()).length, 0, 'the meeting lost it');
+  // Listed under Recently removed (admins; the rooms they removed), until it's put back.
+  assert.ok((await olivia('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id && x.name === 'Board room'));
+  assert.equal((await carol('GET', '/api/rooms/bin')).status, 403, 'admins only');
   assert.equal((await olivia('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200);
   assert.equal((await roomsOf()).length, 1, 'and has it again');
+  assert.ok(!(await olivia('GET', '/api/rooms/bin')).body.some((x) => x.id === del.body.bin_id));
 });
 
 test('organisers are told their meeting lost its room, unless the removal is undone in time', async () => {
