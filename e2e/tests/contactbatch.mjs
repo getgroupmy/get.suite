@@ -334,6 +334,18 @@ await step('Make a copy of a group: "Copy of …" with the same people, opened t
   if (!c || c.id === g.id || c.members.map((m) => m.email).join() !== 'alto@example.org,bass@example.org') throw new Error(JSON.stringify(all));
   if (!all.find((x) => x.id === g.id && x.name === 'Choir')) throw new Error('original changed');
 });
+await step('Groups → Import… a .csv: a group named after the file, those without an address left out', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  const csv = 'Name,Email\nAmy Reed,amy@example.org\nBen Ode,ben@example.org\nNo Address,\n';
+  await page.getByLabel('Import a group').setInputFiles({ name: 'Parents.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByText('Group “Parents” made with 2 people (1 without an email address left out)').waitFor();
+  await page.locator('table.files tbody td.name > span:last-child', { hasText: 'Parents' }).waitFor();
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Parents');
+  if (g?.members.map((m) => m.email).join() !== 'amy@example.org,ben@example.org') throw new Error(JSON.stringify(g));
+  await page.getByLabel('Import a group').setInputFiles({ name: 'notes.csv', mimeType: 'text/csv', buffer: Buffer.from('hello there') });
+  await page.locator('.toast', { hasText: 'doesn’t look like a contacts file' }).waitFor();
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

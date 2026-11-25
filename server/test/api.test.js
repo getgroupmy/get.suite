@@ -2484,6 +2484,25 @@ test('booking pages: Recently deleted lists yours, and restoring brings the page
   assert.deepEqual((await a('GET', '/api/bookings/bin')).body, []);
 });
 
+test('contact groups: Import a .vcf or .csv as a new group (named after the file, numbered if taken); a download reads back the same', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cgia', domain: 'acme.com', name: 'Cgi Ann', password: 'password123' })).status, 201);
+  await login(a, 'cgia@acme.com');
+  const csv = 'Name,Email\nAnn One,One@Ex.org\nNo Mail,\nTwo,two@ex.org\nAgain,one@ex.org\n';
+  const g = await a('POST', `/api/contacts/groups/import?name=${encodeURIComponent('Choir')}`, csv, { raw: true });
+  assert.equal(g.status, 201);
+  assert.deepEqual([g.body.name, g.body.members.map((m) => m.email), g.body.left_out], ['Choir', ['one@ex.org', 'two@ex.org'], 1]);
+  // Downloaded as a vCard and brought back in: the same people, under "Choir (2)".
+  const vcf = (await a('GET', `/api/contacts/groups/${g.body.id}/export`)).body;
+  assert.match(vcf, /BEGIN:VCARD/);
+  const back = await a('POST', '/api/contacts/groups/import?name=choir', vcf, { raw: true });
+  assert.deepEqual([back.status, back.body.name, back.body.members.map((m) => m.email)], [201, 'choir (2)', ['one@ex.org', 'two@ex.org']]);
+  assert.equal((await a('POST', '/api/contacts/groups/import?name=X', 'just some words', { raw: true })).status, 400);
+  assert.equal((await a('POST', '/api/contacts/groups/import?name=X', 'Name,Email\nNobody,\n', { raw: true })).status, 400, 'no addresses');
+  assert.equal((await a('POST', '/api/contacts/groups/import', csv, { raw: true })).status, 400, 'a name is needed');
+  assert.equal((await a('GET', '/api/contacts/groups')).body.length, 2);
+});
+
 test('contact groups: Make a copy — same people, "Copy of …" (numbered when taken); only your own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cgca', 'Cgc Ann'], ['cgcb', 'Cgc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

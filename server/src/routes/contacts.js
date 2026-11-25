@@ -394,13 +394,30 @@ export default function contactRoutes() {
     if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
     const found = contactsFromFile(await sheetAsCsv(req.body?.file, req.body?.sheet, req.user));
     if (found.error) throw bad('This sheet isn’t laid out as contacts: give it an Email column (and Name, if you like)');
-    const people = found.contacts.filter((c) => c.email && EMAIL_RE.test(c.email)).map((c) => ({ name: c.name || '', email: c.email }));
-    if (!people.length) throw bad('No email addresses on this sheet');
+    res.status(201).json(groupFromFound(req.user.id, name, found.contacts, 'No email addresses on this sheet'));
+  });
+  // A group from a file (Groups → Import…): the body a vCard (.vcf) or CSV, as Download a group (or Gmail, Outlook,
+  // Apple Contacts) writes them; ?name= the group's name (the file's, as a rule), numbered if you have a group called that.
+  r.post('/groups/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
+    const base = str(req.query.name, { required: true, name: 'Group name', max: 92 });
+    const mine = groupsOf(req.user.id);
+    if (mine.length >= MAX_GROUPS) throw bad('Too many groups');
+    const taken = new Set(mine.map((g) => g.name.toLowerCase()));
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+    const found = contactsFromFile(typeof req.body === 'string' ? req.body : '');
+    if (found.error) throw bad(found.error);
+    res.status(201).json(groupFromFound(req.user.id, name, found.contacts, 'No email addresses in this file'));
+  });
+  // A new group of the people found (those with an address), and how many were left out for having none.
+  const groupFromFound = (userId, name, found, none) => {
+    const people = found.filter((c) => c.email && EMAIL_RE.test(c.email)).map((c) => ({ name: c.name || '', email: c.email }));
+    if (!people.length) throw bad(none);
     const members = readMembers(people.slice(0, MAX_MEMBERS + 1));
     const id = uid();
-    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(members), now());
-    res.status(201).json({ ...groupsOf(req.user.id).find((g) => g.id === id), left_out: found.contacts.length - people.length });
-  });
+    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, userId, name, JSON.stringify(members), now());
+    return { ...groupsOf(userId).find((g) => g.id === id), left_out: found.length - people.length };
+  };
   const ownGroup = (req) => { const g = groupsOf(req.user.id).find((x) => x.id === req.params.id); if (!g) throw notFound('Group not found'); return g; };
   r.patch('/groups/:id', (req, res) => {
     const g = ownGroup(req);

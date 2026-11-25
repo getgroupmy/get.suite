@@ -895,6 +895,17 @@ function Groups({ filter }) {
   const [merging, setMerging] = useState(false);
   const [deletingMany, setDeletingMany] = useState(false);
   const [bin, setBin] = useState(false); // Recently deleted groups
+  const groupFile = useRef(null);
+  // A group from a .vcf or .csv file, named after the file (numbered by the server if that name's taken).
+  const importGroup = async (file) => {
+    if (!file) return;
+    try {
+      const name = (file.name.replace(/\.(vcf|csv)$/i, '').trim() || 'Imported group').slice(0, 92);
+      const g = await postText(`/contacts/groups/import?name=${encodeURIComponent(name)}`, await file.text());
+      toast(`Group “${g.name}” made with ${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}${g.left_out ? ` (${g.left_out} without an email address left out)` : ''}`);
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const load = () => get('/contacts/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = (groups || []).filter((g) => !filter || has(g.name, filter) || g.members.some((m) => has(`${m.name} ${m.email}`, filter)));
@@ -910,6 +921,8 @@ function Groups({ filter }) {
   return (
     <div className="stack">
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
+        <input ref={groupFile} type="file" accept=".vcf,.csv,text/vcard,text/csv" hidden aria-label="Import a group" onChange={(e) => { importGroup(e.target.files[0]); e.target.value = ''; }} />
+        <button type="button" className="btn" title="A group from a vCard (.vcf) or CSV file: one a group was downloaded as, or exported from Gmail, Outlook or Apple Contacts" onClick={() => groupFile.current?.click()}><Icon name="upload" size={18} /> Import…</button>
         <span className="muted small grow">Type a group's name in To, Cc or Bcc to put in everyone in it.</span>
         <button type="button" className="btn small" onClick={() => setBin(true)}><Icon name="trash" size={16} /> Recently deleted</button></div>
       {bin && <RecentlyDeleted title="Recently deleted groups" what="Groups" list="/contacts/groups/bin" restore={(id) => `/contacts/groups/bin/${id}/restore`} forever={(id) => `/contacts/groups/bin/${id}`} empty="/contacts/groups/bin"
