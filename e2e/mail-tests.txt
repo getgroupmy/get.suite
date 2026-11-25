@@ -163,3 +163,4 @@ maillists.mjs
 bookemail.mjs
 mailallfolders.mjs
 mailsavemove.mjs
+a11ymail2.mjs
