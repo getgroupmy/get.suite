@@ -667,6 +667,15 @@ export default function calendarRoutes() {
   r.post('/templates/import', (req, res) => {
     res.json(importEventTemplates(req.user, req.body));
   });
+  // Rename one of your templates: { name } (not one another of yours has).
+  r.patch('/templates/:tid', (req, res) => {
+    const name = str(req.body?.name, { required: true, name: 'Template name', max: 60 });
+    const cur = q('SELECT id FROM event_templates WHERE id = ? AND user_id = ?').get(String(req.params.tid), req.user.id);
+    if (!cur) throw notFound('Template not found');
+    if (q('SELECT 1 FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?) AND id != ?').get(req.user.id, name, cur.id)) throw bad('You already have a template with that name');
+    q('UPDATE event_templates SET name = ? WHERE id = ?').run(name, cur.id);
+    res.json({ id: cur.id, name });
+  });
   r.delete('/templates/:tid', (req, res) => {
     const n = q('DELETE FROM event_templates WHERE id = ? AND user_id = ?').run(String(req.params.tid), req.user.id).changes;
     if (!n) throw notFound('Template not found');

@@ -115,6 +115,27 @@ await step('with several templates, the ones you used last come first in From a 
   const file = (await api(page, 'GET', '/events/templates')).body;
   if (!file.every((t) => 'used_at' in t)) throw new Error('used_at listed');
 });
+await step('rename a template from an event’s 📋 Template menu (not to a name another has)', async () => {
+  await api(page, 'POST', '/events/templates', { name: 'Kickoff', event: { title: 'Kickoff', minutes: 45 } });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Month' }).click();
+  await page.locator('.month .chip', { hasText: 'Supplier call' }).first().click();
+  const d = page.getByRole('dialog', { name: 'Edit event' });
+  await d.getByRole('button', { name: '📋 Template' }).click();
+  await page.getByRole('menuitem', { name: 'Rename template “Kickoff”…' }).click();
+  const n = page.getByRole('dialog', { name: 'Rename template' });
+  await n.getByLabel('Template name').fill('zebra sync');
+  await n.getByRole('button', { name: 'Rename' }).click();
+  await n.getByText('You already have a template with that name').waitFor();
+  await n.getByLabel('Template name').fill('Project kickoff');
+  await n.getByRole('button', { name: 'Rename' }).click();
+  await n.waitFor({ state: 'detached' });
+  await d.getByRole('button', { name: '📋 Template' }).click();
+  await page.getByRole('menuitem', { name: 'Rename template “Project kickoff”…' }).waitFor();
+  await page.keyboard.press('Escape');
+  const t = (await api(page, 'GET', '/events/templates')).body.find((x) => x.name === 'Project kickoff');
+  if (t?.minutes !== 45) throw new Error(JSON.stringify(t));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -1855,6 +1855,7 @@ function FindATime({ guests, directory, minutes, onPick }) {
 
 function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, templates = [], onTemplatesChanged }) {
   const [naming, setNaming] = useState(false); // saving this event as a template: asking its name
+  const [renamingTpl, setRenamingTpl] = useState(null); // a template being given a new name
   const toast = useToast();
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
@@ -2296,6 +2297,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           }}>Duplicate</button>}
           {onTemplatesChanged && !f.ooo && !f.focus && <Menu trigger={(p) => <button type="button" className="btn" title="Keep this event's details to start others from" {...p}>📋 Template</button>} items={[
             { label: 'Save as template…', onClick: () => setNaming(true) },
+            ...templates.map((t) => ({ label: `Rename template “${t.name}”…`, onClick: () => setRenamingTpl(t) })),
             ...templates.map((t) => ({ label: `Delete template “${t.name}”`, danger: true, onClick: async () => { try { await del(`/events/templates/${t.id}`); onTemplatesChanged(); } catch (e) { setError(e.message); } } })),
           ]} />}
           {event.task && <Link className="btn" to={`/tasks/${event.task.list_id}?task=${event.task.id}`} title={`The task this time is for: ${event.task.title}`}>{event.task.done ? '✅' : '☐'} Open task</Link>}
@@ -2309,6 +2311,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </form>
+      {renamingTpl && <PromptModal title="Rename template" label="Template name" initial={renamingTpl.name} confirm="Rename"
+        onClose={() => setRenamingTpl(null)} onSubmit={async (name) => { await patch(`/events/templates/${renamingTpl.id}`, { name }); onTemplatesChanged(); }} />}
       {naming && <PromptModal title="Save as template" label="Template name" initial={f.title || ''} confirm="Save template"
         message="Its title, length, place, notes, guests, reminders, colour and calendar, to start new events from (Calendar → From a template). The same name replaces that template."
         onClose={() => setNaming(false)} onSubmit={async (name) => {

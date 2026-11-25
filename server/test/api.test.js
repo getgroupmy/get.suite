@@ -12122,6 +12122,14 @@ test('calendar: event templates, each person’s own', async () => {
   assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => [x.name, x.minutes]), [['client call', 45]]);
   assert.equal((await a('POST', '/api/events/templates', { name: 'Bad', event: { minutes: 2 } })).status, 400);
   assert.equal((await a('POST', '/api/events/templates', { name: 'Day', event: { all_day: true } })).body.minutes, null);
+  // Renamed: your own only, not to another's name (any case), not to nothing; its details stay.
+  assert.equal((await a('PATCH', `/api/events/templates/${t.body.id}`, { name: 'DAY' })).status, 400, 'taken');
+  assert.equal((await a('PATCH', `/api/events/templates/${t.body.id}`, { name: ' ' })).status, 400);
+  assert.equal((await b('PATCH', `/api/events/templates/${t.body.id}`, { name: 'Mine' })).status, 404);
+  const ren = await a('PATCH', `/api/events/templates/${t.body.id}`, { name: 'Client catch-up' });
+  assert.deepEqual([ren.status, ren.body.name], [200, 'Client catch-up']);
+  assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => [x.name, x.minutes]), [['Client catch-up', 45], ['Day', null]]);
+  assert.equal((await a('PATCH', `/api/events/templates/${t.body.id}`, { name: 'client CATCH-UP' })).status, 200, 'its own name in another case');
   assert.equal((await b('DELETE', `/api/events/templates/${t.body.id}`)).status, 404);
   await a('DELETE', `/api/events/templates/${t.body.id}`);
   assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Day']);
