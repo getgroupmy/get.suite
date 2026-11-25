@@ -2401,6 +2401,31 @@ test('booking pages: paused until a day — no times before it, bookings again f
   resetBookingLimits();
 });
 
+test('booking pages: “No bookings while I’m away” leaves out the days the host’s vacation reply covers', async () => {
+  const { resetBookingLimits } = await import('../src/routes/booking.js');
+  resetBookingLimits();
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'baway', domain: 'acme.com', name: 'Bo Away', password: 'password123' })).status, 201);
+  await login(a, 'baway@acme.com');
+  const me = (await a('GET', '/api/auth/me')).body.user;
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const { q } = await import('../src/db.js');
+  q('INSERT INTO vacations (user_id, enabled, subject, start_date, end_date, updated_at) VALUES (?, 1, ?, ?, ?, ?)').run(me.id, 'Away', day(1), day(3), Date.now());
+  const pg = (await a('POST', '/api/bookings', { title: 'Call', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 6 })).body;
+  assert.equal(pg.skip_away, false, 'off unless chosen');
+  const tk = pg.url.split('/b/')[1];
+  const dates = async () => (await outsider('GET', `/api/public/book/${tk}`)).body.days.map((d) => d.date);
+  assert.ok((await dates()).includes(day(2)), 'off: the vacation days are offered');
+  const on = await a('PATCH', `/api/bookings/${pg.id}`, { skip_away: true });
+  assert.deepEqual([on.status, on.body.skip_away], [200, true]);
+  const got = await dates();
+  assert.ok(![day(1), day(2), day(3)].some((d) => got.includes(d)), got.join());
+  assert.ok(got.includes(day(4)), 'back after it');
+  q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(me.id);
+  assert.ok((await dates()).includes(day(2)), 'the vacation reply turned off: offered again');
+  resetBookingLimits();
+});
+
 test('booking pages: questions for the visitor; required ones must be answered; answers go in the event', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker3', domain: 'acme.com', name: 'Bo Booker', password: 'password123' })).status, 201);

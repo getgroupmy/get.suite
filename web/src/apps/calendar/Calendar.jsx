@@ -2855,6 +2855,7 @@ function BookingForm({ page, onSave, onCancel }) {
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <label className="check"><input type="checkbox" checked={p.remind !== false} onChange={(e) => set('remind', e.target.checked)} /> Email visitors a reminder the day before</label>
       <label className="check"><input type="checkbox" checked={!!p.add_contacts} onChange={(e) => set('add_contacts', e.target.checked)} /> Add people who book to my contacts</label>
+      <label className="check" title="Mail → Vacation reply: while it's on, no times are offered on the days it covers (for each host, on a page with co-hosts)"><input type="checkbox" checked={!!p.skip_away} onChange={(e) => set('skip_away', e.target.checked)} /> No bookings while my vacation reply is on</label>
       <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Questions for visitors (besides name and email)</legend>
         {(p.questions || []).map((x, i) => (
           <div key={i} className="row" style={{ gap: 8 }}>

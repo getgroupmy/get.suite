@@ -194,6 +194,17 @@ await step('Paused until a day: the visitor sees no times before it, and is told
   if (pub.body.paused_until !== ymd || pub.body.days.some((d) => d.date < ymd)) throw new Error(JSON.stringify(pub.body));
   await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { paused_until: null });
 });
+await step('“No bookings while my vacation reply is on”: ticked and saved', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('No bookings while my vacation reply is on').check();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Booking page saved').waitFor();
+  await page.keyboard.press('Escape');
+  if ((await api(page, 'GET', '/bookings')).body[0].skip_away !== true) throw new Error('not saved');
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

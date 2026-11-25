@@ -61,6 +61,8 @@ if (!cols('bookings').includes('answers')) q("ALTER TABLE bookings ADD COLUMN an
 if (!cols('bookings').includes('note')) q('ALTER TABLE bookings ADD COLUMN note TEXT').run();
 // Paused until a day (YYYY-MM-DD, in the page's time zone): no times offered before it (a holiday), bookings again from it.
 if (!cols('booking_pages').includes('paused_until')) q('ALTER TABLE booking_pages ADD COLUMN paused_until TEXT').run();
+// No times on the days a host's vacation reply (Mail) covers.
+if (!cols('booking_pages').includes('skip_away')) q('ALTER TABLE booking_pages ADD COLUMN skip_away INTEGER NOT NULL DEFAULT 0').run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 // Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
 // to a host who is free then, the one with the fewest bookings from the page.
@@ -200,12 +202,13 @@ function readPage(b, current = {}) {
   const whereText = whereKind === 'place' ? str(pick('where_text'), { required: true, name: 'The place', max: 200 }) : null;
   const seats = Number(pick('seats') ?? 1);
   if (!Number.isInteger(seats) || seats < 1 || seats > MAX_SEATS) throw bad(`From 1 to ${MAX_SEATS} people at a time`);
+  const skipAway = pick('skip_away') ? 1 : 0;
   const pausedUntil = pick('paused_until') || null;
   if (pausedUntil !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(String(pausedUntil)) || Number.isNaN(Date.parse(`${pausedUntil}T00:00:00Z`)))) throw bad('Paused until: a date');
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, add_contacts: addContacts, questions, hosts, where_kind: whereKind, where_text: whereText, seats, paused_until: pausedUntil };
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, add_contacts: addContacts, questions, hosts, where_kind: whereKind, where_text: whereText, seats, paused_until: pausedUntil, skip_away: skipAway };
 }
 const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
-  host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, url: `${baseUrl(req)}/b/${p.token}`,
+  host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, skip_away: !!p.skip_away, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
   booked_by: q('SELECT COUNT(DISTINCT LOWER(email)) AS n FROM bookings WHERE page_id = ? AND email IS NOT NULL').get(p.id).n }); // (cancelled too: for Add to Contacts)
 
@@ -230,11 +233,11 @@ function addPage(user, p) {
   q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
     p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
-  q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ?, paused_until = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, p.paused_until, id);
+  q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ?, paused_until = ?, skip_away = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, p.paused_until, p.skip_away, id);
   return id;
 }
 
-const PAGE_KEYS = ['title', 'description', 'duration', 'days', 'from_min', 'to_min', 'tz', 'notice_hours', 'days_ahead', 'enabled', 'buffer_min', 'max_per_day', 'remind', 'add_contacts', 'questions', 'where_kind', 'where_text', 'seats', 'paused_until'];
+const PAGE_KEYS = ['title', 'description', 'duration', 'days', 'from_min', 'to_min', 'tz', 'notice_hours', 'days_ahead', 'enabled', 'buffer_min', 'max_per_day', 'remind', 'add_contacts', 'questions', 'where_kind', 'where_text', 'seats', 'paused_until', 'skip_away'];
 /** Your booking pages for Download your data: their settings, with co-hosts by email (ids mean nothing on another server). Null when you have none. */
 export function bookingPagesJson(userId) {
   const pages = q('SELECT * FROM booking_pages WHERE user_id = ? ORDER BY created_at').all(userId);
@@ -297,8 +300,8 @@ export default function bookingRoutes() {
   };
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
-    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled, add_contacts: !!cur.add_contacts });
-    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ?, paused_until = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, p.paused_until, cur.id);
+    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled, add_contacts: !!cur.add_contacts, skip_away: !!cur.skip_away });
+    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ?, paused_until = ?, skip_away = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, p.paused_until, p.skip_away, cur.id);
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
@@ -427,12 +430,26 @@ export function publicBookingRoutes() {
     WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.owner_id = ? AND e.end > ? GROUP BY e.id`).all(p.id, hostId, now - DAY);
   // One host's free times, or (no host given) any host's. On a group page, a session with room left is
   // free at its own start (and nowhere else it overlaps); a full one is busy.
+  // The days a host is closed: the company's holidays, and (the page set so) the days their vacation reply covers.
+  const offDays = (p, hostId, now) => {
+    const closed = closedDays(hostId);
+    if (!p.skip_away) return closed;
+    const v = q('SELECT start_date, end_date FROM vacations WHERE user_id = ? AND enabled = 1').get(hostId);
+    if (!v) return closed;
+    const out = new Set(closed);
+    const t0 = partsAt(now, zoneOrUtc(p.tz));
+    for (let i = 0; i <= p.days_ahead; i++) {
+      const d = new Date(Date.UTC(t0.y, t0.m, t0.d + i)).toISOString().slice(0, 10);
+      if ((!v.start_date || v.start_date <= d) && (!v.end_date || v.end_date >= d)) out.add(d);
+    }
+    return out;
+  };
   const hostSlots = (p, hostId, now, except) => {
     const to = now + (p.days_ahead + 1) * DAY;
-    if ((p.seats || 1) <= 1) return freeSlots(p, busyOf(hostId, now, to, false, except), now, bookedOf(p, now, except), closedDays(hostId));
+    if ((p.seats || 1) <= 1) return freeSlots(p, busyOf(hostId, now, to, false, except), now, bookedOf(p, now, except), offDays(p, hostId, now));
     const sessions = sessionsOf(p, hostId, now);
     const busy = [...busyOf(hostId, now, to, false, new Set(sessions.map((x) => x.id))), ...sessions.map((x) => ({ start: x.start, end: x.end, ...(x.taken < p.seats && { only: x.start }) }))];
-    return freeSlots(p, busy, now, [], closedDays(hostId)); // sessions don't count towards the bookings a day
+    return freeSlots(p, busy, now, [], offDays(p, hostId, now)); // sessions don't count towards the bookings a day
   };
   /** On a group page: the places left at each free time ({ start: places }). */
   const placesLeft = (p, days) => {
