@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail, noteEvent, noteEventAt } from './noteprint.js';
+import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail, noteEvent, noteEventAt, withComments } from './noteprint.js';
 
 test('printing a note: title, checklist with ticks and sub-items, labels; nothing unescaped', () => {
   const html = notePrintHtml({ title: 'Packing <list>', items: [{ text: 'Passport', done: true }, { text: 'Phone', indent: 1 }], labels: ['Trip'] });
@@ -60,4 +60,15 @@ test('scheduling time for a note: the next full hour, or the day and time its ti
   assert.deepEqual(at(noteEventAt({ title: 'Trip', body: 'Pack' }, '', now)), ['Trip', 23, 10, 60, 0]);
   assert.deepEqual(at(noteEventAt({ title: 'Dentist friday 9am', body: 'Bring the form' }, '', now)), ['Dentist', 27, 9, 60, 0]);
   assert.equal(noteEventAt({ title: 'Dentist friday 9am', body: 'Bring the form' }, 'https://ws.test/notes?note=1', now).description, 'Bring the form\n\nFrom my notes: https://ws.test/notes?note=1');
+});
+
+test('printing a shared note: its comments under it (escaped), fetched only for notes that have some', async () => {
+  const html = notePrintHtml({ title: 'Offsite', body: 'Where?', commentList: [{ text: 'Lake <house>\nfree', at: Date.UTC(2026, 10, 26, 9), by: { name: 'Kim & Co' } }, { text: 'ok', at: 1 }] });
+  assert.match(html, /Where\?<\/p><section class="comments"><h2>Comments<\/h2><ul><li><b>Kim &amp; Co<\/b> <span class="when">[^<]+<\/span><br>Lake &lt;house&gt;<br>free<\/li><li><b>Someone<\/b>/);
+  assert.doesNotMatch(notePrintHtml({ title: 'Plain', body: 'x' }), /class="comments"/);
+  const asked = [];
+  const got = await withComments([{ id: 'a', comments: 2 }, { id: 'b', comments: 0 }, { id: 'c', comments: 1 }], async (u) => { asked.push(u); if (u.includes('/c/')) throw new Error('gone'); return [{ text: 'hi' }]; });
+  assert.deepEqual(asked, ['/notes/a/comments', '/notes/c/comments']);
+  assert.deepEqual(got.map((n) => n.commentList), [[{ text: 'hi' }], undefined, []]);
+  assert.match(notesPrintHtml(got), /<section class="note">.*class="comments".*<\/section><section class="note">/s);
 });

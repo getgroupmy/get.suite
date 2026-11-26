@@ -8,12 +8,16 @@ export function notePrintHtml(n) {
   const labels = n.labels?.length ? `<p class="labels">${n.labels.map(esc).join(' · ')}</p>` : '';
   // Its pictures, from this server (the print frame loads them before printing).
   const pics = n.id && n.pictures?.length ? `<div class="pics">${n.pictures.map((p) => `<img src="/api/notes/${encodeURIComponent(n.id)}/pictures/${encodeURIComponent(p.id || p)}" alt="">`).join('')}</div>` : '';
+  // Its comments (a shared note's), when given: [{ text, at, by: { name } }], under it.
+  const comments = n.commentList?.length ? `<section class="comments"><h2>Comments</h2><ul>${n.commentList.map((c) => `<li><b>${esc(c.by?.name || 'Someone')}</b> <span class="when">${esc(new Date(c.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</span><br>${esc(c.text).replace(/\n/g, '<br>')}</li>`).join('')}</ul></section>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(n.title || 'Note')}</title><style>
     body { font: 14px/1.5 system-ui, sans-serif; color: #202124; margin: 24px; } h1 { font-size: 20px; margin: 0 0 10px; }
     ul { list-style: none; padding: 0; margin: 0; } li { padding: 2px 0; } li.sub { padding-left: 24px; } li.done { text-decoration: line-through; color: #5f6368; }
     .labels { color: #5f6368; font-size: 12px; margin-top: 16px; }
     .pics img { display: block; max-width: 100%; max-height: 60vh; margin: 12px 0 0; break-inside: avoid; }
-  </style></head><body>${n.title ? `<h1>${esc(n.title)}</h1>` : ''}${pics}${body}${items}${labels}</body></html>`;
+    .comments { margin-top: 20px; border-top: 1px solid #dadce0; } .comments h2 { font-size: 14px; margin: 12px 0 6px; }
+    .comments li { padding: 4px 0; break-inside: avoid; } .comments .when { color: #5f6368; font-size: 12px; }
+  </style></head><body>${n.title ? `<h1>${esc(n.title)}</h1>` : ''}${pics}${body}${items}${labels}${comments}</body></html>`;
 }
 
 /**
@@ -68,3 +72,6 @@ export function notesEmail(notes, linkOf = () => '') {
   const titles = [...new Set(notes.map((n) => (n.title || '').trim()).filter(Boolean))];
   return { subject: titles.length === 1 ? titles[0] : `${notes.length} notes`, html: parts.join('<p></p>') };
 }
+
+/** The notes with their comments fetched (for those that have any), to print them; a note whose comments can't be had prints without. */
+export const withComments = (notes, get) => Promise.all(notes.map(async (n) => (n.comments > 0 ? { ...n, commentList: await get(`/notes/${n.id}/comments`).catch(() => []) } : n)));

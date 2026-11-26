@@ -122,6 +122,19 @@ await step('Download (.zip) of the shared note: its comment is in the Markdown, 
   if (!/Where shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
   await page.keyboard.press('Escape');
 });
+await step('⋮ → Print: the shared note’s comments are on its printout, under it', async () => {
+  await page.goto(`${B}/notes`);
+  const card = cardOf(page, 'Offsite');
+  await card.hover();
+  await card.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Print' }).click();
+  const frame = page.frameLocator('iframe.print-frame').last();
+  await frame.getByRole('heading', { name: 'Comments' }).waitFor({ state: 'attached' });
+  const text = await frame.locator('.comments li').first().innerText();
+  if (!/^Olivia.*\n?The lake house is free$/s.test(text)) throw new Error(text);
+  const after = await page.locator('iframe.print-frame').last().evaluate((f) => f.contentDocument.body.innerText);
+  if (after.indexOf('Where shall we go?') > after.indexOf('Comments')) throw new Error('comments before the note');
+});
 await step('⋮ → Download (.md) of the shared note carries its comment too', async () => {
   await page.goto(`${B}/notes`);
   const card = cardOf(page, 'Offsite');

@@ -15,7 +15,7 @@ import { noteLink } from '../chat/filelinks.js';
 import TasksAbout from '../../components/TasksAbout.jsx';
 import { dueFromText } from '../tasks/addtask.js';
 import { printHtml } from '../mail/mailprint.js';
-import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail, noteEventAt } from './noteprint.js';
+import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail, noteEventAt, withComments } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -381,7 +381,7 @@ export default function Notes() {
               <button type="button" className="btn small" title="A copy of each, yours, at the top" onClick={() => many({ copy: true }, (r) => (r.notes.length === 1 ? 'Copy made' : `${r.notes.length} copies made`))}><Icon name="copy" size={16} /> Make copies</button>
               {[...pinned, ...others].filter((x) => picked.has(x.id)).every((x) => x.mine) && <button type="button" className="btn small" title="Share the picked notes with more colleagues (whoever has them already keeps them)" onClick={() => setSharingMany(true)}><Icon name="share" size={16} /> Share…</button>}
               <button type="button" className="btn small" title="Links to the picked notes in a Chat conversation's message box (they show as note cards)" onClick={() => setChatting([...pinned, ...others].filter((x) => picked.has(x.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
-              <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={() => printHtml(notesPrintHtml([...pinned, ...others].filter((x) => picked.has(x.id))))}><Icon name="print" size={16} /> Print</button>
+              <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={async () => printHtml(notesPrintHtml(await withComments([...pinned, ...others].filter((x) => picked.has(x.id)), get)))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small" title="Each note as a Markdown (.md) file, in one .zip" onClick={async () => {
                 const url = `/notes/export.zip?ids=${[...picked].map(encodeURIComponent).join(',')}`;
                 try { await get(`${url}&check=1`); } catch (e) { toast(e.message, 'error'); return; }
@@ -720,7 +720,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           ...(onTemplate ? [{ label: 'Save as template…', icon: 'copy', onClick: onTemplate }] : []),
           { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },
-          { label: 'Print', icon: 'print', onClick: () => printHtml(notePrintHtml(n)) },
+          { label: 'Print', icon: 'print', onClick: async () => printHtml(notePrintHtml((await withComments([n], get))[0])) },
           mail?.enabled && { label: 'Send by email', icon: 'mail', onClick: () => {
             // A new email in Mail with the note in it (handed over in this browser's storage, as Docs does).
             try { localStorage.setItem(DRAFT_KEY, JSON.stringify(noteEmail(n, noteLink(n)))); } catch { toast('Your browser’s storage is off', 'error'); return; }
