@@ -42,3 +42,14 @@ test('other numbers of the contact are found too, each on its own', () => {
   assert.equal(matchesFilter({ ...c, more_phones: [{ label: 'Work', value: '(020) 7946-0018' }] }, '020 7946'), true);
   assert.equal(matchesFilter(c, '0100020'), false); // not across two numbers
 });
+
+test('other email addresses and fields of your own count; who someone is related to does not', () => {
+  const ann = { name: 'Ann Lee', email: 'ann@lee.test', more_emails: [{ type: 'home', value: 'annie@home.test' }], custom_fields: [{ label: 'Customer no.', value: '4711' }], related: [{ label: 'Spouse', name: 'Ben Lee' }] };
+  assert.equal(matchesFilter(ann, 'annie@home'), true);
+  assert.equal(matchesFilter(ann, '4711'), true);
+  assert.equal(matchesFilter(ann, 'customer ann'), true);
+  assert.equal(matchesFilter(ann, 'Ben Lee'), false, 'clicking a related name finds that person, not this one');
+  assert.equal(matchesFilter({ ...ann, more_emails: JSON.stringify(ann.more_emails) }, 'annie'), true, 'as kept, too');
+  assert.equal(matchesFilter({ ...ann, related: JSON.stringify(ann.related) }, 'Ben Lee'), false);
+  assert.equal(matchesFilter({ name: 'Cy', notes: '[urgent] call back' }, 'urgent'), true, 'a note that starts with a bracket');
+});

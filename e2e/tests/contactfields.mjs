@@ -125,6 +125,17 @@ await step('Merge duplicates: the related people, dates and fields of both are k
   await page.locator('tbody tr', { hasText: 'Ann Lee' }).getByRole('button', { name: 'Zoe Boss' }).click();
   await until(async () => (await page.locator('tbody tr').count()) === 1 && (await page.locator('tbody tr', { hasText: 'zoe@boss.example' }).count()) === 1);
 });
+await step('Filter finds a contact by a field of your own or another email address', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Ola Nord', email: 'ola@work.example', more_emails: [{ type: 'home', value: 'ola.home@mail.example' }] });
+  await page.goto(`${B}/contacts`);
+  await page.locator('tbody tr', { hasText: 'Ola Nord' }).waitFor();
+  const box = page.getByLabel('Filter contacts');
+  await box.fill('4712');
+  await until(async () => (await page.locator('tbody tr').count()) === 1 && (await page.locator('tbody tr', { hasText: 'Ann Lee' }).count()) === 1);
+  await box.fill('ola.home@');
+  await until(async () => (await page.locator('tbody tr').count()) === 1 && (await page.locator('tbody tr', { hasText: 'Ola Nord' }).count()) === 1);
+  await box.fill('');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
