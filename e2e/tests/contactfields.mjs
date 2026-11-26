@@ -119,6 +119,11 @@ await step('Merge duplicates: the related people, dates and fields of both are k
   if (rel !== 'Manager: Zoe Boss | Spouse: Ben Lee') throw new Error(rel);
   if (!ann.custom_fields.some((f) => f.label === 'Locker') || !ann.custom_fields.some((f) => f.label === 'Customer no.') || !ann.dates.length) throw new Error(JSON.stringify(ann));
   await page.locator('tbody tr', { hasText: 'Ann Lee' }).getByText(/Zoe Boss/).waitFor();
+  // A related person's name finds them among your contacts.
+  await api(page, 'POST', '/contacts', { name: 'Zoe Boss', email: 'zoe@boss.example' });
+  await page.reload();
+  await page.locator('tbody tr', { hasText: 'Ann Lee' }).getByRole('button', { name: 'Zoe Boss' }).click();
+  await until(async () => (await page.locator('tbody tr').count()) === 1 && (await page.locator('tbody tr', { hasText: 'zoe@boss.example' }).count()) === 1);
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
