@@ -105,6 +105,8 @@ await step('Contacts: 450 contacts fill the table 200 rows at a time; the filter
   await page.locator('tbody tr[data-contact]').nth(10).waitFor();
   await page.getByPlaceholder('Filter', { exact: true }).fill('Person 44');
   await until(async () => (await page.locator('tbody tr[data-contact]', { hasText: 'Person 449' }).count()) === 1);
+  // Only the 14 with 44 in the name (044, 144, 244, 344, 440–449): not others whose hidden id happens to have 44 in it.
+  await until(async () => (await page.locator('tbody tr[data-contact]').count()) === 14);
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

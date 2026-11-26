@@ -53,3 +53,10 @@ test('other email addresses and fields of your own count; who someone is related
   assert.equal(matchesFilter({ ...ann, related: JSON.stringify(ann.related) }, 'Ben Lee'), false);
   assert.equal(matchesFilter({ name: 'Cy', notes: '[urgent] call back' }, 'urgent'), true, 'a note that starts with a bracket');
 });
+
+test('ids and what is kept for the phone sync are not searched', () => {
+  const c = { id: 'k44xq', owner_id: 'u44', vcard_uid: 'abc-44', dav_name: '44.vcf', vcard_extra: 'X-FOO:44', photo: 'data:image/png;base64,44', name: 'Person 002', email: 'p2@example.com' };
+  assert.equal(matchesFilter(c, 'Person 44'), false);
+  assert.equal(matchesFilter(c, '44'), false);
+  assert.equal(matchesFilter(c, 'Person 002'), true);
+});

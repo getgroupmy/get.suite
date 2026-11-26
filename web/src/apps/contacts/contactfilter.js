@@ -15,7 +15,11 @@ export function matchesFilter(contact, filter) {
   // related to (a related person's name, clicked, finds that person).
   const list = (v) => (Array.isArray(v) ? v : (() => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } })());
   const LISTS = new Set(['more_emails', 'more_phones', 'dates', 'custom_fields', 'related']); // (searched below, item by item)
-  const texts = [...Object.entries(contact).filter(([k, v]) => typeof v === 'string' && v && !LISTS.has(k)).map(([, v]) => v),
+  // Not what's kept for the app's own use: ids (random letters and digits, so "44" found one contact in six), the phone
+  // sync's names for it, the rest of an imported card, a picture.
+  const HIDDEN = new Set(['id', 'dav_name', 'vcard_uid', 'vcard_extra', 'photo']);
+  const hidden = (k) => HIDDEN.has(k) || k.endsWith('_id');
+  const texts = [...Object.entries(contact).filter(([k, v]) => typeof v === 'string' && v && !LISTS.has(k) && !hidden(k)).map(([, v]) => v),
     ...list(contact.more_emails).map((x) => x?.value), ...list(contact.custom_fields).flatMap((x) => [x?.label, x?.value])].filter(Boolean).map((t) => fold(String(t)));
   const more = typeof contact.more_phones === 'string' ? contact.more_phones : JSON.stringify(contact.more_phones || '');
   const phones = [contact.phone || '', ...more.split('"')].map(digits).filter(Boolean); // each number on its own

@@ -69,7 +69,7 @@ await step('the sign-in page on a company address shows its branding', async () 
 await step('back to the usual colour, and no logo', async () => {
   await page.getByRole('radio', { name: '#1a73e8' }).click();
   await until(async () => (await accent(page)) === '#1a73e8');
-  await page.getByRole('button', { name: 'Remove' }).click();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await page.locator('.brand-logo').first().waitFor({ state: 'detached' });
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
