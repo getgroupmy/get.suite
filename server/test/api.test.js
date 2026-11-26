@@ -15294,7 +15294,7 @@ test('notes: the .zip download carries each note’s pictures in a folder beside
   assert.doesNotMatch(await zip.file('Plain.md').async('string'), /!\[/);
 });
 
-test('notes: a shared note’s comments are in its downloaded Markdown, and importing it leaves them out of the text', async () => {
+test('notes: a shared note’s comments are in its downloaded Markdown (.zip and .md), and importing it leaves them out of the text', async () => {
   const JSZip = (await import('jszip')).default;
   const a = client(), b = client();
   const ids = {};
@@ -15320,6 +15320,8 @@ test('notes: a shared note’s comments are in its downloaded Markdown, and impo
   assert.equal(back.body, 'Cake?');
   assert.deepEqual(back.labels, ['Fun']);
   assert.equal(back.comments, 0);
+  // Download (.md) of the one note carries them too, and so does it for someone it's shared with.
+  for (const who of [a, b]) assert.match((await who('GET', `/api/notes/${n.id}/export.md`)).body, /Cake\?\n\n#Fun\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Yan Comment\*\*.*Chocolate, please\n- \*\*Zed Comment\*\*.*Done\n$/);
   // A note without comments has no such section.
   const plain = (await a('POST', '/api/notes', { title: 'Quiet', body: 'x' })).body;
   assert.doesNotMatch(await (await JSZip.loadAsync((await a('GET', `/api/notes/export.zip?ids=${plain.id}`, undefined, { binary: true })).body)).file('Quiet.md').async('string'), /Comments/);

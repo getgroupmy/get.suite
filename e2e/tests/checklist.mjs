@@ -122,6 +122,15 @@ await step('Download (.zip) of the shared note: its comment is in the Markdown, 
   if (!/Where shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
   await page.keyboard.press('Escape');
 });
+await step('⋮ → Download (.md) of the shared note carries its comment too', async () => {
+  await page.goto(`${B}/notes`);
+  const card = cardOf(page, 'Offsite');
+  await card.hover();
+  await card.getByRole('button', { name: 'More' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download (.md)' }).click()]);
+  const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  if (!/^# Offsite\n\nWhere shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

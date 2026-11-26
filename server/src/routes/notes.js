@@ -291,6 +291,13 @@ function shape(n, me) {
  * (and recordings as recording-1.webm, linked),
  * shown in the Markdown. Used by Download (.zip) and by Download your data.
  */
+/** A note's Markdown with its comments (a shared note's) at the end, after a marker line, so Import notes… leaves them out of its text. */
+function withComments(md, noteId) {
+  const comments = q(`SELECT c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId);
+  if (!comments.length) return md;
+  return `${md.replace(/\s*$/, '')}\n\n${COMMENTS_MARK}\n## Comments\n\n${comments.map((c) => `- **${c.name || 'Someone'}** (${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${String(c.text).replace(/\s*\n\s*/g, ' ')}`).join('\n')}\n`;
+}
 export async function notesZipEntries(notes) {
   const { uniqueNames, safeName } = await import('../mail/attzip.js');
   const names = uniqueNames(notes.map((n) => `${safeName(n.title, 'Note').slice(0, 80)}.md`));
@@ -307,12 +314,7 @@ export async function notesZipEntries(notes) {
     let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived, remind_at: n.remind_at, remind_repeat: n.remind_repeat, remind_tz: n.remind_tz });
     if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
     if (recs.length) md = `${md.replace(/\s*$/, '')}\n\n${recs.map((x, k) => `[🎙 Recording ${k + 1}](${encodeURI(x.path)})`).join('\n')}\n`;
-    // Its comments (a shared note's): after a marker line, so Import notes… leaves them out of the note's text.
-    const comments = q(`SELECT c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
-      WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(n.id);
-    if (comments.length) {
-      md = `${md.replace(/\s*$/, '')}\n\n${COMMENTS_MARK}\n## Comments\n\n${comments.map((c) => `- **${c.name || 'Someone'}** (${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${String(c.text).replace(/\s*\n\s*/g, ' ')}`).join('\n')}\n`;
-    }
+    md = withComments(md, n.id);
     out.push({ path: names[i], data: md }, ...pics, ...recs);
   });
   return out;
@@ -897,7 +899,7 @@ export default function noteRoutes() {
     const name = (n.title || 'Note').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'Note';
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);
-    res.send(noteMarkdown(note));
+    res.send(withComments(noteMarkdown(note), n.id));
   });
   // Tick one item (and its sub-items, as in the note) or untick it, without sending the whole list: from a note's
   // card in Chat, say. { done }. Kept in the version history like any other change.
