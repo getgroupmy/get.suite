@@ -169,3 +169,15 @@ export function historyTable(userId) {
   }
   return rows;
 }
+
+/** The comments on the tasks of your lists, oldest first, as rows (a header first): for Download your data's Task comments.csv. */
+export function commentsTable(userId) {
+  const rows = [['List', 'Task', 'When (UTC)', 'Who', 'Comment', 'Edited (UTC)']];
+  const when = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
+  for (const c of q(`SELECT l.name AS list, t.title, k.created_at, k.edited_at, k.body, u.name FROM task_comments k JOIN tasks t ON t.id = k.task_id
+                     JOIN task_lists l ON l.id = t.list_id LEFT JOIN users u ON u.id = k.author_id
+                     WHERE l.owner_id = ? ORDER BY l.created_at, k.created_at, k.rowid`).all(userId)) {
+    rows.push([c.list, c.title, when(c.created_at), c.name || 'Someone', c.body, when(c.edited_at)]);
+  }
+  return rows;
+}

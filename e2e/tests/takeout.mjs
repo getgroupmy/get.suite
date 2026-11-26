@@ -45,6 +45,7 @@ await step('some data', async () => {
   await api(page, 'POST', '/forms', { title: 'Kite sizes', questions: [{ id: 'q', type: 'short', title: 'Your size' }] });
   const kl = (await api(page, 'POST', '/tasks/lists', { name: 'Kites' })).body.id;
   const kt = (await api(page, 'POST', `/tasks/lists/${kl}/tasks`, { title: 'Buy string' })).body.id;
+  await api(page, 'POST', `/tasks/tasks/${kt}/comments`, { body: 'Get the strong kind' });
   await api(page, 'PATCH', `/tasks/tasks/${kt}`, { due: '2026-12-05' });
   await api(page, 'POST', `/tasks/tasks/${kt}/time`, { duration: '40m', note: 'At the shop' });
   const idea = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Idea');
@@ -67,6 +68,8 @@ await step('Settings shows what is in it and downloads one zip', async () => {
   if (!/^\uFEFF?List,Task,Status,/.test(tcsv)) throw new Error(tcsv.slice(0, 120));
   const hcsv = await zip.file('Task history.csv')?.async('string');
   if (!/Kites,Buy string,[^,]+,Olivia Owner,Due,,2026-12-05/.test(hcsv || '')) throw new Error(`Task history.csv: ${hcsv}`);
+  const kcsv = await zip.file('Task comments.csv')?.async('string');
+  if (!/Kites,Buy string,[^,]+,Olivia Owner,Get the strong kind,\r\n/.test(kcsv || '')) throw new Error(`Task comments.csv: ${kcsv}`);
   const comments = await zip.file('Comments.csv')?.async('string');
   if (!/Plan,“kites”,Olivia Owner,[^,]+,Check the kite budget/.test(comments || '')) throw new Error(`Comments.csv: ${comments}`);
   const chat = await zip.file('Chat/kite-club.txt')?.async('string');

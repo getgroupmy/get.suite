@@ -8,7 +8,7 @@ import { binExport } from '../recyclebin.js';
 import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
 import { importContacts, groupsOf, importGroups } from './contacts.js';
 import { allListsCsv, importTaskLists } from './tasks.js';
-import { historyTable } from '../taskhistory.js';
+import { historyTable, commentsTable } from '../taskhistory.js';
 import { myTimeCsv } from '../tasktime.js';
 import { kudosCsv } from './kudos.js';
 import { conversationFor } from './chat.js';
@@ -572,6 +572,7 @@ export default function takeoutRoutes() {
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
     { const h = historyTable(me); if (h.length > 1) zip.file('Task history.csv', `\ufeff${h.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`); }
+    { const c = commentsTable(me); if (c.length > 1) zip.file('Task comments.csv', `\ufeff${c.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`); }
     if (q('SELECT 1 FROM task_time WHERE user_id = ? LIMIT 1').get(me)) zip.file('Time on tasks.csv', `\ufeff${myTimeCsv(me)}`);
     { const k = kudosCsv(me); if (k) zip.file('Thanks.csv', k); }
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
@@ -627,6 +628,7 @@ export default function takeoutRoutes() {
       'Calendars.json  your calendars besides the main one, with their colours (each event in Calendar.ics says which it is in)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
+      'Task comments.csv  the comments on the tasks of your lists, oldest first (if any)',
       'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',
       'Thanks.csv    thank-yous you gave and were given (if any)',
       'Notes.md      your notes, all in one file',
