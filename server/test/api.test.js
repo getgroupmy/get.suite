@@ -2326,8 +2326,17 @@ test('booking pages with co-hosts: free when anyone is, booked with a free host 
   assert.equal(moved.status, 200, JSON.stringify(moved.body));
   const hostClient = hostOf(b1) === 'Sam Sales' ? sam : tia;
   assert.ok((await hostClient('GET', `/api/events?from=${half - 1}&to=${half + 36e5}`)).body.some((e) => e.start === half && e.title === 'Sales demo: Ann'));
+  // Add to my calendar: the booking (at its new time) as a calendar file, the same event as the invitation.
+  const ics = await outsider('GET', `/api/public/book/cancel/${ct}/ics`);
+  assert.equal(ics.status, 200);
+  assert.match(ics.headers.get('content-type'), /text\/calendar/);
+  assert.match(ics.body, /SUMMARY:Sales demo: Ann/);
+  const ev = (await hostClient('GET', `/api/events?from=${half - 1}&to=${half + 36e5}`)).body.find((e) => e.start === half);
+  assert.match(ics.body, new RegExp(`UID:${ev.id}@`), 'the invitation’s own id: it updates the same entry');
+  assert.equal((await outsider('GET', '/api/public/book/cancel/nope/ics')).status, 404);
   // Cancelled: the host is told.
   assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).status, 200);
+  assert.equal((await outsider('GET', `/api/public/book/cancel/${ct}/ics`)).status, 404, 'a cancelled booking has no calendar file');
   assert.ok((await hostClient('GET', '/api/notifications')).body.items.some((n) => n.title === 'Ann cancelled “Sales demo”'));
 });
 

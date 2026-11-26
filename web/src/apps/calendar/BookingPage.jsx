@@ -77,6 +77,7 @@ export function CancelBooking({ token }) {
           </> : <div className="row">
             {b.days && <button className="btn" disabled={busy} onClick={() => setMoving(true)}>Pick another time</button>}
             <button className="btn danger" disabled={busy} onClick={async () => { setBusy(true); try { await call('POST', `/cancel/${encodeURIComponent(token)}`); setDone(true); } catch (e) { setError(e.message); } setBusy(false); }}>Cancel booking</button>
+            <a className="btn" href={`/api/public/book/cancel/${encodeURIComponent(token)}/ics`} download>Add to my calendar (.ics)</a>
           </div>}
       {error && <p className="error small" role="alert">{error}</p>}
     </section>
@@ -152,7 +153,7 @@ export default function BookingPage({ token }) {
         <h1>You’re booked</h1>
         <p><strong>{done.title}</strong> with {done.owner.name}</p>
         <p>{longDay(done.start)}, {time(done.start)} – {time(done.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>
-        <p className="muted small">An invitation is on its way to {form.email}; add it to your calendar from there.</p>
+        <p className="muted small">An invitation is on its way to {form.email}; add it to your calendar from there{done.cancel_url ? <>, or <a href={`/api/public/book/cancel/${encodeURIComponent(done.cancel_url.split('/b/cancel/')[1])}/ics`} download>add it to your calendar now (.ics)</a></> : ''}.</p>
         {done.meet_url && <p>📹 Join the video meeting at the time: <a href={done.meet_url}>{done.meet_url}</a> <span className="muted small">(it’s in the invitation too; no account needed)</span></p>}
         {done.place && <p>📍 {done.place}</p>}
         {done.cancel_url && <p className="small">Can’t make it? <a href={done.cancel_url}>Change or cancel this booking</a> (the link is in the invitation too).</p>}

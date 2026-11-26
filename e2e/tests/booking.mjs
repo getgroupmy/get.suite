@@ -80,6 +80,12 @@ await step('a visitor without an account sees free times and books one', async (
   await visitor.getByRole('heading', { name: 'You’re booked' }).waitFor();
   await visitor.getByRole('link', { name: 'Change or cancel this booking' }).waitFor();
 });
+await step('“add it to your calendar now”: the visitor downloads the booking as a calendar file', async () => {
+  const [dl] = await Promise.all([visitor.waitForEvent('download'), visitor.getByRole('link', { name: 'add it to your calendar now (.ics)' }).click()]);
+  if (dl.suggestedFilename() !== 'Intro call.ics') throw new Error(dl.suggestedFilename());
+  const text = (await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8'));
+  if (!/BEGIN:VEVENT/.test(text) || !/SUMMARY:Intro call: Oscar Out/.test(text)) throw new Error(text.slice(0, 400));
+});
 await step('the owner is told, and it is on their calendar with the visitor as guest', async () => {
   await page.locator('.toast', { hasText: 'Oscar Out booked “Intro call”' }).waitFor();
   const evs = (await api(page, 'GET', `/events?from=${Date.now()}&to=${Date.now() + 3 * 864e5}`)).body;

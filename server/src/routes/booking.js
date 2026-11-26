@@ -19,7 +19,8 @@ import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { freeSlots as openSlots } from '../freeslots.js';
 import { expand } from '../calserver.js';
 import { seesDetails, sharesOf, setShares } from '../calshare.js';
-import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
+import { notifyOutside, setOutside, touch, baseUrl, outEvent, icsUid } from './calendar.js';
+import { buildIcs } from '../ics.js';
 import { mailEnabled } from '../mail/config.js';
 import { newCode } from '../meet.js';
 import { smtpFor } from '../mail/imap.js';
@@ -553,6 +554,19 @@ export function publicBookingRoutes() {
     const p = !cancelled && !past ? pageOf(b) : null; // other times to move to, while the page takes bookings
     // Moving isn't offered for a group session (it would move everyone): cancel and book another time.
     res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled, past, ...(p && (p.seats || 1) <= 1 && { duration: p.duration, days: slotsOf(p, Date.now(), b.event_id, b.owner_id) }) });
+  });
+  // The booking as a calendar file (Add to my calendar): the same event as the emailed invitation, so it updates the same entry.
+  r.get('/cancel/:ct/ics', (req, res) => {
+    const b = booking(req.params.ct);
+    const row = !b.cancelled_at && b.event_id && q('SELECT * FROM events WHERE id = ?').get(b.event_id);
+    if (!row) throw new HttpError(404, 'This booking was cancelled.');
+    const group = q('SELECT COUNT(*) AS n FROM bookings WHERE event_id = ?').get(row.id).n > 1 || (q('SELECT seats FROM booking_pages WHERE id = ?').get(b.page_id)?.seats || 1) > 1;
+    const e = group ? { ...outEvent(row), description: null } : outEvent(row); // (a group session: not the others' names)
+    const host = q('SELECT name, username FROM users WHERE id = ?').get(row.owner_id);
+    const ics = buildIcs(e, { method: 'PUBLISH', uid: icsUid(e), sequence: row.sequence || 0, tz: row.tz, organizer: { name: host.name, email: host.username }, attendees: b.email ? [{ email: b.email, status: 'yes' }] : [] });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${String(b.page_title).replace(/[^\w .-]+/g, '').trim().slice(0, 60) || 'booking'}.ics"`);
+    res.send(ics);
   });
   // Moving it to another free time: the calendar event moves, the visitor gets the updated
   // invitation, and the owner is told.

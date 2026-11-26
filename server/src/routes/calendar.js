@@ -335,7 +335,7 @@ const DETAILS = ['title', 'description', 'location', 'start', 'end', 'all_day', 
 const detailsChanged = (a, b) => DETAILS.some((k) => (a[k] ?? null) !== (b[k] ?? null))
   || JSON.stringify(a.rrule ?? null) !== JSON.stringify(b.rrule ?? null) || JSON.stringify(a.exdates || []) !== JSON.stringify(b.exdates || []);
 
-const icsUid = (e) => `${e.id}@${MAIL_HOSTNAME || 'workspace'}`;
+export const icsUid = (e) => `${e.id}@${MAIL_HOSTNAME || 'workspace'}`;
 export const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
 
 /**
