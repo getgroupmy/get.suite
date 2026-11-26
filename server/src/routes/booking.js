@@ -69,6 +69,9 @@ if (!cols('booking_pages').includes('skip_away')) q('ALTER TABLE booking_pages A
 if (!cols('booking_pages').includes('max_total')) q('ALTER TABLE booking_pages ADD COLUMN max_total INTEGER NOT NULL DEFAULT 0').run();
 // One booking per person: an address with a booking still to come on the page can't book another (it moves theirs instead).
 if (!cols('booking_pages').includes('one_each')) q('ALTER TABLE booking_pages ADD COLUMN one_each INTEGER NOT NULL DEFAULT 0').run();
+// A full page's waiting list: people told (once) by email when a cancellation frees a place.
+q(`CREATE TABLE IF NOT EXISTS booking_waitlist (page_id TEXT NOT NULL REFERENCES booking_pages(id) ON DELETE CASCADE, name TEXT NOT NULL, email TEXT NOT NULL,
+  created_at INTEGER NOT NULL, told_at INTEGER, PRIMARY KEY (page_id, email))`).run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 // Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
 // to a host who is free then, the one with the fewest bookings from the page.
@@ -235,6 +238,29 @@ function isFull(p, except = null) {
   const n = q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL AND event_id IS NOT ?').get(p.id, except && typeof except === 'string' ? except : null).n;
   return n >= p.max_total;
 }
+/**
+ * A place has opened on a page with a limit in all (a cancellation): everyone on its waiting list not yet told is emailed the
+ * page's link, once (the first to book has it). Without email on this server, the page's owner is told in the bell who's waiting.
+ */
+export async function tellWaitlist(pageId, base) {
+  const p = q('SELECT * FROM booking_pages WHERE id = ?').get(pageId);
+  if (!p || !p.max_total || !p.enabled || isFull(p)) return 0;
+  const waiting = q('SELECT * FROM booking_waitlist WHERE page_id = ? AND told_at IS NULL ORDER BY created_at').all(p.id);
+  if (!waiting.length) return 0;
+  q('UPDATE booking_waitlist SET told_at = ? WHERE page_id = ? AND told_at IS NULL').run(Date.now(), p.id);
+  const owner = q('SELECT * FROM users WHERE id = ?').get(p.user_id);
+  const link = `${base}/b/${p.token}`;
+  if (!mailEnabled() || !owner) {
+    bell([p.user_id], { kind: 'booking', title: `A place opened on “${p.title}”`, body: `Waiting: ${waiting.map((w) => `${w.name} <${w.email}>`).join(', ')}`.slice(0, 500), link: '/calendar' });
+    return waiting.length;
+  }
+  for (const w of waiting) {
+    const text = [`Hello ${w.name},`, '', `A place has opened on “${p.title}” with ${owner.name}. To book it (first come, first served):`, '', link, '', `— ${owner.name}`].join('\n');
+    try { await smtpFor(owner).sendMail({ from: { name: owner.name, address: owner.username }, to: w.email, subject: `A place has opened: ${p.title}`, text }); }
+    catch (e) { console.error('[booking] waiting list email failed:', e.message); }
+  }
+  return waiting.length;
+}
 /** The booking that has just filled a page with a limit in all: its owner is told (once: at exactly the limit). */
 function tellIfFull(p) {
   if (!p.max_total) return;
@@ -242,7 +268,7 @@ function tellIfFull(p) {
   if (n !== p.max_total) return;
   bell([p.user_id], { kind: 'booking', title: `“${p.title}” is fully booked`, body: `${n} of ${n} booked: it offers no more times. Raise its Bookings in all, or leave it be.`, link: '/calendar' });
 }
-const shapePage = (p, req) => ({ ...p, in_pause: inPause(p), days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
+const shapePage = (p, req) => ({ ...p, in_pause: inPause(p), waiting: q('SELECT COUNT(*) AS n FROM booking_waitlist WHERE page_id = ? AND told_at IS NULL').get(p.id).n, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
   host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, skip_away: !!p.skip_away, one_each: !!p.one_each, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
   booked_by: q('SELECT COUNT(DISTINCT LOWER(email)) AS n FROM bookings WHERE page_id = ? AND email IS NOT NULL').get(p.id).n }); // (cancelled too: for Add to Contacts)
@@ -551,9 +577,22 @@ export function publicBookingRoutes() {
     touch([b.owner_id]);
     const when = new Date(b.start).toLocaleString('en-GB', { timeZone: b.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     bell([b.owner_id], { kind: 'booking', title: `${b.name || 'Someone'} cancelled “${b.page_title}”`, body: `${when} (${b.tz}) is free again`, link: '/calendar', actor: b.name || null });
+    tellWaitlist(b.page_id, b.link_base || baseUrl(req)).catch((e) => console.error('[booking] waiting list:', e.message));
     res.json({ ok: true });
   });
 
+  // A full page's waiting list: { name, email }. Only while it's full; the same address once.
+  r.post('/:token/waitlist', (req, res) => {
+    const p = find(req.params.token);
+    const name = str(req.body?.name, { required: true, name: 'Your name', max: 100 });
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email) || email.length > 200) throw bad('Enter your email address');
+    if (!isFull(p)) throw new HttpError(409, 'There are free times: book one');
+    if (q('SELECT COUNT(*) AS n FROM booking_waitlist WHERE page_id = ?').get(p.id).n >= 200) throw new HttpError(409, 'The waiting list is full');
+    limit(req.ip);
+    q('INSERT INTO booking_waitlist (page_id, name, email, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (page_id, email) DO UPDATE SET name = excluded.name, told_at = NULL').run(p.id, name, email, Date.now());
+    res.status(201).json({ ok: true });
+  });
   r.get('/:token', (req, res) => {
     const p = find(req.params.token);
     const days = slotsOf(p);

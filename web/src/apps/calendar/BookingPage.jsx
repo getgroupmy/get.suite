@@ -89,6 +89,29 @@ export function CancelBooking({ token }) {
   );
 }
 
+/** A full page: join its waiting list, to be emailed if a place opens. */
+function WaitList({ token, owner }) {
+  const [form, setForm] = useState({ name: '', email: '' });
+  const [state, setState] = useState(''); // '', 'busy', 'joined', or an error
+  async function join(e) {
+    e.preventDefault();
+    setState('busy');
+    try { await call('POST', `/${encodeURIComponent(token)}/waitlist`, form); setState('joined'); } catch (err) { setState(err.message); }
+  }
+  if (state === 'joined') return <p role="status">You’re on the waiting list. If a place opens, we’ll email {form.email}: the first to book it has it.</p>;
+  return (
+    <form className="stack" onSubmit={join}>
+      <p role="status" style={{ margin: 0 }}>This page is fully booked. Leave your name and email to hear if a place opens, or get in touch with {owner} another way.</p>
+      <div className="row wrap">
+        <label className="field"><span>Your name</span><input required autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+        <label className="field"><span>Your email</span><input required type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+      </div>
+      {state && state !== 'busy' && <p className="error">{state}</p>}
+      <div className="row"><button className="btn primary" disabled={state === 'busy'}>Join the waiting list</button></div>
+    </form>
+  );
+}
+
 export default function BookingPage({ token }) {
   const [page, setPage] = useState(null);
   const [error, setError] = useState('');
@@ -145,7 +168,7 @@ export default function BookingPage({ token }) {
           const long = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
           return page.paused_from ? `Not taking bookings from ${long(page.paused_from)} until ${long(page.paused_until)}.` : `Not taking bookings until ${long(page.paused_until)}${days.length ? ': the times shown are from then on' : ''}.`;
         })()}</p>}
-        {page.full && <p role="status">This page is fully booked. Please get in touch with {page.owner.name} another way.</p>}
+        {page.full && <WaitList token={token} owner={page.owner.name} />}
         {!days.length ? (page.paused_until || page.full ? null : <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p>) : !slot ? <>
           <div className="booking-days" role="tablist" aria-label="Days">
             {days.map(([k, list]) => (

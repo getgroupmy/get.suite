@@ -288,6 +288,21 @@ await step('“One booking per person”: someone with a booking to come is told
   await visitor.getByText('You already have a booking here: to change its time, use the link in the email you were sent').waitFor();
   await api(page, 'PATCH', `/bookings/${(await api(page, 'GET', '/bookings')).body[0].id}`, { one_each: false });
 });
+await step('a full page: a visitor joins its waiting list, and the owner sees one waiting', async () => {
+  const pg = (await api(page, 'GET', '/bookings')).body[0];
+  await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: pg.bookings });
+  await visitor.goto(url.replace(/^https?:\/\/[^/]+/, B));
+  await visitor.getByText('This page is fully booked. Leave your name and email').waitFor();
+  await visitor.getByLabel('Your name').fill('Wes Waiting');
+  await visitor.getByLabel('Your email').fill('wes@example.org');
+  await visitor.getByRole('button', { name: 'Join the waiting list' }).click();
+  await visitor.getByText('You’re on the waiting list. If a place opens, we’ll email wes@example.org').waitFor();
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  await page.getByRole('dialog', { name: 'Booking pages' }).getByText(/ · 1 waiting/).waitFor();
+  await page.keyboard.press('Escape');
+  await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: 0 });
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

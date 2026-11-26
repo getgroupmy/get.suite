@@ -2458,12 +2458,24 @@ test('booking pages: at most N bookings in all — then full (no times, and the 
   assert.equal(told.length, 1, 'the owner is told, once');
   assert.match(told[0].body, /^2 of 2 booked/);
   assert.equal((await outsider('POST', `/api/public/book/${tk}`, { start: slots[6], name: 'Three', email: 'three@example.org' })).status, 409, 'no third');
+  // Full: Three joins the waiting list (once, whatever the capitals); the owner sees how many wait.
+  assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Three', email: 'bad' })).status, 400);
+  assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Three', email: 'three@example.org' })).status, 201);
+  assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Three T', email: 'THREE@example.org' })).status, 201);
+  assert.equal((await a('GET', '/api/bookings')).body.find((x) => x.id === pg.id).waiting, 1);
   // One cancels: a place again.
   const ct = first.body.cancel_url.split('/b/cancel/')[1];
   assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`, {})).status, 200);
   const again = (await outsider('GET', `/api/public/book/${tk}`)).body;
   assert.equal(again.full, undefined);
   assert.ok(again.days.length > 0);
+  // …and those waiting are told (here, without email on the server: the owner is told who's waiting), once.
+  let opened = [];
+  for (let i = 0; i < 40 && !opened.length; i++) { opened = (await a('GET', '/api/notifications')).body.items.filter((n) => n.title === 'A place opened on “Interview”'); if (!opened.length) await new Promise((r) => setTimeout(r, 50)); }
+  assert.equal(opened.length, 1);
+  assert.match(opened[0].body, /Three T <three@example.org>/);
+  assert.equal((await a('GET', '/api/bookings')).body.find((x) => x.id === pg.id).waiting, 0);
+  assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Five', email: 'five@example.org' })).status, 409, 'not full: book instead');
   // No limit again: free as before.
   assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { max_total: 0 })).body.max_total, 0);
   // One booking per person: Two (still to come) can't book again, whatever the capitals; someone new can.

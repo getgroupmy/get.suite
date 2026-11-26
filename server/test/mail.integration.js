@@ -2049,6 +2049,27 @@ test('booking reminders: the visitor is emailed the day before, once, with the l
   assert.equal(await sendBookingReminders(), 0);
 });
 
+test('booking waiting list: when a full page has a cancellation, those waiting are emailed its link, once', async () => {
+  const { tellWaitlist } = await import('../src/routes/booking.js');
+  const page = (await olivia('POST', '/api/bookings', { title: 'Tasting', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 3, max_total: 1, remind: false })).body;
+  const token = page.url.split('/b/')[1];
+  const pub = (path, body) => fetch(`${base}/api/public/book/${token}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify(body) }).then(async (x) => ({ status: x.status, body: await x.json() }));
+  const slots = (await fetch(`${base}/api/public/book/${token}`).then((x) => x.json())).days.flatMap((d) => d.slots);
+  const first = await pub('', { start: slots[0], name: 'Fay First', email: 'fay@example.org' });
+  assert.ok(first.body.cancel_url);
+  // Full: a mailbox on this server waits (so the email can be read back).
+  assert.equal((await pub('/waitlist', { name: 'Wanda Waiting', email: 'olivia@acme.com' })).status, 201);
+  assert.equal(await tellWaitlist(page.id, base), 0, 'still full: nobody told');
+  const ct = first.body.cancel_url.split('/b/cancel/')[1];
+  const cancelled = await fetch(`${base}/api/public/book/cancel/${ct}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: '{}' });
+  assert.equal(cancelled.status, 200);
+  const msg = await eventually(async () => (await inbox(olivia, 'A place has opened: Tasting'))[0]);
+  const full = (await olivia('GET', `/api/mail/messages/${msg.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /Hello Wanda Waiting,/);
+  assert.ok(full.text.includes(`/b/${token}`), full.text);
+  assert.equal(await tellWaitlist(page.id, base), 0, 'once');
+});
+
 test('new mail on phones: the mail server tells the app as it delivers, and the device gets it (encrypted)', async () => {
   const https = await import('node:https');
   const crypto = await import('node:crypto');
@@ -3015,14 +3036,16 @@ test('frequently contacted: people Olivia has emailed from Workspace, colleagues
 });
 
 test('after hours: a colleague who doesn’t work today shows with their local time and when they start', async () => {
+  // Not today nor tomorrow, so their next start is a day or more away whatever the time (near midnight, tomorrow's
+  // start would be within the quarter hour, which counts as working).
   const today = new Date().getUTCDay();
-  const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today);
+  const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today && d !== (today + 1) % 7);
   assert.equal((await bob('PUT', '/api/users/me/work-hours', { hours: { days, start: 0, end: 1440, tz: 'UTC' } })).status, 200);
   try {
     const r = (await olivia('GET', '/api/mail/after-hours?to=bob@acme.com,gina@globex.com')).body;
     assert.deepEqual(r.map((x) => x.email), ['bob@acme.com'], 'not people at another company');
-    const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
-    assert.equal(r[0].next, tomorrow.getTime());
+    const after = new Date(); after.setUTCHours(48, 0, 0, 0); // the day after tomorrow, at the start of it
+    assert.equal(r[0].next, after.getTime());
     assert.match(r[0].local, /^\d\d:\d\d$/);
   } finally { await bob('PUT', '/api/users/me/work-hours', { hours: null }); }
   assert.deepEqual((await olivia('GET', '/api/mail/after-hours?to=bob@acme.com')).body, [], 'without hours of their own');
