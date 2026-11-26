@@ -120,6 +120,14 @@ await step('Assigned to me shows it as new too', async () => {
   await kim.reload();
   await row.locator('.task-comments-new', { hasText: '1 new' }).waitFor({ timeout: 10000 });
 }, kim);
+await step('Home: Tasks for today says a task has new comments', async () => {
+  const today = await kim.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  const r = await api(page, 'PATCH', `/tasks/tasks/${taskId}`, { due: today });
+  if (r.status !== 200) throw new Error(`due ${r.status}`);
+  await kim.goto(`${B}/home`);
+  const card = kim.getByRole('region', { name: 'Tasks for today' });
+  await card.getByRole('listitem').filter({ hasText: 'Book venue' }).getByText('💬 1 new').waitFor();
+}, kim);
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

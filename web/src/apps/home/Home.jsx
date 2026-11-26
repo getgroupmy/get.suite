@@ -189,6 +189,7 @@ export default function Home() {
                       <input type="checkbox" aria-label={`Done: ${t.title}`} onChange={() => tickOff(t)} />
                       <Link className="grow home-item" to={`/tasks/${t.list_id}?task=${t.id}`}>{t.my_day && <span className="home-sun" title="In My Day" aria-label="In My Day">☀ </span>}{t.title}</Link>
                       {t.link_url && <Link to={t.link_url} className="home-task-about" aria-label={`Open ${t.link_label || 'what it is about'}`} title={`Open ${t.link_label || 'what it is about'}`}>{linkIcon(t.link_url)}</Link>}
+                      {t.comments_new > 0 && <span className="small nowrap home-task-new" title={`${t.comments_new} new comment${t.comments_new === 1 ? '' : 's'}`}>💬 {t.comments_new} new</span>}
                       {d && <span className={`pill due ${d.tone}`}>{d.text}</span>}
                     </li>
                   );
