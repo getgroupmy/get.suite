@@ -54,3 +54,14 @@ test('related people: kept with a label, written for iPhones and Macs, read back
   assert.equal(again.match(/X-ABRELATEDNAMES/g).length, 2);
   assert.match(again, /RELATED;TYPE=friend:urn:uuid:123/, 'a link to another card is kept as it came');
 });
+
+test('related people in CSV: Gmail’s Relation columns, both ways', () => {
+  const csv = contactsToCsv([{ name: 'Kim Park', related: [{ label: 'Spouse', name: 'Ana Silva' }, { label: 'Godmother', name: 'Eve' }] }, { name: 'Bo' }]);
+  const [head, kim, bo] = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.match(head, /,Relation 1 - Type,Relation 1 - Value,Relation 2 - Type,Relation 2 - Value$/);
+  assert.match(kim, /,Spouse,Ana Silva,Godmother,Eve$/);
+  assert.match(bo, /,,,,$/);
+  const back = contactsFromCsv('Name,Relation 1 - Type,Relation 1 - Value,Relation 2 - Type,Relation 2 - Value\r\nLee,manager,Max Ode,,\r\n');
+  assert.deepEqual(back[0].related, [{ label: 'Manager', name: 'Max Ode' }]);
+  assert.deepEqual(contactsFromCsv(csv)[0].related, [{ label: 'Spouse', name: 'Ana Silva' }, { label: 'Godmother', name: 'Eve' }]);
+});

@@ -28,7 +28,8 @@ export const RELATIONS = ['Spouse', 'Partner', 'Child', 'Parent', 'Sibling', 'Fr
 export function cleanRelated(list, { strict = false } = {}) {
   const out = [];
   for (const x of parse(list)) {
-    const name = String(x?.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 200), label = cleanLabel(x?.label);
+    const name = String(x?.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 200), typed = cleanLabel(x?.label);
+    const label = RELATIONS.find((r) => r.toLowerCase() === typed.toLowerCase()) || typed; // ("spouse", as some files write it: Spouse)
     if (!name) { if (strict && label && label !== 'Other') throw new Error(`“${label}” needs a name`); continue; }
     out.push({ label: label || 'Other', name });
     if (out.length >= MAX_FIELDS) break;

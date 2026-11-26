@@ -81,7 +81,7 @@ await step('editing keeps them; they go into the vCard and CSV downloads', async
   const csv = await page.evaluate(async () => (await fetch('/api/contacts/export?format=csv')).text());
   if (!/Custom Field 1 - Value/.test(csv) || !/4712/.test(csv)) throw new Error(csv.slice(0, 300));
 });
-await step('related people: added in the form, shown in the list, kept on edit, in the vCard', async () => {
+await step('related people: added in the form, shown in the list, kept on edit, in the vCard and CSV', async () => {
   await page.getByRole('button', { name: 'Edit Ann Lee' }).click();
   const m = page.getByRole('dialog');
   await m.getByRole('button', { name: '+ Add a person' }).click();
@@ -100,6 +100,8 @@ await step('related people: added in the form, shown in the list, kept on edit, 
   await m.waitFor({ state: 'detached' });
   const vcf = await page.evaluate(async () => (await fetch('/api/contacts/export?format=vcf')).text());
   if (!/X-ABRELATEDNAMES:Ben Lee\r\nitem\d+\.X-ABLabel:_\$!<Spouse>!\$_/.test(vcf) || /Max Ode/.test(vcf)) throw new Error(vcf.slice(0, 600));
+  const csv = await page.evaluate(async () => (await fetch('/api/contacts/export?format=csv')).text());
+  if (!/Relation 1 - Type,Relation 1 - Value/.test(csv) || !/Spouse,Ben Lee/.test(csv)) throw new Error(csv.slice(0, 400));
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
