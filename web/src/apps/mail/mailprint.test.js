@@ -26,3 +26,11 @@ test('several messages on one printout: each its own page, the same safe page (n
   assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
   assert.match(html, /section\.msg \+ section\.msg\{break-before:page\}/);
 });
+
+test('a conversation prints one message after another under its subject, not a page each', () => {
+  const html = printDocuments([{ subject: 'Re: Re: Venue <A>', text: 'first', from: { address: 'a@x' } }, { subject: 'Re: Venue <A>', html: '<p>second</p>' }], { conversation: true });
+  assert.match(html, /<title>Venue &lt;A&gt;<\/title>/);
+  assert.match(html, /<h1 class="conversation">Venue &lt;A&gt;<\/h1><p class="files">2 messages<\/p><section class="msg">/);
+  assert.doesNotMatch(html, /break-before:page/);
+  assert.ok(html.indexOf('first') < html.indexOf('second'));
+});

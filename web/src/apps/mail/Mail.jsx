@@ -1406,9 +1406,19 @@ function Conversation({ folder, uid, date, onOpen }) {
   const earlier = list.filter((x) => (x.date || 0) <= (date || 0)).length;
   const later = list.length - earlier;
   const summary = [earlier && `${earlier} earlier`, later && `${later} later`].filter(Boolean).join(', ');
+  // Print all: this message and the rest of the conversation, oldest first, one after another.
+  const printAll = async () => {
+    const all = [...list.map((x) => [x.folder, x.uid, x.date]), [folder, uid, date]].sort((a, b) => (a[2] || 0) - (b[2] || 0));
+    const got = [];
+    for (const [f, u] of all) { try { got.push(await get(`/mail/messages/${u}?folder=${enc(f)}&peek=1${mailboxParam()}`)); } catch { /* gone since */ } }
+    if (got.length) printHtml(printDocuments(got, { conversation: true }));
+  };
   return (
     <div className="conversation">
-      <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
+      <div className="row" style={{ gap: 8 }}>
+        <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
+        <button type="button" className="link-btn small" title="Print every message in this conversation, oldest first (or save it as a PDF)" onClick={printAll}>Print all</button>
+      </div>
       {open && (
         <ol className="conversation-list" aria-label="Conversation">
           {list.map((x) => (

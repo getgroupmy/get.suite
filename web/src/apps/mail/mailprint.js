@@ -38,12 +38,21 @@ export function printHtml(html) {
   return frame;
 }
 
-/** Several messages on one printout, each starting a new page (each as printDocument lays it out). */
-export function printDocuments(list, opts) {
+/**
+ * Several messages on one printout, each starting a new page (each as printDocument lays it out); a conversation's
+ * ({ conversation: true }) one after another under its subject, with a line between them.
+ */
+export function printDocuments(list, opts = {}) {
   const pages = list.map((m) => printDocument(m, opts));
   const head = /<head>([\s\S]*?)<title>/.exec(pages[0] || '')?.[1] || '<meta charset="utf-8">';
   const style = /<style>([\s\S]*?)<\/style>/.exec(pages[0] || '')?.[1] || '';
   const bodies = pages.map((p) => /<body>([\s\S]*)<\/body>/.exec(p)[1]);
+  if (opts.conversation) {
+    const subject = String(list[0]?.subject || '(no subject)').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '');
+    return `<!doctype html><html><head>${head}<title>${esc(subject)}</title><style>${style}
+section.msg{break-inside:auto}section.msg + section.msg{border-top:2px solid #888;margin-top:20px;padding-top:12px}section.msg h1{font-size:15px}</style></head>
+<body><h1 class="conversation">${esc(subject)}</h1><p class="files">${list.length} messages</p>${bodies.map((b) => `<section class="msg">${b}</section>`).join('')}</body></html>`;
+  }
   return `<!doctype html><html><head>${head}<title>${list.length} ${list.length === 1 ? 'message' : 'messages'}</title><style>${style}
 section.msg + section.msg{break-before:page}</style></head><body>${bodies.map((b) => `<section class="msg">${b}</section>`).join('')}</body></html>`;
 }

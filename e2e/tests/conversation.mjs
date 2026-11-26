@@ -38,6 +38,7 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -86,6 +87,17 @@ await step('opening one from Sent goes there', async () => {
   await page.locator('.reader-subject', { hasText: 'Re: Quote for chairs' }).waitFor();
   if (!/\/mail\/Sent\/\d+/.test(page.url())) throw new Error(page.url());
   await page.getByRole('button', { name: /^▸ Conversation: 1 earlier, 1 later message/ }).waitFor();
+});
+await step('Print all prints the whole conversation, oldest first, on one page', async () => {
+  await page.getByRole('button', { name: 'Print all' }).click();
+  const frame = page.locator('iframe.print-frame').last();
+  await frame.waitFor({ state: 'attached' });
+  await until(async () => /Yes, 10% off/.test(await frame.evaluate((f) => f.contentDocument?.body?.innerText || '')));
+  const text = await frame.evaluate((f) => f.contentDocument.body.innerText);
+  if (!/^Quote for chairs\n+3 messages/.test(text)) throw new Error(text.slice(0, 200));
+  const at = (t) => text.indexOf(t);
+  if (!(at('Can you do 10% off?') > 0 && at('Can you do 10% off?') < at('Yes, 10% off.'))) throw new Error(text);
+  if ((text.match(/Subject|Quote for chairs/g) || []).length < 3) throw new Error('not every message');
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
