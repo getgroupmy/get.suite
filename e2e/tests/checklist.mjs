@@ -301,6 +301,18 @@ await step('Home: ✓ marks a note comment that mentions you as read, without op
   if (await kim.getByRole('link', { name: /no rush on this one/ }).count()) throw new Error('back after reloading');
   await kim.context().close();
 });
+await step('⋮ → Download (.md) has a comment’s reactions after it, with who', async () => {
+  const off = (await api(page, 'GET', '/notes')).body.find((x) => x.title === 'Offsite');
+  const first = (await api(page, 'GET', `/notes/${off.id}/comments`)).body[0];
+  await api(page, 'POST', `/notes/${off.id}/comments/${first.id}/reactions`, { emoji: '👍', add: true });
+  await page.goto(`${B}/notes`);
+  const card = cardOf(page, 'Offsite');
+  await card.hover();
+  await card.getByRole('button', { name: 'More' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download (.md)' }).click()]);
+  const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  if (!md.split('\n').some((l) => l.includes(first.text) && l.endsWith('(👍 Olivia Owner)'))) throw new Error(md);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

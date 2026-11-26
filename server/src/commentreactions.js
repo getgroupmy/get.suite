@@ -16,6 +16,7 @@ export function ensureReactionTables() {
     )`).run();
   }
 }
+ensureReactionTables(); // (whichever loads first: Notes, Tasks or a download)
 
 /** Reactions on these comments: commentId → [{ emoji, users: [{ id, name }] }], in the order first used. */
 export function reactionsOn(kind, commentIds) {
@@ -32,6 +33,9 @@ export function reactionsOn(kind, commentIds) {
   }
   return out;
 }
+
+/** Reactions as words for a download: "👍 Ann Lee, Bob Ray; 🎉 Cy Dee" ("" for none). */
+export const reactionsText = (list) => (list || []).map((r) => `${r.emoji} ${r.users.map((u) => u.name).join(', ')}`).join('; ');
 
 /** Adds your reaction, or takes it back (the same emoji again; not with { add: true }, which only adds). */
 export function toggleReaction(kind, commentId, userId, raw, { add = false } = {}) {

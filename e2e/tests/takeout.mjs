@@ -69,7 +69,7 @@ await step('Settings shows what is in it and downloads one zip', async () => {
   const hcsv = await zip.file('Task history.csv')?.async('string');
   if (!/Kites,Buy string,[^,]+,Olivia Owner,Due,,2026-12-05/.test(hcsv || '')) throw new Error(`Task history.csv: ${hcsv}`);
   const kcsv = await zip.file('Task comments.csv')?.async('string');
-  if (!/Kites,Buy string,[^,]+,Olivia Owner,Get the strong kind,\r\n/.test(kcsv || '')) throw new Error(`Task comments.csv: ${kcsv}`);
+  if (!/Kites,Buy string,[^,]+,Olivia Owner,Get the strong kind,,\r\n/.test(kcsv || '')) throw new Error(`Task comments.csv: ${kcsv}`);
   const comments = await zip.file('Comments.csv')?.async('string');
   if (!/Plan,“kites”,Olivia Owner,[^,]+,Check the kite budget/.test(comments || '')) throw new Error(`Comments.csv: ${comments}`);
   const chat = await zip.file('Chat/kite-club.txt')?.async('string');

@@ -6,7 +6,7 @@ import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
 import { q, tx, fold } from '../db.js';
 import { byAddress } from '../byaddress.js';
-import { ensureReactionTables, reactionsOn, toggleReaction } from '../commentreactions.js';
+import { ensureReactionTables, reactionsOn, reactionsText, toggleReaction } from '../commentreactions.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notesFromEnex, noteFromHtml } from '../evernote.js';
@@ -321,10 +321,11 @@ export function noteMentionsFor(user) {
 }
 /** A note's Markdown with its comments (a shared note's) at the end, after a marker line, so Import notes… leaves them out of its text. */
 function withComments(md, noteId) {
-  const comments = q(`SELECT c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+  const comments = q(`SELECT c.id, c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
     WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId);
   if (!comments.length) return md;
-  return `${md.replace(/\s*$/, '')}\n\n${COMMENTS_MARK}\n## Comments\n\n${comments.map((c) => `- **${c.name || 'Someone'}** (${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${String(c.text).replace(/\s*\n\s*/g, ' ')}`).join('\n')}\n`;
+  const reactions = reactionsOn('note', comments.map((c) => c.id)); // after each comment: (👍 Ann Lee, Bob Ray)
+  return `${md.replace(/\s*$/, '')}\n\n${COMMENTS_MARK}\n## Comments\n\n${comments.map((c) => `- **${c.name || 'Someone'}** (${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${String(c.text).replace(/\s*\n\s*/g, ' ')}${reactions.has(c.id) ? ` (${reactionsText(reactions.get(c.id))})` : ''}`).join('\n')}\n`;
 }
 export async function notesZipEntries(notes) {
   const { uniqueNames, safeName } = await import('../mail/attzip.js');

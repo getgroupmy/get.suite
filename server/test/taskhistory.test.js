@@ -175,6 +175,9 @@ test('Download your data: Task comments.csv, the comments on your lists’ tasks
   const c1 = (await ana('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Draft by Friday' })).body;
   await ben('POST', `/api/tasks/tasks/${t.id}/comments`, { body: '=1+1, and "quotes"' });
   await ana('PATCH', `/api/tasks/tasks/${t.id}/comments/${c1.id}`, { body: 'Draft by Thursday' });
+  await ben('POST', `/api/tasks/tasks/${t.id}/comments/${c1.id}/reactions`, { emoji: '👍' });
+  await ana('POST', `/api/tasks/tasks/${t.id}/comments/${c1.id}/reactions`, { emoji: '👍' });
+  await ben('POST', `/api/tasks/tasks/${t.id}/comments/${c1.id}/reactions`, { emoji: '🎉' });
   const takeout = async (who) => {
     const login = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${who}@acme.com`, password: 'password123' }) });
     const res = await fetch(`${base}/api/takeout`, { headers: { cookie: login.headers.get('set-cookie').split(';')[0], 'x-requested-with': 'nas-workspace' } });
@@ -183,11 +186,11 @@ test('Download your data: Task comments.csv, the comments on your lists’ tasks
   };
   const zip = await takeout('ana');
   const lines = (await zip.file('Task comments.csv').async('string')).replace(/^\ufeff/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'List,Task,When (UTC),Who,Comment,Edited (UTC)');
+  assert.equal(lines[0], 'List,Task,When (UTC),Who,Comment,Edited (UTC),Reactions');
   const mine = lines.filter((l) => l.startsWith('Comms,'));
   assert.equal(mine.length, 2);
-  assert.match(mine[0], /^Comms,Press release,\d{4}-\d\d-\d\d \d\d:\d\d,Ana Silva,Draft by Thursday,\d{4}-\d\d-\d\d \d\d:\d\d$/);
-  assert.match(mine[1], /^Comms,Press release,[^,]+,Ben Ode,"'=1\+1, and ""quotes""",$/);
+  assert.match(mine[0], /^Comms,Press release,\d{4}-\d\d-\d\d \d\d:\d\d,Ana Silva,Draft by Thursday,\d{4}-\d\d-\d\d \d\d:\d\d,"👍 Ben Ode, Ana Silva; 🎉 Ben Ode"$/, 'with its reactions, and who');
+  assert.match(mine[1], /^Comms,Press release,[^,]+,Ben Ode,"'=1\+1, and ""quotes""",,$/);
   assert.match(await zip.file('README.txt').async('string'), /Task comments\.csv/);
   const bens = await (await takeout('ben')).file('Task comments.csv')?.async('string');
   assert.ok(!bens?.includes('Comms'), 'Ana’s list is hers, not in Ben’s download');

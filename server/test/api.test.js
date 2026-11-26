@@ -15482,6 +15482,9 @@ test('reactions on note and task comments: one of each emoji per person, the sam
   assert.equal((await c('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '🎉' })).status, 404, 'not someone it isn’t shared with');
   assert.equal((await b('POST', `/api/notes/${n.id}/comments/nope/reactions`, { emoji: '🎉' })).status, 404);
   assert.deepEqual((await b('GET', `/api/notes/${n.id}/comments`)).body[0].reactions.map((x) => x.emoji), ['👍'], 'listed with the comments');
+  // A note's Markdown (Download (.md), the .zip, Download your data) has them after the comment.
+  const md = (await a('GET', `/api/notes/${n.id}/export.md`)).body;
+  assert.match(md, /- \*\*Rae React\*\* \([^)]+ UTC\): I’ll bring the blanket \(👍 Rae React\)\n$/);
   // A task's
   const l = (await a('POST', '/api/tasks/lists', { name: 'Picnic jobs' })).body;
   await a('PUT', `/api/tasks/lists/${l.id}/members`, { user_ids: [ids.rxb] });
