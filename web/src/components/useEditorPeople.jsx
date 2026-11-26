@@ -1,13 +1,14 @@
-// "@" and a few letters of a name in Mail's message box (as Gmail's "+name"): colleagues who match, under the cursor;
+// "@" and a few letters of a name in Mail's message box (as Gmail's "+name"): colleagues and your contacts who match
+// (as the To box suggests them, by name, address or company), under the cursor;
 // ↑ ↓ choose, Enter or Tab put "@Their Name" in as a link to their address and call onPick(person) (Mail adds them to
 // To), Escape closes. Call keys.current(event) from the editor's handleKeyDown, and render `list`.
 import { useEffect, useRef, useState } from 'react';
 import { get } from '../api.js';
-import { mentionQuery, matchPeople } from '../apps/docs/mention.js';
+import { mentionQuery } from '../apps/docs/mention.js';
 
 export function useEditorPeople(editor, onPick, { off = false } = {}) {
   const [pop, setPop] = useState(null); // { from, query, left, top, list, pick }
-  const people = useRef(null);
+  const asked = useRef(0); // (only the latest answer counts)
   const picked = useRef(onPick);
   picked.current = onPick;
   useEffect(() => {
@@ -19,15 +20,20 @@ export function useEditorPeople(editor, onPick, { off = false } = {}) {
       const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '￼');
       const m = mentionQuery(before, sel.from);
       if (!m || !m.query) { setPop(null); return; }
-      if (!people.current) { people.current = []; get('/users/directory').then((l) => { people.current = l; check(); }).catch(() => {}); return; }
-      const list = matchPeople(people.current, m.query);
-      if (!list.length) { setPop(null); return; }
-      const c = view.coordsAtPos(sel.from);
-      setPop((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
+      const n = ++asked.current;
+      get(`/contacts/suggest?q=${encodeURIComponent(m.query)}`).then((found) => {
+        if (n !== asked.current) return;
+        // People with an address (not a group or "Everyone at …", which go in To), at most six.
+        const list = found.filter((p) => ['colleague', 'contact', 'other'].includes(p.kind) && p.email && !/^(group|company):/.test(p.email)).slice(0, 6)
+          .map((p) => ({ id: p.email, name: p.name || p.email, username: p.email }));
+        if (!list.length) { setPop(null); return; }
+        const c = view.coordsAtPos(editor.state.selection.from);
+        setPop((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
+      }).catch(() => {});
     };
     editor.on('selectionUpdate', check);
     editor.on('update', check);
-    const close = () => setPop(null);
+    const close = () => { asked.current++; setPop(null); };
     editor.on('blur', close);
     return () => { editor.off('selectionUpdate', check); editor.off('update', check); editor.off('blur', close); };
   }, [editor, off]);

@@ -140,6 +140,14 @@ await step('compose: "@" and a name adds a colleague to To, with a link to them 
   await list.getByRole('option', { name: /Kim Park/ }).waitFor();
   await page.keyboard.press('Enter');
   if ((await page.getByLabel('To', { exact: true }).inputValue()).split('kim@acme.com').length !== 2) throw new Error('added twice');
+  // One of your contacts outside the company too, found by name.
+  await api(page, 'POST', '/contacts', { name: 'Zed Outside', email: 'zed@partner.example' });
+  await page.keyboard.type(' and @zed');
+  await list.getByRole('option', { name: /Zed Outside/ }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.getByText('Zed Outside added to To').waitFor();
+  if (!(await page.getByLabel('To', { exact: true }).inputValue()).includes('zed@partner.example')) throw new Error('contact not added');
+  await page.getByLabel('To', { exact: true }).fill('Kim Park <kim@acme.com>'); // (not really sent outside)
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByText('Sent to 1 recipient').waitFor();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
