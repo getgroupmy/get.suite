@@ -992,7 +992,7 @@ function Board({ open, done, openId, onOpen, onMove }) {
                         {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
                         {waitingOn(t, all).length > 0 && <span className="pill waiting">⏳ Waiting</span>}
                         {t.steps?.length > 0 && <span className="muted small">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
-                        {t.comments > 0 && <span className="muted small">💬 {t.comments}</span>}
+                        {t.comments > 0 && <span className="muted small" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}${t.comments_new > 0 ? `, ${t.comments_new} new` : ''}`}>💬 {t.comments}{t.comments_new > 0 && <strong className="task-comments-new"> · {t.comments_new} new</strong>}</span>}
                       </span>
                     </button>
                     <div className="row board-foot">

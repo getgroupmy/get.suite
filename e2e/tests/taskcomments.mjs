@@ -128,6 +128,18 @@ await step('Home: Tasks for today says a task has new comments', async () => {
   const card = kim.getByRole('region', { name: 'Tasks for today' });
   await card.getByRole('listitem').filter({ hasText: 'Book venue' }).getByText('💬 1 new').waitFor();
 }, kim);
+await step('Board: a card says how many comments are new, until it is opened', async () => {
+  await page.goto(`${B}/tasks/${listId}`);
+  await page.getByRole('tab', { name: 'Board', exact: true }).click();
+  const card = page.locator('.board-card', { hasText: 'Book venue' });
+  await card.waitFor();
+  await api(kim, 'POST', `/tasks/tasks/${taskId}/comments`, { body: 'Caterer confirmed' });
+  await card.locator('.task-comments-new', { hasText: '1 new' }).waitFor({ timeout: 10000 });
+  await card.locator('.board-open').click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByText('Caterer confirmed').waitFor();
+  await until(async () => !(await card.locator('.task-comments-new').count()));
+  await page.getByRole('tab', { name: 'List', exact: true }).click();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
