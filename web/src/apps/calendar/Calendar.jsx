@@ -2897,6 +2897,9 @@ function BookingForm({ page, onSave, onCancel }) {
           <div key={i} className="row" style={{ gap: 8 }}>
             <input className="grow" aria-label={`Question ${i + 1}`} placeholder="e.g. Phone number" maxLength={100} value={x.label}
               onChange={(e) => set('questions', p.questions.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)))} />
+            <input aria-label={`Question ${i + 1} choices`} placeholder="Choices, with commas (optional)" title="To have visitors pick an answer: two or more, separated by commas (up to 10). Empty: they write their own." style={{ width: 200 }}
+              value={Array.isArray(x.choices) ? x.choices.join(', ') : x.choices || ''}
+              onChange={(e) => set('questions', p.questions.map((y, j) => (j === i ? { ...y, choices: e.target.value } : y)))} />
             <label className="check small"><input type="checkbox" checked={!!x.required} aria-label={`Question ${i + 1} is required`}
               onChange={(e) => set('questions', p.questions.map((y, j) => (j === i ? { ...y, required: e.target.checked } : y)))} /> Required</label>
             <button type="button" className="icon-btn" aria-label={`Remove question ${i + 1}`} onClick={() => set('questions', p.questions.filter((_, j) => j !== i))}><Icon name="close" size={16} /></button>

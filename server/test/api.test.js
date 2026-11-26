@@ -2533,11 +2533,21 @@ test('booking pages: questions for the visitor; required ones must be answered; 
   assert.equal(csv[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Company,Note');
   assert.ok(csv[1].startsWith('Rae,') && csv[1].endsWith(',Booked,555 0100,"Globex, Inc.",Parking?'), csv[1]);
   assert.ok(csv[2].endsWith(',Booked,+44 20 7946 0000,,'), csv[2]);
+  // A question with choices: the answer is picked from them (written as a list or with commas); one choice alone is refused.
+  assert.equal((await a('PATCH', `/api/bookings/${page.id}`, { questions: [{ label: 'Service', choices: 'Cut' }] })).status, 400);
+  const withChoices = await a('PATCH', `/api/bookings/${page.id}`, { questions: [{ label: 'Phone number', required: true }, { label: 'Service', required: true, choices: 'Cut, Colour , Cut' }] });
+  assert.deepEqual(withChoices.body.questions[1], { label: 'Service', required: true, choices: ['Cut', 'Colour'] });
+  assert.deepEqual((await outsider('GET', `/api/public/book/${token}`)).body.questions[1].choices, ['Cut', 'Colour'], 'visitors see them');
+  const slot3 = pub.days[1].slots[4];
+  const wrong = await outsider('POST', `/api/public/book/${token}`, { start: slot3, name: 'Cy', email: 'cy@example.org', answers: ['555', 'Perm'] });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.body.error, /Pick one of the choices for “Service”/);
+  assert.ok((await outsider('POST', `/api/public/book/${token}`, { start: slot3, name: 'Cy', email: 'cy@example.org', answers: ['555', 'Colour'] })).status < 300);
   // Changing the questions later keeps the rest of the page, and answers to a question no longer asked stay in the download.
   const changed = (await a('PATCH', `/api/bookings/${page.id}`, { questions: [] })).body;
   assert.deepEqual([changed.questions, changed.title, changed.duration], [[], 'Consult', 30]);
   csv = rows((await a('GET', `/api/bookings/${page.id}/bookings.csv`)).body);
-  assert.equal(csv[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Company,Note');
+  assert.equal(csv[0], 'Name,Email,Starts,Ends,Time zone,Host,Booked,Status,Phone number,Service,Company,Note', 'Service: Cy answered it');
 });
 
 test('page setup: kept with a document, checked, and only for documents', async () => {

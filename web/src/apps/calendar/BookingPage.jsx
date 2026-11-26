@@ -189,7 +189,12 @@ export default function BookingPage({ token }) {
             <label className="field"><span>Your email</span><input required type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
             {(page.questions || []).map((x, i) => (
               <label key={i} className="field"><span>{x.label}{x.required ? '' : ' (optional)'}</span>
-                <input required={x.required} maxLength={500} value={answers[i] || ''} onChange={(e) => { const a = [...answers]; a[i] = e.target.value; setAnswers(a); }} /></label>
+                {x.choices?.length ? (
+                  <select required={x.required} value={answers[i] || ''} onChange={(e) => { const a = [...answers]; a[i] = e.target.value; setAnswers(a); }}>
+                    <option value="">{x.required ? 'Choose…' : '—'}</option>
+                    {x.choices.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                ) : <input required={x.required} maxLength={500} value={answers[i] || ''} onChange={(e) => { const a = [...answers]; a[i] = e.target.value; setAnswers(a); }} />}</label>
             ))}
             <label className="field"><span>Anything to add (optional)</span><textarea rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
             <div className="row"><button className="btn primary" disabled={busy}>{busy ? 'Booking…' : 'Book'}</button></div>

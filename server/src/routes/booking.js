@@ -206,7 +206,15 @@ function readPage(b, current = {}) {
   const hosts = [...new Set(hostIds.map(String))];
   const qs = pick('questions') ?? [];
   if (!Array.isArray(qs) || qs.length > 5) throw bad('At most 5 questions');
-  const questions = qs.map((x) => ({ label: str(x?.label, { required: true, name: 'Question', max: 100 }), required: !!x?.required }));
+  const questions = qs.map((x) => {
+    const label = str(x?.label, { required: true, name: 'Question', max: 100 });
+    // Choices: the answer is picked from these (a service, a branch…); none: written freely.
+    const raw = Array.isArray(x?.choices) ? x.choices : typeof x?.choices === 'string' ? x.choices.split(',') : [];
+    const choices = [...new Set(raw.map((c) => String(c ?? '').trim().slice(0, 100)).filter(Boolean))];
+    if (choices.length > 10) throw bad(`At most 10 choices for “${label}”`);
+    if (choices.length === 1) throw bad(`Give “${label}” two choices or more, or none`);
+    return { label, required: !!x?.required, ...(choices.length && { choices }) };
+  });
   const whereKind = pick('where_kind') ?? '';
   if (!['', 'video', 'place'].includes(whereKind)) throw bad('Where: a video meeting, a place, or not said');
   const whereText = whereKind === 'place' ? str(pick('where_text'), { required: true, name: 'The place', max: 200 }) : null;
@@ -638,6 +646,7 @@ export function publicBookingRoutes() {
     const answered = JSON.parse(p.questions || '[]').map((x, i) => {
       const a = str(given[i] ?? '', { max: 500 }) || '';
       if (x.required && !a.trim()) throw bad(`Please answer “${x.label}”`);
+      if (x.choices?.length && a.trim() && !x.choices.includes(a.trim())) throw bad(`Pick one of the choices for “${x.label}”`);
       return a.trim() ? { label: x.label, value: a.trim() } : null;
     }).filter(Boolean);
     const answers = answered.map((x) => `${x.label}: ${x.value}`);

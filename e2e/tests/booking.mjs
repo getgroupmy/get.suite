@@ -316,6 +316,27 @@ await step('a full page: a visitor joins its waiting list, and the owner sees on
   await page.keyboard.press('Escape');
   await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: 0 });
 });
+await step('a question with choices: the visitor picks from them', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByRole('button', { name: '+ Add a question' }).click();
+  await dlg.getByLabel('Question 2', { exact: true }).fill('Topic');
+  await dlg.getByLabel('Question 2 choices').fill('Pricing, Support, Something else');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/^Booking page saved/).first().waitFor();
+  await page.keyboard.press('Escape');
+  if (JSON.stringify((await api(page, 'GET', '/bookings')).body[0].questions[1]) !== '{"label":"Topic","required":false,"choices":["Pricing","Support","Something else"]}') throw new Error('not saved');
+  await visitor.goto(url.replace(/^https?:\/\/[^/]+/, B));
+  await visitor.getByRole('heading', { name: 'Intro call' }).waitFor();
+  await visitor.getByRole('tab').last().click();
+  await visitor.getByRole('group', { name: /^Times on/ }).getByRole('button').first().click();
+  const topic = visitor.getByLabel('Topic (optional)');
+  await topic.selectOption('Support');
+  const opts = await topic.locator('option').allTextContents();
+  if (opts.join('|') !== '—|Pricing|Support|Something else') throw new Error(opts.join('|'));
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });
