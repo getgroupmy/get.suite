@@ -162,6 +162,7 @@ export function textToItems(body) {
   return out;
 }
 /** A note as Markdown: its title as a heading, then its text, or its checklist as "- [x]" lines (sub-items indented), then labels. */
+export const COMMENTS_MARK = '<!-- comments: not part of the note -->';
 export function noteMarkdown(n) {
   const lines = [];
   // Its colour, pinned or archived (when any): front matter, as Markdown notes apps keep such things.
@@ -181,6 +182,9 @@ export function noteMarkdown(n) {
  */
 export function noteFromMarkdown(text, fileName = '') {
   const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/^\ufeff/, '').split('\n');
+  // A downloaded note's comments (from the marker on) aren't its text.
+  const mark = lines.findIndex((l) => l.trim() === COMMENTS_MARK);
+  if (mark >= 0) lines.splice(mark);
   let title = '';
   // Front matter ("---" … "---" at the top): colour, pinned, archived; other keys (other apps') are left out.
   const meta = {};
@@ -303,6 +307,12 @@ export async function notesZipEntries(notes) {
     let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived, remind_at: n.remind_at, remind_repeat: n.remind_repeat, remind_tz: n.remind_tz });
     if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
     if (recs.length) md = `${md.replace(/\s*$/, '')}\n\n${recs.map((x, k) => `[🎙 Recording ${k + 1}](${encodeURI(x.path)})`).join('\n')}\n`;
+    // Its comments (a shared note's): after a marker line, so Import notes… leaves them out of the note's text.
+    const comments = q(`SELECT c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(n.id);
+    if (comments.length) {
+      md = `${md.replace(/\s*$/, '')}\n\n${COMMENTS_MARK}\n## Comments\n\n${comments.map((c) => `- **${c.name || 'Someone'}** (${new Date(c.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC): ${String(c.text).replace(/\s*\n\s*/g, ' ')}`).join('\n')}\n`;
+    }
     out.push({ path: names[i], data: md }, ...pics, ...recs);
   });
   return out;

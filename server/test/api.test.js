@@ -15294,6 +15294,37 @@ test('notes: the .zip download carries each note’s pictures in a folder beside
   assert.doesNotMatch(await zip.file('Plain.md').async('string'), /!\[/);
 });
 
+test('notes: a shared note’s comments are in its downloaded Markdown, and importing it leaves them out of the text', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(), b = client();
+  const ids = {};
+  for (const [local, name] of [['nzca', 'Zed Comment'], ['nzcb', 'Yan Comment']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201); ids[local] = r.body.id;
+  }
+  await login(a, 'nzca@acme.com'); await login(b, 'nzcb@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Party', body: 'Cake?', labels: ['Fun'] })).body;
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nzcb] });
+  assert.equal((await b('POST', `/api/notes/${n.id}/comments`, { text: 'Chocolate,\nplease' })).status, 201);
+  assert.equal((await a('POST', `/api/notes/${n.id}/comments`, { text: 'Done' })).status, 201);
+  const zip = await JSZip.loadAsync((await a('GET', `/api/notes/export.zip?ids=${n.id}`, undefined, { binary: true })).body);
+  const md = await zip.file('Party.md').async('string');
+  assert.match(md, /#Fun\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Yan Comment\*\* \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\): Chocolate, please\n- \*\*Zed Comment\*\* \(.*\): Done\n$/);
+  // The same in Download your data.
+  const take = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  assert.match(await take.file('Notes/Party.md').async('string'), /## Comments\n\n- \*\*Yan Comment\*\*/);
+  // Taken back: the text and label, without the comments.
+  const r = await b('POST', '/api/notes/import', { files: [{ name: 'Notes (1).zip', base64: (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64') }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const back = (await b('GET', '/api/notes')).body.find((x) => x.title === 'Party' && x.id !== n.id);
+  assert.equal(back.body, 'Cake?');
+  assert.deepEqual(back.labels, ['Fun']);
+  assert.equal(back.comments, 0);
+  // A note without comments has no such section.
+  const plain = (await a('POST', '/api/notes', { title: 'Quiet', body: 'x' })).body;
+  assert.doesNotMatch(await (await JSZip.loadAsync((await a('GET', `/api/notes/export.zip?ids=${plain.id}`, undefined, { binary: true })).body)).file('Quiet.md').async('string'), /Comments/);
+});
+
 test('notes: a downloaded .zip with pictures imports back whole: text, label and pictures', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
   const a = client(), b = client();

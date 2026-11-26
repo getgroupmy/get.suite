@@ -110,6 +110,18 @@ await step('a shared note: a comment written in it, listed, and counted on its c
   await dlg.getByRole('button', { name: 'Close' }).last().click();
   await cardOf(page, 'Offsite').getByLabel('1 comment').waitFor();
 });
+await step('Download (.zip) of the shared note: its comment is in the Markdown, after a marker', async () => {
+  await cardOf(page, 'Offsite').hover();
+  await page.getByRole('button', { name: 'Select note: Offsite' }).click();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected notes' });
+  await bar.getByText('1 selected').waitFor();
+  const [dl] = await Promise.all([page.waitForEvent('download'), bar.getByRole('button', { name: 'Download (.zip)' }).click()]);
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const zip = await JSZip.loadAsync((await import('node:fs')).readFileSync(await dl.path()));
+  const md = await zip.file('Offsite.md').async('string');
+  if (!/Where shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
