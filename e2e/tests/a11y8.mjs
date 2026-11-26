@@ -100,6 +100,22 @@ await step('the owner’s Answers window', async () => {
   await both('Answers window');
   await page.keyboard.press('Escape');
 });
+await step('a contact’s window with dates, related people and fields; Merge duplicates', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Ann Lee', email: 'ann@lee.example', related: [{ label: 'Spouse', name: 'Ben Lee' }], dates: [{ label: 'Anniversary', date: '2015-06-20' }], custom_fields: [{ label: 'Locker', value: '7' }] });
+  await api(page, 'POST', '/contacts', { name: 'Ann Lee', phone: '+44 7700 900123', related: [{ label: 'Manager', name: 'Zoe Boss' }] });
+  await page.goto(`${B}/contacts`);
+  await page.locator('tbody tr', { hasText: 'Spouse: Ben Lee' }).waitFor();
+  await both('Contacts with related people');
+  await page.locator('tbody tr', { hasText: 'Spouse: Ben Lee' }).getByRole('button', { name: /^Edit Ann Lee/ }).click();
+  const m = page.getByRole('dialog');
+  await m.getByLabel('Related person 1: name').waitFor();
+  await both('Contact window with related people');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Merge duplicates' }).click();
+  await page.getByRole('dialog', { name: 'Merge duplicates' }).getByRole('group', { name: 'Duplicates of Ann Lee' }).waitFor();
+  await both('Merge duplicates window');
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
