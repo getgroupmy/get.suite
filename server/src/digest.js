@@ -12,6 +12,7 @@ import { smtpFor } from './mail/imap.js';
 import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
+import { taskMentionsFor } from './routes/tasks.js';
 import { suggestionsWaitingFor } from './collab.js';
 import { accessRequestsFor, accessRequestText } from './access.js';
 import { datesOn } from './contactreminders.js';
@@ -86,12 +87,12 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     lines.push('');
   }
   if (unread && !off.has('chat')) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.${link('/chat')}`, '');
-  const comments = off.has('comments') ? [] : commentsFor(user);
+  const comments = off.has('comments') ? [] : [...commentsFor(user), ...taskMentionsFor(user)].sort((a, b) => b.at - a.at); // (task comments that mention them too)
   if (comments.length) {
     lines.push(`Comments for you (${comments.length}):`);
     for (const c of comments.slice(0, 6)) {
       const text = c.body.replace(/\s+/g, ' ');
-      lines.push(`  “${c.file.name}”: ${c.author_name || 'Someone'}${c.assigned ? ' assigned you' : ''}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}${link(c.link)}`);
+      lines.push(`  ${c.file.kind === 'task' ? '✓ ' : ''}“${c.file.name}”: ${c.author_name || 'Someone'}${c.assigned ? ' assigned you' : ''}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}${link(c.link)}`);
     }
     if (comments.length > 6) lines.push(`  and ${comments.length - 6} more (Home → Comments for you)`);
     lines.push('');

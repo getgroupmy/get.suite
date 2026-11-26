@@ -605,6 +605,15 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   assert.match(mine[0].url, /\/docs\/[^/]+\?comment=/);
   assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads.map((x) => x.text), ['Check the date with sales']);
   assert.deepEqual((await call(rw, 'comments_for_me', {})).structuredContent.threads.filter((x) => x.file_name === 'Pricing page'), [], 'not Olivia’s own');
+  // A task comment mentioning her, on a list she's on: there too (not when only assigned ones are asked for).
+  const tl = (await owner('POST', '/api/tasks/lists', { name: 'Pricing' })).body.id;
+  await owner('PUT', `/api/tasks/lists/${tl}/members`, { user_ids: [avaId] });
+  const tt = (await owner('POST', `/api/tasks/lists/${tl}/tasks`, { title: 'Update price list' })).body;
+  await owner('POST', `/api/tasks/tasks/${tt.id}/comments`, { body: '@ava@acme.com the new prices are in' });
+  const onTasks = (await call(avaToken, 'comments_for_me', {})).structuredContent.task_comments;
+  assert.deepEqual(onTasks.map((x) => [x.task, x.by, x.text]), [['Update price list', 'Olivia Owner', '@ava@acme.com the new prices are in']]);
+  assert.match(onTasks[0].url, new RegExp(`/tasks/${tl}\\?task=${tt.id}$`));
+  assert.equal((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.task_comments, undefined);
   await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
   assert.ok((await avasTask()).done_at, 'ticked off when resolved');
   assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads, [], 'resolved: no longer waiting');

@@ -5532,6 +5532,10 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   const forCat = (await c('GET', '/api/tasks/mentions')).body;
   assert.deepEqual(forCat.map((x) => [x.file.name, x.file.kind, x.author_name, x.body]), [['Print flyers', 'task', 'Talk Ann', '@tcc@acme.com now you can see it'], ['Print flyers', 'task', 'Talk Ann', 'Can @TCB@acme.com and @tcc@acme.com check the proof?']]);
   assert.equal(forCat[0].link, `/tasks/${list}?task=${t2.id}`);
+  // …and in the morning summary.
+  const { digestFor } = await import('../src/digest.js');
+  const catId = (await c('GET', '/api/auth/me')).body.user.id;
+  assert.match(digestFor(catId).text, /Comments for you \(2\):\n  ✓ “Print flyers”: Talk Ann: @tcc@acme\.com now you can see it/);
   assert.deepEqual((await a('GET', '/api/tasks/mentions')).body, [], 'not your own');
   await a('POST', `/api/tasks/tasks/${t2.id}/comments`, { body: 'mail @tcc@acme.com.au about it' });
   assert.equal((await c('GET', '/api/tasks/mentions')).body.length, 2, 'a longer address isn’t a mention of yours');
