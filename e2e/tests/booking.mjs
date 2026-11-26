@@ -299,7 +299,14 @@ await step('a full page: a visitor joins its waiting list, and the owner sees on
   await visitor.getByText('You’re on the waiting list. If a place opens, we’ll email wes@example.org').waitFor();
   await page.goto(`${B}/calendar`);
   await page.getByRole('button', { name: 'Booking pages' }).click();
-  await page.getByRole('dialog', { name: 'Booking pages' }).getByText(/ · 1 waiting/).waitFor();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByText(/ · 1 waiting/).waitFor();
+  await dlg.getByRole('button', { name: 'The bookings of Intro call' }).click();
+  await page.getByRole('menuitem', { name: 'Waiting list (1)…' }).click();
+  const wl = page.getByRole('dialog', { name: 'Waiting list: Intro call' });
+  await wl.getByText('wes@example.org').waitFor();
+  await wl.getByRole('button', { name: 'Take Wes Waiting off the waiting list' }).click();
+  await wl.getByText('Nobody is waiting.').waitFor();
   await page.keyboard.press('Escape');
   await api(page, 'PATCH', `/bookings/${pg.id}`, { max_total: 0 });
 });

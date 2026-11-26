@@ -2709,6 +2709,31 @@ const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
 
 const shortDay = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+/** A full booking page's waiting list: who waits (longest first), each to take off; they're emailed when a place opens. */
+function WaitlistDialog({ page, onClose }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = useCallback(() => get(`/bookings/${page.id}/waitlist`).then(setList).catch((e) => toast(e.message, 'error')), [page.id, toast]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <Modal title={`Waiting list: ${page.title}`} onClose={onClose}>
+      <p className="muted small" style={{ marginTop: 0 }}>When a booking is cancelled, everyone here is emailed the page's link once; the first to book has the place.</p>
+      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">Nobody is waiting.</p> : (
+        <ul className="rule-list" aria-label="Waiting">
+          {list.map((w) => (
+            <li key={w.email}>
+              <span className="grow"><strong>{w.name}</strong> <span className="muted small">{w.email} · since {new Date(w.at).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span></span>
+              <button type="button" className="icon-btn" aria-label={`Take ${w.name} off the waiting list`} onClick={async () => {
+                try { await del(`/bookings/${page.id}/waitlist/${encodeURIComponent(w.email)}`); toast(`${w.name} taken off the waiting list`); load(); } catch (e) { toast(e.message, 'error'); }
+              }}><Icon name="close" size={16} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
 /** Your booking pages: links people use to book a free time with you. */
 function BookingPagesDialog({ onClose }) {
   const toast = useToast();
@@ -2747,6 +2772,8 @@ function BookingPagesDialog({ onClose }) {
   }
   const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
   const [bin, setBin] = useState(false); // Recently deleted pages
+  const [waitFor, setWaitFor] = useState(null); // the page whose waiting list is shown
+  if (waitFor) return <WaitlistDialog page={waitFor} onClose={() => { setWaitFor(null); load(); }} />;
   if (bin) return <RecentlyDeleted title="Recently deleted booking pages" what="Booking pages" list="/bookings/bin" restore={(id) => `/bookings/bin/${id}/restore`} forever={(id) => `/bookings/bin/${id}`} empty="/bookings/bin"
     note="Booking pages you delete are kept here for 30 days, then deleted for good. Restoring one makes its link work again, with its bookings."
     onClose={() => { setBin(false); load(); }} onRestored={() => { setBin(false); load(); }} />;
@@ -2775,6 +2802,7 @@ function BookingPagesDialog({ onClose }) {
                     try { const r = await post(`/bookings/${p.id}/bookings/sheet`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
                     catch (e) { toast(e.message, 'error'); }
                   } },
+                  p.waiting > 0 && { label: `Waiting list (${p.waiting})…`, icon: 'people', onClick: () => setWaitFor(p) },
                 ]} />}
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
                 <button type="button" className="icon-btn" aria-label={`Make a copy of ${p.title}`} title="Make a copy (with a link of its own), to change into another kind of meeting" onClick={async () => {

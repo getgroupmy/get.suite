@@ -393,6 +393,16 @@ export default function bookingRoutes() {
   });
   // Every booking made through this page as a spreadsheet (CSV): who, their address, when (in the page's time zone),
   // which host it went to, when it was booked, whether it still stands or was cancelled, and what they answered and wrote.
+  // A full page's waiting list, for its owner: [{ name, email, at }] (those still waiting, longest first); and taking someone off.
+  r.get('/:id/waitlist', (req, res) => {
+    const p = mine(req);
+    res.json(q('SELECT name, email, created_at AS at FROM booking_waitlist WHERE page_id = ? AND told_at IS NULL ORDER BY created_at').all(p.id));
+  });
+  r.delete('/:id/waitlist/:email', (req, res) => {
+    const p = mine(req);
+    if (!q('DELETE FROM booking_waitlist WHERE page_id = ? AND email = ?').run(p.id, String(req.params.email).toLowerCase()).changes) throw notFound('Not on the waiting list');
+    res.json({ ok: true });
+  });
   r.get('/:id/bookings.csv', (req, res) => {
     const p = mine(req);
     const file = `${p.title} bookings.csv`;

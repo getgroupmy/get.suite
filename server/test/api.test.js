@@ -2463,6 +2463,13 @@ test('booking pages: at most N bookings in all — then full (no times, and the 
   assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Three', email: 'three@example.org' })).status, 201);
   assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Three T', email: 'THREE@example.org' })).status, 201);
   assert.equal((await a('GET', '/api/bookings')).body.find((x) => x.id === pg.id).waiting, 1);
+  // The owner sees who waits, and can take someone off; not someone else.
+  assert.equal((await outsider('POST', `/api/public/book/${tk}/waitlist`, { name: 'Zed', email: 'zed@example.org' })).status, 201);
+  assert.deepEqual((await a('GET', `/api/bookings/${pg.id}/waitlist`)).body.map((w) => [w.name, w.email]), [['Three T', 'three@example.org'], ['Zed', 'zed@example.org']]);
+  assert.equal((await owner('GET', `/api/bookings/${pg.id}/waitlist`)).status, 404);
+  assert.equal((await a('DELETE', `/api/bookings/${pg.id}/waitlist/ZED@example.org`)).status, 200);
+  assert.equal((await a('DELETE', `/api/bookings/${pg.id}/waitlist/zed@example.org`)).status, 404, 'gone');
+  assert.deepEqual((await a('GET', `/api/bookings/${pg.id}/waitlist`)).body.map((w) => w.email), ['three@example.org']);
   // One cancels: a place again.
   const ct = first.body.cancel_url.split('/b/cancel/')[1];
   assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`, {})).status, 200);
