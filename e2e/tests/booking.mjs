@@ -337,6 +337,21 @@ await step('a question with choices: the visitor picks from them', async () => {
   const opts = await topic.locator('option').allTextContents();
   if (opts.join('|') !== '—|Pricing|Support|Something else') throw new Error(opts.join('|'));
 });
+await step('Answers…: how the choice question was answered, a bar for each choice', async () => {
+  const tk = url.split('/b/')[1];
+  const slots = (await api(visitor, 'GET', `/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const r = await api(visitor, 'POST', `/public/book/${tk}`, { start: slots[slots.length - 1], name: 'Tom Topic', email: 'tom@example.org', answers: ['+1 555 0123', 'Support'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  await page.getByRole('button', { name: 'The bookings of Intro call' }).click();
+  await page.getByRole('menuitem', { name: 'Answers…' }).click();
+  const topic = page.getByRole('dialog', { name: 'Answers: Intro call' }).getByRole('region', { name: 'Topic' });
+  await topic.getByText('1 answered').waitFor();
+  const rows = (await topic.locator('.row').allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+  if (rows.join('|') !== 'Pricing 0|Support 1|Something else 0') throw new Error(rows.join('|'));
+  await page.keyboard.press('Escape');
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

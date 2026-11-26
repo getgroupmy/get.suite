@@ -402,6 +402,24 @@ export default function bookingRoutes() {
   });
   // Every booking made through this page as a spreadsheet (CSV): who, their address, when (in the page's time zone),
   // which host it went to, when it was booked, whether it still stands or was cancelled, and what they answered and wrote.
+  // How the page's choice questions were answered, over the bookings that stand: [{ label, total, choices: [{ choice, n }] }]
+  // (every choice, picked or not, in the page's order; an answer no longer among them counted under its own name at the end).
+  r.get('/:id/answers', (req, res) => {
+    const p = mine(req);
+    const asked = JSON.parse(p.questions || '[]').filter((x) => x.choices?.length);
+    const given = q('SELECT answers FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').all(p.id).map((b) => { try { return JSON.parse(b.answers || '[]'); } catch { return []; } });
+    res.json(asked.map((x) => {
+      const counts = new Map(x.choices.map((c) => [c, 0]));
+      let total = 0;
+      for (const list of given) {
+        const a = list.find((y) => y.label === x.label)?.value;
+        if (!a) continue;
+        total++;
+        counts.set(a, (counts.get(a) || 0) + 1);
+      }
+      return { label: x.label, total, choices: [...counts].map(([choice, n]) => ({ choice, n })) };
+    }));
+  });
   // A full page's waiting list, for its owner: [{ name, email, at }] (those still waiting, longest first); and taking someone off.
   r.get('/:id/waitlist', (req, res) => {
     const p = mine(req);

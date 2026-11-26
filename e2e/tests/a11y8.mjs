@@ -91,6 +91,15 @@ await step('the owner’s Waiting list window', async () => {
   await both('Waiting list window');
   await page.keyboard.press('Escape');
 });
+await step('the owner’s Answers window', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  await page.getByRole('button', { name: 'The bookings of Consult' }).click();
+  await page.getByRole('menuitem', { name: 'Answers…' }).click();
+  await page.getByRole('dialog', { name: 'Answers: Consult' }).getByRole('region', { name: 'Topic' }).waitFor();
+  await both('Answers window');
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

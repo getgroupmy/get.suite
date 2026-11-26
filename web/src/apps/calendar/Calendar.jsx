@@ -2709,6 +2709,32 @@ const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
 
 const shortDay = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+/** How a booking page's choice questions were answered, over the bookings that stand: a bar for each choice. */
+function AnswersDialog({ page, onClose }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  useEffect(() => { get(`/bookings/${page.id}/answers`).then(setList).catch((e) => toast(e.message, 'error')); }, [page.id, toast]);
+  return (
+    <Modal title={`Answers: ${page.title}`} onClose={onClose}>
+      {!list ? <p className="muted">Loading…</p> : list.map((x) => {
+        const most = Math.max(1, ...x.choices.map((c) => c.n));
+        return (
+          <section key={x.label} className="stack-tight" aria-label={x.label} style={{ marginBottom: 12 }}>
+            <strong>{x.label} <span className="muted small">· {x.total} answered</span></strong>
+            {x.choices.map((c) => (
+              <div key={c.choice} className="row" style={{ gap: 8 }}>
+                <span style={{ width: 140 }}>{c.choice}</span>
+                <span aria-hidden="true" style={{ height: 10, borderRadius: 5, background: 'var(--accent)', width: `${Math.round((c.n / most) * 160)}px`, minWidth: c.n ? 4 : 0 }} />
+                <span className="small">{c.n}</span>
+              </div>
+            ))}
+          </section>
+        );
+      })}
+    </Modal>
+  );
+}
+
 /** A full booking page's waiting list: who waits (longest first), each to take off; they're emailed when a place opens. */
 function WaitlistDialog({ page, onClose }) {
   const toast = useToast();
@@ -2773,6 +2799,8 @@ function BookingPagesDialog({ onClose }) {
   const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
   const [bin, setBin] = useState(false); // Recently deleted pages
   const [waitFor, setWaitFor] = useState(null); // the page whose waiting list is shown
+  const [answersFor, setAnswersFor] = useState(null); // the page whose answers are summed up
+  if (answersFor) return <AnswersDialog page={answersFor} onClose={() => setAnswersFor(null)} />;
   if (waitFor) return <WaitlistDialog page={waitFor} onClose={() => { setWaitFor(null); load(); }} />;
   if (bin) return <RecentlyDeleted title="Recently deleted booking pages" what="Booking pages" list="/bookings/bin" restore={(id) => `/bookings/bin/${id}/restore`} forever={(id) => `/bookings/bin/${id}`} empty="/bookings/bin"
     note="Booking pages you delete are kept here for 30 days, then deleted for good. Restoring one makes its link work again, with its bookings."
@@ -2803,6 +2831,7 @@ function BookingPagesDialog({ onClose }) {
                     catch (e) { toast(e.message, 'error'); }
                   } },
                   p.waiting > 0 && { label: `Waiting list (${p.waiting})…`, icon: 'people', onClick: () => setWaitFor(p) },
+                  p.bookings > 0 && (p.questions || []).some((x) => x.choices?.length) && { label: 'Answers…', icon: 'chart', onClick: () => setAnswersFor(p) },
                 ]} />}
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
                 <button type="button" className="icon-btn" aria-label={`Make a copy of ${p.title}`} title="Make a copy (with a link of its own), to change into another kind of meeting" onClick={async () => {

@@ -2543,6 +2543,10 @@ test('booking pages: questions for the visitor; required ones must be answered; 
   assert.equal(wrong.status, 400);
   assert.match(wrong.body.error, /Pick one of the choices for “Service”/);
   assert.ok((await outsider('POST', `/api/public/book/${token}`, { start: slot3, name: 'Cy', email: 'cy@example.org', answers: ['555', 'Colour'] })).status < 300);
+  // Answers summed up for the owner: each choice of the choice questions, picked or not.
+  const sum = (await a('GET', `/api/bookings/${page.id}/answers`)).body;
+  assert.deepEqual(sum, [{ label: 'Service', total: 1, choices: [{ choice: 'Cut', n: 0 }, { choice: 'Colour', n: 1 }] }]);
+  assert.equal((await outsider('GET', `/api/bookings/${page.id}/answers`)).status, 401, 'the owner’s only');
   // Changing the questions later keeps the rest of the page, and answers to a question no longer asked stay in the download.
   const changed = (await a('PATCH', `/api/bookings/${page.id}`, { questions: [] })).body;
   assert.deepEqual([changed.questions, changed.title, changed.duration], [[], 'Consult', 30]);
