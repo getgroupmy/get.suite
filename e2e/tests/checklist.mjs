@@ -127,6 +127,20 @@ await step('Edit your comment: Escape keeps it (and the note open), Save changes
   await box.getByText('(edited)').waitFor();
   await dlg.getByRole('button', { name: 'Close' }).last().click();
 });
+await step('searching finds a note by its comment, here and in the top bar, saying which comment', async () => {
+  await page.getByLabel('Search notes').fill('lake house');
+  const card = cardOf(page, 'Offsite');
+  await card.getByText('Comment: “The lake house is free that week”').waitFor();
+  if (await page.locator('article.note-card').count() !== 1) throw new Error('more notes found');
+  await page.getByLabel('Search notes').fill('');
+  await until(async () => !(await page.locator('.note-comment-match').count()));
+  await page.getByLabel('Search everything').fill('lake house');
+  const res = page.getByRole('listbox', { name: 'Search results' });
+  await res.getByText('💬 “The lake house is free that week”').waitFor();
+  await res.getByText('💬 “The lake house is free that week”').click();
+  await page.getByRole('dialog', { name: 'Offsite' }).waitFor();
+  await page.getByRole('dialog', { name: 'Offsite' }).getByRole('button', { name: 'Close' }).last().click();
+});
 await step('Download (.zip) of the shared note: its comment is in the Markdown, after a marker', async () => {
   await cardOf(page, 'Offsite').hover();
   await page.getByRole('button', { name: 'Select note: Offsite' }).click();

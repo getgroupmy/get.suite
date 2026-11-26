@@ -685,6 +685,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
       )}
       {n.tasks_open > 0 && <div className="note-chips" onClick={(e) => e.stopPropagation()}><TasksAbout url={`/notes?note=${n.id}`} what="note" bump={n.tasks_open} /></div>}
       {n.comments > 0 && <div className="muted small" aria-label={`${n.comments} comment${n.comments === 1 ? '' : 's'}`}>💬 {n.comments}</div>}
+      {n.comment_match && <div className="muted small note-comment-match" title="Found in a comment">Comment: “{n.comment_match.length > 120 ? `${n.comment_match.slice(0, 119)}…` : n.comment_match}”</div>}
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
           {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}{n.remind_repeat && <span title={REPEAT_CHOICES.find(([v]) => v === n.remind_repeat)?.[1]} aria-label={`repeats ${n.remind_repeat}`}> 🔁</span>}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}

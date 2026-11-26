@@ -7026,6 +7026,13 @@ test('notes: comments on a shared note — everyone on it writes, the others are
   assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: ' ' })).status, 400);
   assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/nope`, { text: 'x' })).status, 404);
   assert.equal((await b('GET', `/api/notes/${n.id}/comments`)).body[0].text, 'The lake house is free');
+  // Searching notes finds words in their comments too (saying which comment), with the note's own words; not for someone else.
+  const byComment = (await b('GET', '/api/notes?q=lake%20HOUSE')).body;
+  assert.deepEqual(byComment.map((x) => [x.id, x.comment_match]), [[n.id, 'The lake house is free']]);
+  assert.deepEqual((await a('GET', '/api/notes?q=venue%20l%C3%A1ke')).body.map((x) => [x.id, x.comment_match]), [[n.id, 'The lake house is free']], 'its text and a comment together; accents aside');
+  assert.equal((await a('GET', '/api/notes?q=venue')).body.find((x) => x.id === n.id).comment_match, undefined, 'its own text found it');
+  assert.deepEqual((await a('GET', '/api/notes?q=lake%20castle')).body, []);
+  assert.deepEqual((await c('GET', '/api/notes?q=lake')).body, []);
   // Ned can't delete Nia's; Nia (the owner) can delete Ned's; Ned his own.
   assert.equal((await b('DELETE', `/api/notes/${n.id}/comments/${two[1].id}`)).status, 403);
   assert.equal((await a('DELETE', `/api/notes/${n.id}/comments/${two[0].id}`)).status, 200);

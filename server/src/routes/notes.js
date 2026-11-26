@@ -663,10 +663,23 @@ export default function noteRoutes() {
                   WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ? AND n.trashed_at IS NULL
                   ORDER BY n.pinned DESC, COALESCE(o.position, n.position) DESC`).all(req.user.id, req.user.id, req.user.id, archived);
     const words = fold(String(req.query.q || '')).split(/\s+/).filter(Boolean); // (accents don't matter)
+    const found = new Map(); // note id → the comment that found it, when the note's own text didn't
     if (words.length) {
+      // Its comments count too (a note's own words plus its comments' must hold every word).
+      const said = new Map();
+      if (rows.length) {
+        for (const c of q(`SELECT note_id, text FROM note_comments WHERE note_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid`).all(JSON.stringify(rows.map((n) => n.id)))) {
+          if (!said.has(c.note_id)) said.set(c.note_id, []);
+          said.get(c.note_id).push(c.text);
+        }
+      }
       rows = rows.filter((n) => {
         const text = fold(`${n.title} ${n.body} ${(n.items ? JSON.parse(n.items) : []).map((i) => i.text).join(' ')} ${JSON.parse(n.labels).join(' ')}`);
-        return words.every((w) => text.includes(w));
+        if (words.every((w) => text.includes(w))) return true;
+        const comments = said.get(n.id) || [];
+        if (!words.every((w) => text.includes(w) || comments.some((c) => fold(c).includes(w)))) return false;
+        found.set(n.id, comments.find((c) => words.some((w) => !text.includes(w) && fold(c).includes(w))));
+        return true;
       });
     }
     if (req.query.reminders === '1') rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.remind_at IS NOT NULL AND n.trashed_at IS NULL
@@ -676,7 +689,7 @@ export default function noteRoutes() {
     // Kind and colour (Lists, Pictures, Voice, Links, Reminders; a card colour).
     const f = noteFilterOf(req.query);
     if (f.error) throw bad(f.error);
-    const out = rows.map((n) => shape(n, req.user.id)).filter((n) => noteFits(n, f));
+    const out = rows.map((n) => ({ ...shape(n, req.user.id), ...(found.has(n.id) && { comment_match: found.get(n.id).slice(0, 200) }) })).filter((n) => noteFits(n, f));
     if (f.type === 'daily') out.sort((a, b) => b.daily_date.localeCompare(a.daily_date)); // a journal: the latest day first
     res.json(out);
   });

@@ -14,3 +14,9 @@ test('a note\'s line in search results', () => {
   assert.equal(noteSub({ labels: [], remind_at: now - 1000, owner: { id: me } }, me, now), '', 'a reminder gone by isn\'t shown');
   assert.equal(noteSub({ labels: ['trip'], items: [], archived: true, owner: { id: 'u2', name: 'Kim Park' } }, me, now), '#trip · Archived · from Kim Park');
 });
+
+test('a note found by one of its comments says so first', () => {
+  assert.equal(noteSub({ labels: ['Work'], comment_match: 'The lake\nhouse is free' }, 'me'), '💬 “The lake house is free” · #Work');
+  assert.equal(noteSub({ comment_match: 'x'.repeat(80) }, 'me'), `💬 “${'x'.repeat(59)}…”`);
+  assert.equal(noteSub({ labels: ['Work'] }, 'me'), '#Work');
+});
