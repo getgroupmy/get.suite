@@ -7007,8 +7007,15 @@ test('notes: comments on a shared note — everyone on it writes, the others are
   assert.deepEqual(one.body.map((x) => [x.by.name, x.text]), [['Ned Comment', 'The lake house is free that week']]);
   assert.ok((await a('GET', '/api/notifications')).body.items.some((x) => x.title === 'Ned Comment commented on “Offsite plan”' && x.body === 'The lake house is free that week'), 'the owner is told');
   assert.ok(!(await b('GET', '/api/notifications')).body.items.some((x) => /commented on “Offsite plan”/.test(x.title)), 'not the writer');
+  const newTo = async (who) => (await who('GET', '/api/notes')).body.find((x) => x.id === n.id).comments_new;
+  assert.equal(await newTo(a), 1, 'Ned’s comment is new to Nia');
+  assert.equal(await newTo(b), 0, 'not to Ned, who wrote it');
   const two = (await a('POST', `/api/notes/${n.id}/comments`, { text: 'Booked it' })).body;
   assert.equal((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).comments, 2, 'counted on the note');
+  assert.equal(await newTo(a), 0, 'writing one, Nia has read those above');
+  assert.equal(await newTo(b), 1);
+  await b('GET', `/api/notes/${n.id}/comments`);
+  assert.equal(await newTo(b), 0, 'read when the note is open');
   assert.equal((await c('GET', `/api/notes/${n.id}/comments`)).status, 404, 'not someone it isn’t shared with');
   assert.equal((await c('POST', `/api/notes/${n.id}/comments`, { text: 'hi' })).status, 404);
   assert.equal((await a('POST', `/api/notes/${n.id}/comments`, { text: '   ' })).status, 400);

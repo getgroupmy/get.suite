@@ -684,7 +684,11 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
         </ul>
       )}
       {n.tasks_open > 0 && <div className="note-chips" onClick={(e) => e.stopPropagation()}><TasksAbout url={`/notes?note=${n.id}`} what="note" bump={n.tasks_open} /></div>}
-      {n.comments > 0 && <div className="muted small" aria-label={`${n.comments} comment${n.comments === 1 ? '' : 's'}`}>💬 {n.comments}</div>}
+      {n.comments > 0 && (
+        <div className="muted small" aria-label={`${n.comments} comment${n.comments === 1 ? '' : 's'}${n.comments_new > 0 ? `, ${n.comments_new} new` : ''}`}>
+          💬 {n.comments}{n.comments_new > 0 && <strong className="note-comments-new"> · {n.comments_new} new</strong>}
+        </div>
+      )}
       {n.comment_match && <div className="muted small note-comment-match" title="Found in a comment">Comment: “{n.comment_match.length > 120 ? `${n.comment_match.slice(0, 119)}…` : n.comment_match}”</div>}
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">

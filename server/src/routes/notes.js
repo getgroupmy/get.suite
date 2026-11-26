@@ -274,6 +274,9 @@ export const TRASH_DAYS = 7;
 q(`CREATE TABLE IF NOT EXISTS note_comments (id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL)`).run();
 q('CREATE INDEX IF NOT EXISTS note_comments_note ON note_comments(note_id, created_at)').run();
+// When each person last read a note's comments (opening it): others' comments since then are new to them.
+q(`CREATE TABLE IF NOT EXISTS note_comment_seen (note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, seen_at INTEGER NOT NULL, PRIMARY KEY (note_id, user_id))`).run();
 // When its writer last changed it (none: never).
 if (!q('PRAGMA table_info(note_comments)').all().some((c) => c.name === 'edited_at')) q('ALTER TABLE note_comments ADD COLUMN edited_at INTEGER').run();
 const MAX_COMMENTS = 200;
@@ -285,6 +288,8 @@ function shape(n, me) {
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
     comments: q('SELECT COUNT(*) AS c FROM note_comments WHERE note_id = ?').get(n.id).c,
+    ...(me && { comments_new: q(`SELECT COUNT(*) AS c FROM note_comments WHERE note_id = ? AND (user_id IS NULL OR user_id != ?)
+      AND created_at > COALESCE((SELECT seen_at FROM note_comment_seen WHERE note_id = ? AND user_id = ?), 0)`).get(n.id, me, n.id, me).c }),
     ...(me && { tasks_open: openTasksAbout(`/notes?note=${n.id}`, me) }), // open tasks made from it (Copy to Tasks), on lists you can see
   };
 }
@@ -1082,7 +1087,13 @@ export default function noteRoutes() {
   // bell; deleting: your own, or any on a note of yours.
   const commentsOf = (noteId) => q(`SELECT c.id, c.text, c.created_at AS at, c.edited_at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
     WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId).map((c) => ({ id: c.id, text: c.text, at: c.at, edited_at: c.edited_at || null, by: { id: c.user_id, name: c.name || 'Someone' } }));
-  r.get('/:id/comments', (req, res) => res.json(commentsOf(load(req.params.id, req.user).id)));
+  // Reading them (the note open) makes them not new to you any more.
+  r.get('/:id/comments', (req, res) => {
+    const n = load(req.params.id, req.user);
+    q(`INSERT INTO note_comment_seen (note_id, user_id, seen_at) VALUES (?, ?, ?)
+       ON CONFLICT(note_id, user_id) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)`).run(n.id, req.user.id, now());
+    res.json(commentsOf(n.id));
+  });
   r.post('/:id/comments', (req, res) => {
     const n = load(req.params.id, req.user);
     const text = str(req.body?.text, { required: true, name: 'Comment', max: 2000 }).trim();
@@ -1090,6 +1101,8 @@ export default function noteRoutes() {
     if (q('SELECT COUNT(*) AS c FROM note_comments WHERE note_id = ?').get(n.id).c >= MAX_COMMENTS) throw bad(`A note can have up to ${MAX_COMMENTS} comments`);
     const id = uid();
     q('INSERT INTO note_comments (id, note_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)').run(id, n.id, req.user.id, text, now());
+    q(`INSERT INTO note_comment_seen (note_id, user_id, seen_at) VALUES (?, ?, ?)
+       ON CONFLICT(note_id, user_id) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)`).run(n.id, req.user.id, now()); // (you've read those above yours)
     const others = team(n).filter((x) => x !== req.user.id);
     if (others.length) bell(others, { kind: 'comment', title: `${req.user.name} commented on “${n.title || 'a note'}”`, body: text.slice(0, 200), link: `/notes?note=${n.id}`, actor: req.user.name });
     tell(n);
