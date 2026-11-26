@@ -19,6 +19,7 @@ import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../.
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useEditorEmoji } from '../../components/useEditorEmoji.jsx';
+import { useEditorPeople } from '../../components/useEditorPeople.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDataCheck } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
@@ -2211,7 +2212,13 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
         )}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
         <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }} textStyle={user.mail_style ? mailStyleCss(user.mail_style) : null}
-          onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
+          onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }}
+          onMention={(p) => { // "@" a colleague in the message: they're added to To (unless already on it, in Cc or Bcc)
+            const on = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email.toLowerCase()));
+            if (on.includes(p.username.toLowerCase())) return;
+            setF((cur) => ({ ...cur, to: [cur.to.trim().replace(/,$/, ''), `${p.name} <${p.username}>`].filter(Boolean).join(', ') }));
+            toast(`${p.name} added to To`);
+          }} />
         {fwd?.asEml && (
           <ul className="att-list" aria-label="Forwarded message">
             <li className="att"><Icon name="mail" size={18} /><span className="ellipsis">{fwd.eml?.filename || 'message.eml'}</span><span className="muted small">original message</span>
@@ -2386,7 +2393,7 @@ function VacationDialog({ onClose, onSaved }) {
 }
 
 /** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
-function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…', textStyle = null }) {
+function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…', textStyle = null, onMention = null }) {
   const { user: me } = useAuth();
   const voiceOk = canVoiceType() && me?.voice_typing !== false; // the company may turn it off
   const [voice, setVoice] = useState(false);
@@ -2421,6 +2428,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   }
 
   const emojiKeys = useRef(null); // the :emoji list's keys, while it's open
+  const peopleKeys = useRef(null); // the @person list's keys, while it's open
   const subsRef = useReplacements();
   const editor = useEditor({
     extensions: [
@@ -2445,6 +2453,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
       handleKeyDown: (view, event) => {
         if (emojiKeys.current?.(event)) return true;
+        if (peopleKeys.current?.(event)) return true;
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') { event.preventDefault(); linkOpen.current(); return true; }
         return false;
       },
@@ -2505,6 +2514,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   }
   const emojiType = useEditorEmoji(editor); // ":" and a word offers emoji (as in Docs)
   emojiKeys.current = (e) => emojiType.keys.current(e);
+  const peopleType = useEditorPeople(editor, onMention, { off: !onMention }); // "@" and a name adds them (to To)
+  peopleKeys.current = (e) => peopleType.keys.current(e);
   if (!editor) return null;
   const c = () => editor.chain().focus();
   // Link dialog: for the link the cursor is in (whole link), or for the selected text.
@@ -2640,6 +2651,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       {voice && voiceOk && <VoiceTypingBar editor={editor} onClose={() => { setVoice(false); refocus(); }} />}
       {textStyle ? <div className="compose-style" style={textStyle}><EditorContent editor={editor} /></div> : <EditorContent editor={editor} />}
       {emojiType.list && createPortal(emojiType.list, document.body)}
+      {peopleType.list && createPortal(peopleType.list, document.body)}
       {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
       {linking && createPortal(<LinkDialog initial={linking} onApply={applyLink} onRemove={linking.href ? removeLink : null}
         onClose={() => { setLinking(null); editor.commands.focus(); }} />, document.body)}

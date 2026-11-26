@@ -121,6 +121,37 @@ await step('compose: typing ":" and a word offers emoji; Enter puts it in and th
   await draft.getByRole('button', { name: 'Close' }).first().click();
   await draft.waitFor({ state: 'detached' });
 });
+await step('compose: "@" and a name adds a colleague to To, with a link to them in the message (as Gmail\'s +name)', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('Subject').fill('Mention test');
+  await body().click();
+  await page.keyboard.type('Can you check this, @ki');
+  const list = page.getByRole('listbox', { name: 'People to add' });
+  await list.getByRole('option', { name: /Kim Park/ }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('?');
+  await page.getByText('Kim Park added to To').waitFor();
+  const to = await page.getByLabel('To', { exact: true }).inputValue();
+  if (!to.includes('kim@acme.com')) throw new Error(to);
+  if (!(await body().innerText()).includes('Can you check this, @Kim Park ?')) throw new Error(await body().innerText());
+  // Picking her again doesn't add her twice.
+  await page.keyboard.type(' @kim');
+  await list.getByRole('option', { name: /Kim Park/ }).waitFor();
+  await page.keyboard.press('Enter');
+  if ((await page.getByLabel('To', { exact: true }).inputValue()).split('kim@acme.com').length !== 2) throw new Error('added twice');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Sent to 1 recipient').waitFor();
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const kim = await ctx.newPage();
+  await signIn(kim, 'kim@acme.com');
+  const row = kim.locator('.msg-list li', { hasText: 'Mention test' });
+  await refreshUntil(kim, row);
+  await row.locator('.msg-row').click();
+  const link = kim.frameLocator('iframe.mail-html').getByRole('link', { name: '@Kim Park' }).first();
+  if ((await link.getAttribute('href')) !== 'mailto:kim@acme.com') throw new Error(await link.getAttribute('href'));
+  await ctx.close();
+});
 await step('chat: insert where the cursor is', async () => {
   await page.goto(B + '/chat');
   const box = page.getByLabel('Message', { exact: true });
