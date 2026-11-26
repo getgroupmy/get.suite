@@ -271,6 +271,20 @@ await step('react to a note comment with an emoji (☺), shown with who; clickin
   await until(async () => !(await box.getByRole('button', { name: /^🎉/ }).count()));
   await dlg.getByRole('button', { name: 'Close' }).last().click();
 });
+await step('links in a note comment open: a web address in a new tab, one of Workspace’s own here', async () => {
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Venue list' })).body;
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Offsite').locator('.note-open').click();
+  const dlg = page.getByRole('dialog', { name: 'Offsite' });
+  const box = dlg.getByRole('region', { name: 'Comments' });
+  await box.getByLabel('Write a comment').fill(`Prices at https://example.com/prices. Shortlist in /docs/${doc.id}`);
+  await box.getByRole('button', { name: 'Comment', exact: true }).click();
+  const web = box.getByRole('link', { name: 'https://example.com/prices' });
+  await web.waitFor();
+  if ((await web.getAttribute('target')) !== '_blank' || !/noopener/.test(await web.getAttribute('rel'))) throw new Error('not a new tab');
+  await box.getByRole('link', { name: `/docs/${doc.id}` }).click();
+  await page.waitForURL(`**/docs/${doc.id}`);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

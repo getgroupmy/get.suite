@@ -212,6 +212,15 @@ await step('react to a task comment with an emoji (☺), shown with who; clickin
   await mine.click();
   await until(async () => !(await list.getByRole('button', { name: /^👍/ }).count()));
 });
+await step('a link in a task comment opens (here, one of Workspace’s own)', async () => {
+  const other = (await api(page, 'POST', `/tasks/lists/${listId}/tasks`, { title: 'Print badges' })).body.id;
+  await page.goto(`${B}/tasks/${listId}?task=${taskId}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByLabel('Add a comment').fill(`After /tasks/${listId}?task=${other} is done`);
+  await d.getByRole('button', { name: 'Post' }).click();
+  await d.getByRole('list', { name: 'Comments' }).getByRole('link', { name: `/tasks/${listId}?task=${other}` }).click();
+  await until(async () => (await page.getByRole('complementary', { name: 'Task details' }).getByLabel('Task', { exact: true }).inputValue()) === 'Print badges');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

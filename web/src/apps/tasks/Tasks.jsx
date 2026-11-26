@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMentions } from '../../components/mentions.jsx';
 import { ReactionBar } from '../comments.jsx';
+import LinkedText from '../../components/LinkedText.jsx';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
 import { listPrintHtml, taskPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
@@ -1741,7 +1742,7 @@ function TaskComments({ task, people = [], canShare = false }) {
                     <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
                   </form>
                   )
-                : <p className="task-comment-body">{c.body.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</p>}
+                : <p className="task-comment-body"><LinkedText text={c.body} /></p>}
               <ReactionBar list={c.reactions || []} onReact={async (emoji) => { try { setList(await post(`/tasks/tasks/${task.id}/comments/${c.id}/reactions`, { emoji })); } catch (err) { toast(err.message, 'error'); } }} />
             </li>
           ))}

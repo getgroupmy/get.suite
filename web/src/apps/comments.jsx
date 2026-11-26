@@ -6,6 +6,7 @@ import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { useMentions, MentionedAway } from '../components/mentions.jsx';
 import { useAuth } from '../App.jsx';
+import LinkedText from '../components/LinkedText.jsx';
 import { forYou, commentLink, newSince } from './commentsFilter.js';
 
 /**
@@ -77,7 +78,7 @@ export function ReactionBar({ list, canReact = true, onReact }) {
   );
 }
 
-const Body = ({ text }) => <p className="comment-body">{text.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</p>;
+const Body = ({ text }) => <p className="comment-body"><LinkedText text={text} /></p>;
 
 /**
  * The panel. `pending` is a new comment being started ({ anchor, label, onCreated(id), onCancel }).
