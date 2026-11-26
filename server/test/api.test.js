@@ -15476,6 +15476,9 @@ test('reactions on note and task comments: one of each emoji per person, the sam
   const back = (await b('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '👍' })).body[0].reactions;
   assert.deepEqual(back, [{ emoji: '👍', users: [{ id: ids.rxa, name: 'Rae React' }] }], 'the same again takes it back');
   assert.equal((await b('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: 'ok' })).status, 400, 'an emoji, not words');
+  // { add: true } only adds (as assistants react): asked twice, it's still there.
+  for (let i = 0; i < 2; i++) await a('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '👍', add: true });
+  assert.deepEqual((await a('GET', `/api/notes/${n.id}/comments`)).body[0].reactions, [{ emoji: '👍', users: [{ id: ids.rxa, name: 'Rae React' }] }]);
   assert.equal((await c('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '🎉' })).status, 404, 'not someone it isn’t shared with');
   assert.equal((await b('POST', `/api/notes/${n.id}/comments/nope/reactions`, { emoji: '🎉' })).status, 404);
   assert.deepEqual((await b('GET', `/api/notes/${n.id}/comments`)).body[0].reactions.map((x) => x.emoji), ['👍'], 'listed with the comments');

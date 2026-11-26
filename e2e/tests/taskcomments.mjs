@@ -211,6 +211,10 @@ await step('react to a task comment with an emoji (☺), shown with who; clickin
   await kim.getByRole('complementary', { name: 'Task details' }).getByRole('button', { name: '👍 1: Olivia Owner' }).waitFor();
   await mine.click();
   await until(async () => !(await list.getByRole('button', { name: /^👍/ }).count()));
+  // Kim's assistant reacts (add only): asked twice, it shows once, and live.
+  const cid = (await api(kim, 'GET', `/tasks/tasks/${taskId}/comments`)).body[0].id;
+  for (let i = 0; i < 2; i++) await api(kim, 'POST', `/tasks/tasks/${taskId}/comments/${cid}/reactions`, { emoji: '✅', add: true });
+  await list.getByRole('button', { name: '✅ 1: Kim Park' }).waitFor();
 });
 await step('a link in a task comment opens (here, one of Workspace’s own)', async () => {
   const other = (await api(page, 'POST', `/tasks/lists/${listId}/tasks`, { title: 'Print badges' })).body.id;

@@ -897,7 +897,7 @@ export default function taskRoutes() {
     const { task, list } = taskFor(req);
     const c = q('SELECT id FROM task_comments WHERE id = ? AND task_id = ?').get(String(req.params.cid), task.id);
     if (!c) throw notFound('Comment not found');
-    toggleReaction('task', c.id, req.user.id, req.body?.emoji);
+    toggleReaction('task', c.id, req.user.id, req.body?.emoji, { add: req.body?.add === true });
     changed(list);
     res.json(commentList(task.id));
   });

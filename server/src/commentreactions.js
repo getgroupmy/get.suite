@@ -33,12 +33,13 @@ export function reactionsOn(kind, commentIds) {
   return out;
 }
 
-/** Adds your reaction, or takes it back (the same emoji again). */
-export function toggleReaction(kind, commentId, userId, raw) {
+/** Adds your reaction, or takes it back (the same emoji again; not with { add: true }, which only adds). */
+export function toggleReaction(kind, commentId, userId, raw, { add = false } = {}) {
   const [table] = TABLES[kind];
   const emoji = String(raw || '').trim();
   if (!emoji || emoji.length > 16 || /\s/.test(emoji) || /[\p{L}\p{N}]/u.test(emoji)) throw bad('Choose an emoji');
   if (q(`SELECT 1 FROM ${table} WHERE comment_id = ? AND user_id = ? AND emoji = ?`).get(commentId, userId, emoji)) {
+    if (add) return;
     q(`DELETE FROM ${table} WHERE comment_id = ? AND user_id = ? AND emoji = ?`).run(commentId, userId, emoji);
     return;
   }

@@ -113,6 +113,8 @@ async function formNamed(api, name) {
 }
 
 /** One of the person's notes, by id (note:…) or its exact title (an error when none, or several, are called that). */
+/** A comment's reactions for an assistant: { reactions: [{ emoji, by: [names] }] }, or nothing when there are none. */
+const reactionsOut = (list) => (list?.length ? { reactions: list.map((r) => ({ emoji: r.emoji, by: r.users.map((u) => u.name) })) } : {});
 async function noteNamed(api, which) {
   const notes = await api('GET', '/notes');
   const want = String(which || '').trim();
@@ -412,7 +414,7 @@ export const TOOLS = [
       const id = String(a.id || '').replace(/^task:/, '');
       if (!id) throw new ToolError('Say which task (id)');
       const list = await api('GET', `/tasks/tasks/${encodeURIComponent(id)}/comments`);
-      return { task: `task:${id}`, comments: list.map((c) => ({ by: c.author_name || null, at: iso(c.created_at), text: c.body, ...(c.edited_at && { edited: iso(c.edited_at) }) })) };
+      return { task: `task:${id}`, comments: list.map((c) => ({ id: c.id, by: c.author_name || null, at: iso(c.created_at), text: c.body, ...(c.edited_at && { edited: iso(c.edited_at) }), ...reactionsOut(c.reactions) })) };
     },
   },
   {
@@ -662,7 +664,7 @@ export const TOOLS = [
     async run(api, a) {
       const n = await noteNamed(api, a.note);
       const list = await api('GET', `/notes/${encodeURIComponent(n.id)}/comments`);
-      return { note: `note:${n.id}`, title: n.title || '', comments: list.map((c) => ({ by: c.by?.name || null, at: iso(c.at), text: c.text, ...(c.edited_at && { edited: iso(c.edited_at) }) })) };
+      return { note: `note:${n.id}`, title: n.title || '', comments: list.map((c) => ({ id: c.id, by: c.by?.name || null, at: iso(c.at), text: c.text, ...(c.edited_at && { edited: iso(c.edited_at) }), ...reactionsOut(c.reactions) })) };
     },
   },
   {
@@ -676,6 +678,29 @@ export const TOOLS = [
       const list = await api('POST', `/notes/${encodeURIComponent(n.id)}/comments`, { text: text.slice(0, 2000) });
       const mine = list[list.length - 1];
       return { note: `note:${n.id}`, title: n.title || '', comment: { at: iso(mine?.at), text: mine?.text } };
+    },
+  },
+  {
+    name: 'react_to_comment', title: 'React to a comment on a task or note', readOnly: false,
+    description: 'Add an emoji reaction (👍 ❤️ 🎉 👀 ✅ 😂…) to a comment on a task or a note, as the person: a quick "thanks" or "seen" without writing a reply. Say which task (task:…) or note (note:… or its title) and the comment’s id from read_task_comments or read_note_comments. Reacting again with the same emoji changes nothing. Only react as the person has agreed to.',
+    inputSchema: {
+      type: 'object', required: ['comment', 'emoji'],
+      properties: {
+        task: { type: 'string', description: 'task:… (for a task’s comment)' }, note: { type: 'string', description: 'note:… or the note’s title (for a note’s comment)' },
+        comment: { type: 'string', description: 'The comment’s id from read_task_comments or read_note_comments' }, emoji: { type: 'string', description: 'One emoji, e.g. 👍' },
+      },
+    },
+    async run(api, a) {
+      const cid = String(a.comment || '').trim(), emoji = String(a.emoji || '').trim();
+      if (!cid || !emoji) throw new ToolError('Say which comment (its id) and which emoji');
+      if (!!a.task === !!a.note) throw new ToolError('Say either the task or the note the comment is on');
+      const taskId = a.task ? String(a.task).replace(/^task:/, '') : null;
+      const base = taskId ? `/tasks/tasks/${encodeURIComponent(taskId)}/comments` : `/notes/${encodeURIComponent((await noteNamed(api, a.note)).id)}/comments`;
+      const before = (await api('GET', base)).find((c) => c.id === cid);
+      if (!before) throw new ToolError('No comment with that id there: read the comments first');
+      const count = (c) => (c.reactions || []).find((r) => r.emoji === emoji)?.users.length || 0;
+      const after = (await api('POST', `${base}/${encodeURIComponent(cid)}/reactions`, { emoji, add: true })).find((c) => c.id === cid); // (only adds: never takes one back)
+      return { comment: cid, emoji, already: count(after) === count(before), ...reactionsOut(after.reactions) };
     },
   },
   {
@@ -1740,7 +1765,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'add_contacts', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off', 'form_summary_presentation']);
+export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'add_contacts', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'react_to_comment', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off', 'form_summary_presentation']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

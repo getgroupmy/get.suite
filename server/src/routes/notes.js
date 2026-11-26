@@ -1120,7 +1120,7 @@ export default function noteRoutes() {
     const n = load(req.params.id, req.user);
     const c = q('SELECT id FROM note_comments WHERE id = ? AND note_id = ?').get(String(req.params.cid), n.id);
     if (!c) throw notFound('Comment not found');
-    toggleReaction('note', c.id, req.user.id, req.body?.emoji);
+    toggleReaction('note', c.id, req.user.id, req.body?.emoji, { add: req.body?.add === true });
     tell(n);
     res.json(commentsOf(n.id));
   });
