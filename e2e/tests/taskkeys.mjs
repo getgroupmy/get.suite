@@ -87,6 +87,22 @@ await step('N goes to Add a task, where letters are typed, not shortcuts', async
   if ((await page.getByLabel('Add a task').inputValue()) !== 'jks') throw new Error('typed keys were taken');
   await page.getByLabel('Add a task').fill('');
 });
+await step('C opens the task with the cursor in its comment box (and, open already, stays open)', async () => {
+  await page.goto(`${B}/tasks/${list}`);
+  await page.locator('li.task', { hasText: 'Post the parcel' }).waitFor();
+  if (await page.getByRole('complementary', { name: 'Task details' }).count()) throw new Error('details open');
+  await page.locator('li.task', { hasText: 'Post the parcel' }).locator('.task-main').focus();
+  await page.keyboard.press('c');
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await until(async () => (await focused()) === 'Add a comment');
+  await page.keyboard.type('jks first class');
+  await page.keyboard.press('Enter');
+  await d.getByRole('list', { name: 'Comments' }).getByText('jks first class').waitFor();
+  await page.locator('li.task', { hasText: 'Post the parcel' }).locator('.task-main').focus();
+  await page.keyboard.press('c');
+  await until(async () => (await focused()) === 'Add a comment');
+  if (!(await d.isVisible())) throw new Error('C closed the open task');
+});
 await step('the shortcut list shows Tasks first; turned off, J does nothing', async () => {
   await page.locator('h1').first().click();
   await page.keyboard.press('Control+/');

@@ -1304,6 +1304,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .task { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; border-top: 2px solid transparent; }
 .task:hover { background: var(--hover); }
 .task.open { background: var(--accent-soft); }
+.task.open .muted { color: var(--text); } /* grey on the open task's tint is too faint (dark theme) */
 .task.drop-before { border-top-color: var(--accent); }
 .task[draggable="true"] { cursor: grab; }
 .task input[type=checkbox] { width: 18px; height: 18px; flex: none; accent-color: var(--accent); cursor: pointer; }

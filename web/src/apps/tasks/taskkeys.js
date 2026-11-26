@@ -1,9 +1,9 @@
 // Keyboard shortcuts in Tasks (single keys, off with Settings → Keyboard shortcuts):
 // J / K next or previous task, O open it, X tick it off, S star it, # delete it, N add a task, T start or stop
-// your timer on it.
+// your timer on it, C open it with the cursor in its comment box.
 import { notAShortcut } from '../../components/goto.js';
 
-const KEYS = { j: 'next', k: 'prev', o: 'open', x: 'done', s: 'star', '#': 'delete', n: 'new', t: 'timer' };
+const KEYS = { j: 'next', k: 'prev', o: 'open', x: 'done', s: 'star', '#': 'delete', n: 'new', t: 'timer', c: 'comment' };
 
 /** What a key press asks for in Tasks, or null. */
 export function taskKey(e) {

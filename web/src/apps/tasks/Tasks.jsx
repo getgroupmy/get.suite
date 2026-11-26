@@ -262,7 +262,7 @@ export default function Tasks() {
       loadTasks();
     } catch (e) { toast(e.message, 'error'); }
   };
-  keyState.current = { on: user?.keys !== false, view, tasks, toggle, update, deleteTask, addBox, toggleTimer };
+  keyState.current = { on: user?.keys !== false, view, tasks, toggle, update, deleteTask, addBox, toggleTimer, openId };
   useEffect(() => {
     const focusTask = (id) => {
       const b = id && document.querySelector(`li.task[data-task="${CSS.escape(id)}"] .task-main`);
@@ -281,6 +281,13 @@ export default function Tasks() {
       if (!t) return;
       e.preventDefault();
       if (action === 'open') document.activeElement.closest('li.task').querySelector('.task-main')?.click();
+      else if (action === 'comment') {
+        if (st.openId !== t.id) document.activeElement.closest('li.task').querySelector('.task-main')?.click(); // (open already: stays so)
+        // (once its details are open)
+        let tries = 0;
+        const go = () => { const box = document.querySelector('.task-comments-box input[aria-label="Add a comment"]'); if (box) { box.focus(); box.scrollIntoView?.({ block: 'nearest' }); } else if (tries++ < 20) setTimeout(go, 50); };
+        go();
+      }
       else if (action === 'star') { if (!t.done) st.update(t, { important: !t.important }); }
       else if (action === 'timer') st.toggleTimer(t);
       else if (action === 'done' || action === 'delete') {
