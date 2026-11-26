@@ -67,6 +67,9 @@ test('printing a shared note: its comments under it (escaped), fetched only for 
   assert.match(html, /Where\?<\/p><section class="comments"><h2>Comments<\/h2><ul><li><b>Kim &amp; Co<\/b> <span class="when">[^<]+<\/span><br>Lake &lt;house&gt;<br>free<\/li><li><b>Someone<\/b> <span class="when">[^<]+ \(edited\)<\/span><br>ok<\/li>/);
   assert.doesNotMatch(html.split('Someone')[0], /edited/, 'only the one changed');
   assert.doesNotMatch(notePrintHtml({ title: 'Plain', body: 'x' }), /class="comments"/);
+  // A comment's reactions under it, with who.
+  const reacted = notePrintHtml({ title: 'R', body: 'x', commentList: [{ text: 'Yes', at: 1, by: { name: 'Ann' }, reactions: [{ emoji: '👍', users: [{ name: 'Bo & Cy' }, { name: 'Di' }] }, { emoji: '🎉', users: [{ name: 'Ann' }] }] }] });
+  assert.match(reacted, /<br>Yes<br><span class="reactions">👍 Bo &amp; Cy, Di · 🎉 Ann<\/span><\/li>/);
   const asked = [];
   const got = await withComments([{ id: 'a', comments: 2 }, { id: 'b', comments: 0 }, { id: 'c', comments: 1 }], async (u) => { asked.push(u); if (u.includes('/c/')) throw new Error('gone'); return [{ text: 'hi' }]; });
   assert.deepEqual(asked, ['/notes/a/comments', '/notes/c/comments']);

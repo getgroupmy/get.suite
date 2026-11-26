@@ -313,6 +313,15 @@ await step('⋮ → Download (.md) has a comment’s reactions after it, with wh
   const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!md.split('\n').some((l) => l.includes(first.text) && l.endsWith('(👍 Olivia Owner)'))) throw new Error(md);
 });
+await step('⋮ → Print shows a comment’s reactions under it, with who', async () => {
+  await page.goto(`${B}/notes`);
+  const card = cardOf(page, 'Offsite');
+  await card.hover();
+  await card.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Print' }).click();
+  const frame = page.frameLocator('iframe.print-frame').last();
+  await frame.locator('.comments li .reactions', { hasText: '👍 Olivia Owner' }).waitFor({ state: 'attached' });
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

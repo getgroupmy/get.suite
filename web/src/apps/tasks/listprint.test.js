@@ -75,6 +75,8 @@ test('printing one task: title, list, due, who, tags, notes, steps and comments 
   assert.match(html, /<h2>Notes<\/h2><p>Ask about<br>parking<\/p>/);
   assert.match(html, /<li>☑ Call<\/li><li>☐ Pay<\/li>/);
   assert.match(html, /<li><b>Olivia<\/b> <span class="when">[^<]+ \(edited\)<\/span><br>Hall &amp; garden\?<\/li><li><b>Someone<\/b> <span class="when">[^<(]+<\/span><br>ok<\/li>/);
+  assert.doesNotMatch(html, /class="reactions"/, 'none here');
+  assert.match(taskPrintHtml({ title: 'R' }, [{ author_name: 'Ann', created_at: 1, body: 'Done', reactions: [{ emoji: '✅', users: [{ name: 'Kim' }] }] }]), /<br>Done<br><span class="reactions">✅ Kim<\/span><\/li>/);
   const plain = taskPrintHtml({ title: 'Plain', done_at: 1 });
   assert.match(plain, /<body class="done"><h1>☑ Plain<\/h1>/);
   assert.doesNotMatch(plain, /<h2>/);

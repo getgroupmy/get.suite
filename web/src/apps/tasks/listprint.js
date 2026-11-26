@@ -31,7 +31,7 @@ export function listPrintHtml(name, open, done, { locale, printedOn = new Date()
 
 /**
  * One task on a page: its title, list, when it's due, who it's for, tags, notes, steps (ticked or not) and,
- * when given, its comments ([{ author_name, created_at, edited_at, body }]), oldest first.
+ * when given, its comments ([{ author_name, created_at, edited_at, body, reactions }]), oldest first, each with who reacted how.
  */
 export function taskPrintHtml(t, comments = [], { locale, printedOn = new Date() } = {}) {
   const when = (ms) => new Date(ms).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
@@ -40,14 +40,14 @@ export function taskPrintHtml(t, comments = [], { locale, printedOn = new Date()
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(t.title)}</title><style>
     body { font: 13px/1.45 system-ui, sans-serif; color: #202124; margin: 24px; }
     h1 { font-size: 20px; margin: 0 0 4px; } .done h1 { text-decoration: line-through; color: #5f6368; }
-    .meta, .printed, .when { color: #5f6368; font-size: 12px; } .printed { font-size: 11px; margin-bottom: 14px; }
+    .meta, .printed, .when, .reactions { color: #5f6368; font-size: 12px; } .printed { font-size: 11px; margin-bottom: 14px; }
     h2 { font-size: 14px; margin: 18px 0 6px; color: #5f6368; text-transform: uppercase; letter-spacing: .04em; }
     ul { list-style: none; padding: 0; margin: 0; } .comments li { padding: 6px 0; border-bottom: 1px solid #e0e0e0; break-inside: avoid; }
   </style></head><body class="${t.done_at ? 'done' : ''}"><h1>${t.done_at ? '☑ ' : ''}${t.important ? '★ ' : ''}${esc(t.title)}</h1>
   <div class="meta">${meta}</div><div class="printed">printed ${esc(printedOn.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }))}</div>
   ${t.notes ? `<h2>Notes</h2><p>${esc(t.notes).replace(/\n/g, '<br>')}</p>` : ''}
   ${t.steps?.length ? `<h2>Steps</h2><ul class="steps">${t.steps.map((x) => `<li>${x.done ? '☑' : '☐'} ${esc(x.title)}</li>`).join('')}</ul>` : ''}
-  ${comments.length ? `<h2>Comments</h2><ul class="comments">${comments.map((c) => `<li><b>${esc(c.author_name || 'Someone')}</b> <span class="when">${esc(when(c.created_at))}${c.edited_at ? ' (edited)' : ''}</span><br>${esc(c.body).replace(/\n/g, '<br>')}</li>`).join('')}</ul>` : ''}
+  ${comments.length ? `<h2>Comments</h2><ul class="comments">${comments.map((c) => `<li><b>${esc(c.author_name || 'Someone')}</b> <span class="when">${esc(when(c.created_at))}${c.edited_at ? ' (edited)' : ''}</span><br>${esc(c.body).replace(/\n/g, '<br>')}${(c.reactions || []).length ? `<br><span class="reactions">${esc(c.reactions.map((r) => `${r.emoji} ${r.users.map((u) => u.name).join(', ')}`).join(' · '))}</span>` : ''}</li>`).join('')}</ul>` : ''}
   </body></html>`;
 }
 
