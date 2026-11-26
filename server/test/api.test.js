@@ -5471,6 +5471,7 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   const newTo = async (who) => (await who('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).comments_new;
   assert.equal(await newTo(a), 0, 'not new to its writer');
   assert.equal(await newTo(b), 1, 'new to Ben');
+  assert.equal((await b('GET', '/api/tasks/assigned')).body.find((x) => x.id === t.id).comments_new, 1, 'in Assigned to me too');
   const bell = async (who) => (await who('GET', '/api/notifications')).body;
   const benBell = await bell(b);
   assert.ok(JSON.stringify(benBell).includes('Talk Ann commented on “Book venue”'), 'the assignee is told');

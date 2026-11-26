@@ -112,6 +112,14 @@ await step('a colleague’s comment is new on the task’s row (live) until you 
   await page.getByRole('complementary', { name: 'Task details' }).getByText('Hall is booked').waitFor();
   await until(async () => !(await row.locator('.task-comments-new').count()));
 });
+await step('Assigned to me shows it as new too', async () => {
+  await kim.goto(`${B}/tasks/assigned`); // (not with the task open, where it would be read at once)
+  const row = kim.locator('.task', { hasText: 'Book venue' });
+  await row.waitFor();
+  await api(page, 'POST', `/tasks/tasks/${taskId}/comments`, { body: 'Deposit paid' });
+  await kim.reload();
+  await row.locator('.task-comments-new', { hasText: '1 new' }).waitFor({ timeout: 10000 });
+}, kim);
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

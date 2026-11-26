@@ -1117,7 +1117,7 @@ export default function taskRoutes() {
   r.get('/tags', (req, res) => {
     const me = req.user.id;
     const rows = q(`${TASK} WHERE t.done_at IS NULL AND t.tags IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                    ORDER BY t.due IS NULL, t.due, t.position`).all(me, me).map(shape);
+                    ORDER BY t.due IS NULL, t.due, t.position`).all(me, me).map(shapeFor(me));
     const counts = new Map();
     for (const t of rows) for (const tag of t.tags) counts.set(tag, (counts.get(tag) || 0) + 1);
     const tag = req.query.tag ? String(req.query.tag).replace(/^#/, '').toLowerCase() : null;
@@ -1127,14 +1127,14 @@ export default function taskRoutes() {
 
   // Tasks given to you, on any list: overdue and soonest first, those without a date last.
   r.get('/assigned', (req, res) => {
-    res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(req.user.id).map(shape));
+    res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(req.user.id).map(shapeFor(req.user.id)));
   });
 
   // Planned: open tasks with a due date on any of your lists that are for you (given to you, or to nobody),
   // soonest first (the browser groups them: overdue, today, tomorrow, the next 7 days, later).
   r.get('/planned', (req, res) => {
     const me = req.user.id;
-    res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me, me).map(shape));
+    res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me, me).map(shapeFor(me)));
   });
 
   // My Day for the given day (?today=YYYY-MM-DD, the person's own date): what was picked, in the order it
@@ -1143,13 +1143,13 @@ export default function taskRoutes() {
     const me = req.user.id, day = todayOf(req.query.today);
     q('DELETE FROM task_myday WHERE user_id = ? AND day != ?').run(me, day);
     res.json(q(`${TASK} JOIN task_myday m ON m.task_id = t.id AND m.user_id = ? AND m.day = ? WHERE ${ON_MY_LISTS}
-                ORDER BY t.done_at IS NOT NULL, m.added_at`).all(me, day, me, me).map((t) => ({ ...shape(t), my_day: true })));
+                ORDER BY t.done_at IS NOT NULL, m.added_at`).all(me, day, me, me).map((t) => ({ ...shapeFor(me)(t), my_day: true })));
   });
   // Suggestions for My Day: open tasks for you that are due today or overdue, and not picked yet.
   r.get('/myday/suggestions', (req, res) => {
     const me = req.user.id, day = todayOf(req.query.today);
     res.json(q(`${TASK} WHERE ${PLANNED} AND t.due <= ? AND t.id NOT IN (SELECT task_id FROM task_myday WHERE user_id = ? AND day = ?)
-                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 20`).all(me, me, me, me, day, me, day).map(shape));
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 20`).all(me, me, me, me, day, me, day).map(shapeFor(me)));
   });
   // Add a task to My Day ({ on: false } takes it off), for today.
   r.post('/tasks/:id/myday', (req, res) => {
@@ -1192,12 +1192,12 @@ export default function taskRoutes() {
     if (![7, 30].includes(days)) throw bad('Look back 7 or 30 days');
     const since = Date.now() - days * 864e5;
     res.json(q(`${TASK} WHERE t.done_at >= ? AND t.done_by = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                ORDER BY t.done_at DESC LIMIT 500`).all(since, me, me, me).map(shape));
+                ORDER BY t.done_at DESC LIMIT 500`).all(since, me, me, me).map(shapeFor(me)));
   });
   r.get('/important', (req, res) => {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.important = 1 AND t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${NOT_HIDDEN}
-                ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(me, me, me).map(shape));
+                ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(me, me, me).map(shapeFor(me)));
   });
 
   // For the calendar: open tasks due between two dates (YYYY-MM-DD, both included) that are yours:
@@ -1208,7 +1208,7 @@ export default function taskRoutes() {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.due >= ? AND t.due <= ?
                 AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?)) AND ${NOT_HIDDEN}
-                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me, me).map(shape));
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me, me).map(shapeFor(me)));
   });
 
   // Today, for Home: open tasks in your My Day first (marked my_day), then the ones for you that are due today
@@ -1216,11 +1216,11 @@ export default function taskRoutes() {
   r.get('/today', (req, res) => {
     const me = req.user.id, day = todayOf(req.query.today);
     const picked = q(`${TASK} JOIN task_myday m ON m.task_id = t.id AND m.user_id = ? AND m.day = ? WHERE t.done_at IS NULL AND ${ON_MY_LISTS}
-                      ORDER BY m.added_at`).all(me, day, me, me).map((t) => ({ ...shape(t), my_day: true }));
+                      ORDER BY m.added_at`).all(me, day, me, me).map((t) => ({ ...shapeFor(me)(t), my_day: true }));
     const ids = new Set(picked.map((t) => t.id));
     // (Not lists you've hidden from the left; ones you put in My Day yourself stay above.)
     const due = q(`${TASK} WHERE t.done_at IS NULL AND t.due <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?)) AND ${NOT_HIDDEN}
-                   ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(day, me, me, me).map(shape).filter((t) => !ids.has(t.id));
+                   ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(day, me, me, me).map(shapeFor(me)).filter((t) => !ids.has(t.id));
     res.json([...picked, ...due]);
   });
 
