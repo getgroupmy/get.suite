@@ -185,7 +185,7 @@ export default function Tasks() {
   useEffect(() => { if (!listId && lists?.length) navigate(`/tasks/${lists[0].id}`, { replace: true }); }, [listId, lists, navigate]);
 
   const list = lists?.find((l) => l.id === listId);
-  const people = list ? [{ id: list.owner_id, name: list.owner_name }, ...list.members] : [];
+  const people = list ? [{ id: list.owner_id, name: list.owner_name, username: list.owner_email }, ...list.members] : [];
   const sortBy = list?.sort || 'mine';
   // A shared list for one person only (?who=…: from the menu by Select, or a name in Workload).
   const who = list?.members.length ? params.get('who') : null;
@@ -1501,7 +1501,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
           else { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: r.id }); toast(`Copied to ${r.name}`); }
         }} />}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
-      <TaskComments task={task} />
+      <TaskComments task={task} people={people} />
       <TaskHistory task={task} />
       <div className="row wrap" style={{ gap: 8 }}>
         {task.repeat && task.due && !task.done && (
@@ -1700,7 +1700,7 @@ function TaskHistory({ task }) {
 }
 
 /** A task's comments: everyone on the list sees them; you can change or remove your own. */
-function TaskComments({ task }) {
+function TaskComments({ task, people = [] }) {
   const toast = useToast();
   const { user } = useAuth();
   const [list, setList] = useState([]);
@@ -1744,6 +1744,12 @@ function TaskComments({ task }) {
           ))}
         </ul>
       )}
+      {/* someone mentioned who isn't on the list won't be told (or see the task) */}
+      {(() => {
+        const on = new Set(people.map((p) => String(p.username || '').toLowerCase()).filter(Boolean));
+        const off = [...new Set([...text.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))].filter((e) => !on.has(e));
+        return off.length > 0 && <p className="small muted" role="status">{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this list, so won't be told. Share the list first.</p>;
+      })()}
       <form className="row" onSubmit={send}>
         <div className="mention-box grow">
           <input ref={box} style={{ width: '100%' }} value={text} onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }} onKeyDown={(e) => mention.keyDown(e)} onBlur={() => mention.close()}

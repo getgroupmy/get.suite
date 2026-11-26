@@ -166,6 +166,15 @@ await step('@ in a comment suggests people; picking one mentions them, and they 
   await d.getByRole('list', { name: 'Comments' }).locator('.mention', { hasText: '@kim@acme.com' }).waitFor();
   await until(async () => JSON.stringify((await api(kim, 'GET', '/notifications')).body).includes('Olivia Owner mentioned you on “Book venue”'));
 });
+await step('mentioning someone who isn’t on the list says they won’t be told', async () => {
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  const input = d.getByLabel('Add a comment');
+  await input.fill('Ask @zed@acme.com too');
+  await d.getByRole('status').filter({ hasText: "@zed@acme.com isn't on this list, so won't be told" }).waitFor();
+  await input.fill('Ask @kim@acme.com and @olivia@acme.com');
+  await until(async () => !(await d.getByText(/on this list, so won.t be told/).count()));
+  await input.fill('');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
