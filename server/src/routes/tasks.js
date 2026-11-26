@@ -1124,6 +1124,23 @@ export default function taskRoutes() {
   });
 
   // Open tasks with a tag, on any of your lists (soonest due first), and the tags in use there with how many open tasks have each.
+  // Comments on open tasks that @mention you and you haven't read yet (newest first, up to 20), for Home's
+  // "Comments for you" (shaped as its document comments are).
+  r.get('/mentions', (req, res) => {
+    const me = req.user.id, who = String(req.user.username || '').toLowerCase();
+    if (!who) return res.json([]);
+    const at = new RegExp(`(^|[^\\w.+-])@${who.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'i');
+    const rows = q(`SELECT k.id, k.body, k.created_at, t.id AS task_id, t.title, t.list_id, u.name AS author_name
+                    FROM task_comments k JOIN tasks t ON t.id = k.task_id JOIN task_lists l ON l.id = t.list_id LEFT JOIN users u ON u.id = k.author_id
+                    WHERE t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                      AND (k.author_id IS NULL OR k.author_id != ?) AND INSTR(LOWER(k.body), ?) > 0
+                      AND k.created_at > COALESCE((SELECT s.seen_at FROM task_comment_seen s WHERE s.task_id = t.id AND s.user_id = ?), 0)
+                    ORDER BY k.created_at DESC LIMIT 100`).all(me, me, me, `@${who}`, me);
+    res.json(rows.filter((r) => at.test(r.body)).slice(0, 20).map((r) => ({
+      thread_id: `task:${r.id}`, file: { name: r.title, kind: 'task' }, author_name: r.author_name, body: r.body, at: r.created_at,
+      link: `/tasks/${r.list_id}?task=${r.task_id}`,
+    })));
+  });
   r.get('/tags', (req, res) => {
     const me = req.user.id;
     const rows = q(`${TASK} WHERE t.done_at IS NULL AND t.tags IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))

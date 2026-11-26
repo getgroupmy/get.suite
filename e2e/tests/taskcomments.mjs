@@ -175,6 +175,17 @@ await step('mentioning someone who isn’t on the list says they won’t be told
   await until(async () => !(await d.getByText(/on this list, so won.t be told/).count()));
   await input.fill('');
 });
+await step('Home: Comments for you lists a task comment that mentions you, until the task is opened', async () => {
+  await kim.goto(`${B}/home`);
+  const card = kim.getByRole('region', { name: 'Comments for you' });
+  const item = card.getByRole('link', { name: /Book venue · Olivia Owner: Please confirm @kim@acme\.com by Friday/ });
+  await item.waitFor();
+  await item.click();
+  await kim.getByRole('complementary', { name: 'Task details' }).getByText(/Please confirm/).waitFor();
+  await kim.goto(`${B}/home`);
+  await kim.waitForLoadState('networkidle');
+  await until(async () => !(await kim.getByRole('link', { name: /Please confirm @kim/ }).count()), 5000);
+}, kim);
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

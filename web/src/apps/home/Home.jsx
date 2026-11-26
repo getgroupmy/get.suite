@@ -81,7 +81,7 @@ export default function Home() {
       mail?.enabled ? safe(get('/mail/followups'), []) : Promise.resolve([]),
       mail?.enabled ? safe(get('/mail/nudges'), { items: [], total: 0 }) : Promise.resolve({ items: [], total: 0 }),
       mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
-      safe(get('/comments/for-me'), []),
+      Promise.all([safe(get('/comments/for-me'), []), safe(get('/tasks/mentions'), [])]).then(([docs, tasks]) => [...docs, ...tasks].sort((x, y) => y.at - x.at)), // and task comments that mention you
       safe(get('/files/suggestions/for-me'), []),
       safe(get('/files/access-requests'), []),
       safe(get('/chat/saved'), []),
@@ -226,7 +226,7 @@ export default function Home() {
               <h2><Icon name="chat" size={18} /> Comments for you</h2>
               <ul className="home-list">
                 {data.comments.map((c) => (
-                  <li key={c.thread_id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides' }[c.file.kind] || 'file'} size={16} />
+                  <li key={c.thread_id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides', task: 'check' }[c.file.kind] || 'file'} size={16} />
                     <Link className="grow home-item" to={c.link} title={c.body}><strong>{c.file.name}</strong> <span className="muted">· {c.author_name || 'Someone'}{c.assigned ? ' assigned you' : ''}: {c.body.length > 80 ? `${c.body.slice(0, 80)}…` : c.body}</span></Link>
                     <span className="muted small nowrap">{formatDate(c.at)}</span></li>
                 ))}
