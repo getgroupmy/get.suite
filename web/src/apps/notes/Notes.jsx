@@ -684,6 +684,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
         </ul>
       )}
       {n.tasks_open > 0 && <div className="note-chips" onClick={(e) => e.stopPropagation()}><TasksAbout url={`/notes?note=${n.id}`} what="note" bump={n.tasks_open} /></div>}
+      {n.comments > 0 && <div className="muted small" aria-label={`${n.comments} comment${n.comments === 1 ? '' : 's'}`}>💬 {n.comments}</div>}
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
           {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}{n.remind_repeat && <span title={REPEAT_CHOICES.find(([v]) => v === n.remind_repeat)?.[1]} aria-label={`repeats ${n.remind_repeat}`}> 🔁</span>}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}
@@ -803,7 +804,39 @@ function NoteEditor({ note, onClose }) {
           <button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
           {f.items ? 'Change to plain text' : 'Change to a checklist'}</button></div>
       </div>
+      {(note.shared?.length > 0 || note.comments > 0) && <NoteComments note={note} />}
     </Modal>
+  );
+}
+
+/** Comments on a shared note: everyone on it can write one (the others are told); your own, or any on your note, can be deleted. */
+function NoteComments({ note }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [list, setList] = useState(null);
+  const [text, setText] = useState('');
+  const load = useCallback(() => get(`/notes/${note.id}/comments`).then(setList).catch(() => setList([])), [note.id]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'notes-changed') load(); }), [load]);
+  const send = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    try { setList(await post(`/notes/${note.id}/comments`, { text })); setText(''); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="stack-tight" aria-label="Comments" style={{ marginTop: 12 }}>
+      <strong className="small">Comments{list?.length ? ` (${list.length})` : ''}</strong>
+      {list?.map((c) => (
+        <div key={c.id} className="row" style={{ alignItems: 'flex-start', gap: 8 }}>
+          <span className="grow"><strong className="small">{c.by.name}</strong> <span className="muted small">{new Date(c.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span><br /><span style={{ whiteSpace: 'pre-wrap' }}>{c.text}</span></span>
+          {(c.by.id === user?.id || note.mine) && <button type="button" className="icon-btn" aria-label={`Delete ${c.by.name}’s comment`} onClick={async () => { try { setList(await del(`/notes/${note.id}/comments/${c.id}`)); } catch (err) { toast(err.message, 'error'); } }}><Icon name="close" size={14} /></button>}
+        </div>
+      ))}
+      <form className="row" onSubmit={send}>
+        <input className="grow" aria-label="Write a comment" placeholder="Write a comment" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
+        <button className="btn small" disabled={!text.trim()}>Comment</button>
+      </form>
+    </section>
   );
 }
 

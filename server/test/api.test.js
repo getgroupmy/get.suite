@@ -6992,6 +6992,34 @@ test('approvals: ask, approve, reject, cancel; changes after approval are flagge
   assert.equal(hist.history.length, 3);
 });
 
+test('notes: comments on a shared note — everyone on it writes, the others are told; deleting your own, or any on your note', async () => {
+  const a = client(), b = client(), c = client();
+  const ids = {};
+  for (const [local, name] of [['ncma', 'Nia Comment'], ['ncmb', 'Ned Comment'], ['ncmc', 'Nat Outside']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201); ids[local] = r.body.id;
+  }
+  await login(a, 'ncma@acme.com'); await login(b, 'ncmb@acme.com'); await login(c, 'ncmc@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Offsite plan', body: 'Venue?' })).body;
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.ncmb] });
+  const one = await b('POST', `/api/notes/${n.id}/comments`, { text: 'The lake house is free that week' });
+  assert.equal(one.status, 201);
+  assert.deepEqual(one.body.map((x) => [x.by.name, x.text]), [['Ned Comment', 'The lake house is free that week']]);
+  assert.ok((await a('GET', '/api/notifications')).body.items.some((x) => x.title === 'Ned Comment commented on “Offsite plan”' && x.body === 'The lake house is free that week'), 'the owner is told');
+  assert.ok(!(await b('GET', '/api/notifications')).body.items.some((x) => /commented on “Offsite plan”/.test(x.title)), 'not the writer');
+  const two = (await a('POST', `/api/notes/${n.id}/comments`, { text: 'Booked it' })).body;
+  assert.equal((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).comments, 2, 'counted on the note');
+  assert.equal((await c('GET', `/api/notes/${n.id}/comments`)).status, 404, 'not someone it isn’t shared with');
+  assert.equal((await c('POST', `/api/notes/${n.id}/comments`, { text: 'hi' })).status, 404);
+  assert.equal((await a('POST', `/api/notes/${n.id}/comments`, { text: '   ' })).status, 400);
+  // Ned can't delete Nia's; Nia (the owner) can delete Ned's; Ned his own.
+  assert.equal((await b('DELETE', `/api/notes/${n.id}/comments/${two[1].id}`)).status, 403);
+  assert.equal((await a('DELETE', `/api/notes/${n.id}/comments/${two[0].id}`)).status, 200);
+  assert.deepEqual((await b('GET', `/api/notes/${n.id}/comments`)).body.map((x) => x.text), ['Booked it']);
+  assert.equal((await a('DELETE', `/api/notes/${n.id}/comments/${two[1].id}`)).status, 200);
+  assert.deepEqual((await a('GET', `/api/notes/${n.id}/comments`)).body, []);
+});
+
 test('notes: copy to a document or to tasks', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'ntd', domain: 'acme.com', name: 'Nat Doc', password: 'password123' })).status, 201);

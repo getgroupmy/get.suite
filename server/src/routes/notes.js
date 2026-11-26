@@ -266,6 +266,11 @@ if (!q('PRAGMA table_info(note_prefs)').all().some((c) => c.name === 'sort')) q(
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'trashed_at')) q('ALTER TABLE notes ADD COLUMN trashed_at INTEGER').run();
 export const TRASH_DAYS = 7;
 
+// Comments on a note, for everyone it's shared with: a word about it without changing it.
+q(`CREATE TABLE IF NOT EXISTS note_comments (id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL)`).run();
+q('CREATE INDEX IF NOT EXISTS note_comments_note ON note_comments(note_id, created_at)').run();
+const MAX_COMMENTS = 200;
 const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE note_id = ?').all(n.id).map((s) => s.user_id)];
 function shape(n, me) {
   return {
@@ -273,6 +278,7 @@ function shape(n, me) {
     labels: JSON.parse(n.labels || '[]'), ...(n.daily_date && { daily_date: n.daily_date }), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, remind_reset: !!n.remind_reset, pictures: picturesOf(n.id).map((p) => p.id), recordings: recordingsOf(n.id).map((x) => ({ id: x.id, duration_ms: x.duration_ms, created_at: x.created_at })), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
+    comments: q('SELECT COUNT(*) AS c FROM note_comments WHERE note_id = ?').get(n.id).c,
     ...(me && { tasks_open: openTasksAbout(`/notes?note=${n.id}`, me) }), // open tasks made from it (Copy to Tasks), on lists you can see
   };
 }
@@ -1045,6 +1051,32 @@ export default function noteRoutes() {
     tell(c);
     return c;
   }
+  // Comments: [{ id, text, at, by: { id, name } }], oldest first; a new one ({ text }) tells everyone else on the note in the
+  // bell; deleting: your own, or any on a note of yours.
+  const commentsOf = (noteId) => q(`SELECT c.id, c.text, c.created_at AS at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId).map((c) => ({ id: c.id, text: c.text, at: c.at, by: { id: c.user_id, name: c.name || 'Someone' } }));
+  r.get('/:id/comments', (req, res) => res.json(commentsOf(load(req.params.id, req.user).id)));
+  r.post('/:id/comments', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const text = str(req.body?.text, { required: true, name: 'Comment', max: 2000 }).trim();
+    if (!text) throw bad('Write a comment');
+    if (q('SELECT COUNT(*) AS c FROM note_comments WHERE note_id = ?').get(n.id).c >= MAX_COMMENTS) throw bad(`A note can have up to ${MAX_COMMENTS} comments`);
+    const id = uid();
+    q('INSERT INTO note_comments (id, note_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)').run(id, n.id, req.user.id, text, now());
+    const others = team(n).filter((x) => x !== req.user.id);
+    if (others.length) bell(others, { kind: 'comment', title: `${req.user.name} commented on “${n.title || 'a note'}”`, body: text.slice(0, 200), link: `/notes?note=${n.id}`, actor: req.user.name });
+    tell(n);
+    res.status(201).json(commentsOf(n.id));
+  });
+  r.delete('/:id/comments/:cid', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const c = q('SELECT * FROM note_comments WHERE id = ? AND note_id = ?').get(String(req.params.cid), n.id);
+    if (!c) throw notFound('Comment not found');
+    if (c.user_id !== req.user.id && n.owner_id !== req.user.id) throw forbidden('Only its writer or the note’s owner can delete a comment');
+    q('DELETE FROM note_comments WHERE id = ?').run(c.id);
+    tell(n);
+    res.json(commentsOf(n.id));
+  });
   r.post('/:id/copy', (req, res) => {
     const c = copyNote(load(req.params.id, req.user), req.user);
     res.status(201).json(shape(c, req.user.id));

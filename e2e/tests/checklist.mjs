@@ -95,6 +95,21 @@ await step('⋮ → Sort items A–Z: sub-items stay under their item, sorted to
   const got = async () => (await api(page, 'GET', '/notes')).body.find((x) => x.id === n.id).items.map((i) => `${i.indent ? '>' : ''}${i.text}${i.done ? '*' : ''}`).join('|');
   await until(async () => (await got()) === 'Apples*|bread 2|bread 10|pears|>green|>ripe');
 });
+await step('a shared note: a comment written in it, listed, and counted on its card', async () => {
+  const kim = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
+  const n = (await api(page, 'POST', '/notes', { title: 'Offsite', body: 'Where shall we go?' })).body;
+  await api(page, 'PUT', `/notes/${n.id}/shares`, { user_ids: [kim.id] });
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Offsite').locator('.note-open').click();
+  const dlg = page.getByRole('dialog', { name: 'Offsite' });
+  const box = dlg.getByRole('region', { name: 'Comments' });
+  await box.getByLabel('Write a comment').fill('The lake house is free');
+  await box.getByRole('button', { name: 'Comment' }).click();
+  await box.getByText('The lake house is free').waitFor();
+  await box.getByText('Comments (1)').waitFor();
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+  await cardOf(page, 'Offsite').getByLabel('1 comment').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
