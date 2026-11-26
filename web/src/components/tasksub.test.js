@@ -23,3 +23,8 @@ test('a task\'s line in search results', () => {
   assert.equal(taskSub({ list_name: 'Home' }, today), 'Home', 'nothing more to say');
   assert.equal(taskSub({ list_name: 'Home', due: '2026-11-01', done_at: 1, assignee_name: 'Kim Park', priority: 'medium', important: 1 }, today), 'Home · Kim Park', 'a done one isn\'t overdue or urgent');
 });
+
+test('a task found by one of its comments says so first', () => {
+  assert.equal(taskSub({ list_name: 'Launch', done_at: 1, comment_match: 'Hall,\n cheaper' }, '2026-11-26'), '💬 “Hall, cheaper” · Launch');
+  assert.equal(taskSub({ list_name: 'Launch', done_at: 1 }, '2026-11-26'), 'Launch');
+});

@@ -1067,15 +1067,25 @@ export default function taskRoutes() {
   });
 
   // Search your lists (your own and those shared with you) for tasks with all these words in the
-  // title, notes or steps. Open ones first (soonest due first), then done ones.
+  // title, notes, steps, tags or comments. Open ones first (soonest due first), then done ones. A task found
+  // only with its comments' help says which comment (comment_match).
   r.get('/search', (req, res) => {
     const words = fold(String(req.query.q || '')).match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || []; // (accents don't matter)
     if (!words.length) return res.json([]);
     const me = req.user.id;
-    const like = words.map(() => "fold(t.title || ' ' || COALESCE(t.notes, '') || ' ' || COALESCE(t.steps, '') || ' ' || COALESCE(t.tags, '')) LIKE ? ESCAPE '!'");
-    res.json(q(`${TASK} WHERE (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${like.join(' AND ')}
+    const own = "t.title || ' ' || COALESCE(t.notes, '') || ' ' || COALESCE(t.steps, '') || ' ' || COALESCE(t.tags, '')";
+    const said = "COALESCE((SELECT group_concat(k.body, ' ') FROM task_comments k WHERE k.task_id = t.id), '')";
+    const like = words.map(() => `fold(${own} || ' ' || ${said}) LIKE ? ESCAPE '!'`);
+    const rows = q(`${TASK} WHERE (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${like.join(' AND ')}
                 ORDER BY t.done_at IS NOT NULL, t.due IS NULL, t.due, t.done_at DESC, t.position LIMIT 100`)
-      .all(me, me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`)).map(shape));
+      .all(me, me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`));
+    res.json(rows.map((t) => {
+      const text = fold(`${t.title} ${t.notes || ''} ${t.steps || ''} ${t.tags || ''}`);
+      const missing = words.filter((w) => !text.includes(w));
+      if (!missing.length) return shape(t);
+      const c = q('SELECT body FROM task_comments WHERE task_id = ? ORDER BY created_at, rowid').all(t.id).find((x) => missing.some((w) => fold(x.body).includes(w)));
+      return { ...shape(t), ...(c && { comment_match: c.body.slice(0, 200) }) };
+    }));
   });
 
   // Open tasks about something (?url= the path a task links back to: a file, an event, a note…), on any list you can see.

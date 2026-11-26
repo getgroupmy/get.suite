@@ -5477,6 +5477,13 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.deepEqual(list2.map((x) => [x.author_name, x.body]), [['Talk Ann', 'Hotel or hall?'], ['Talk Ben', 'Hall, cheaper']]);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).comments, 2);
   assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/comments`)).status, 404, 'not for people off the list');
+  // Searching tasks finds words in their comments too (saying which), with the task's own words; not for someone off the list.
+  const found = (await a('GET', '/api/tasks/search?q=hall%20cheap%C3%A9r')).body;
+  assert.deepEqual(found.map((x) => [x.id, x.comment_match]), [[t.id, 'Hotel or hall?']], 'the first comment with a missing word');
+  assert.deepEqual((await a('GET', '/api/tasks/search?q=venue%20cheaper')).body.map((x) => [x.id, x.comment_match]), [[t.id, 'Hall, cheaper']], 'its title and a comment');
+  assert.equal((await a('GET', '/api/tasks/search?q=venue')).body.find((x) => x.id === t.id).comment_match, undefined, 'its own title found it');
+  assert.deepEqual((await a('GET', '/api/tasks/search?q=cheaper%20castle')).body, []);
+  assert.deepEqual((await c('GET', '/api/tasks/search?q=cheaper')).body, []);
   // Changing a comment: your own only; it says it was edited; no one is told again.
   assert.equal(list2[0].edited_at, null);
   const bensBells = JSON.stringify(await bell(b));

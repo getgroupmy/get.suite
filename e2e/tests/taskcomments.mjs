@@ -81,6 +81,16 @@ await step('edit your own comment: Escape keeps it and the details open; Save ch
   await d.getByRole('list', { name: 'Comments' }).getByText(/\(edited\)/).waitFor();
   await kim.getByRole('complementary', { name: 'Task details' }).getByText('Hotel, or the town hall?').waitFor({ timeout: 10000 });
 });
+await step('searching finds a task by its comment, in Tasks and in the top bar, saying which comment', async () => {
+  await page.getByLabel('Search tasks').fill('cheaper');
+  await page.getByLabel('Search tasks').press('Enter');
+  await page.getByRole('heading', { name: 'Tasks matching “cheaper”' }).waitFor();
+  await page.locator('.task', { hasText: 'Book venue' }).getByText('Comment: “Hall, it is cheaper”').waitFor();
+  await page.getByRole('button', { name: 'Close search' }).click();
+  await page.getByLabel('Search everything').fill('cheaper');
+  const res = page.getByRole('listbox', { name: 'Search results' });
+  await res.getByText(/💬 “Hall, it is cheaper” · Launch/).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

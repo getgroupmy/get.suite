@@ -19,6 +19,7 @@ export function dueText(due, today, time) {
 }
 
 export function taskSub(t, today) {
-  return [t.list_name, !t.done_at && dueText(t.due, today, t.due_time), t.assignee_name, !t.done_at && ['high', 'medium', 'low'].includes(t.priority) && `${t.priority} priority`, !t.done_at && t.important && '★']
+  const said = t.comment_match ? String(t.comment_match).replace(/\s+/g, ' ').trim() : ''; // the comment that found it
+  return [said && `💬 “${said.length > 60 ? `${said.slice(0, 59)}…` : said}”`, t.list_name, !t.done_at && dueText(t.due, today, t.due_time), t.assignee_name, !t.done_at && ['high', 'medium', 'low'].includes(t.priority) && `${t.priority} priority`, !t.done_at && t.important && '★']
     .filter(Boolean).join(' · ');
 }

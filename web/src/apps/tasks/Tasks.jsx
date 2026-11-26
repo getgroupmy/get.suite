@@ -486,7 +486,8 @@ export default function Tasks() {
                   <li key={t.id} data-task={t.id} className={`task ${t.done ? 'done' : ''}`}>
                     <button type="button" className="task-main" onClick={() => { setFound(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }}>
                       <span className="task-title">{t.done ? '✓ ' : ''}{t.title}</span>
-                      <span className="task-meta"><span className="muted small">{t.list_name}</span>{due && !t.done && <span className={`pill due ${due.tone}`}>{due.text}</span>}{t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}</span>
+                      <span className="task-meta"><span className="muted small">{t.list_name}</span>{due && !t.done && <span className={`pill due ${due.tone}`}>{due.text}</span>}{t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
+                        {t.comment_match && <span className="muted small ellipsis task-comment-match">Comment: “{t.comment_match}”</span>}</span>
                     </button>
                   </li>
                 );
