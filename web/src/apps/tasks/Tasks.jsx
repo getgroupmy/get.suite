@@ -4,6 +4,7 @@ import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId, keepDelet
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMentions } from '../../components/mentions.jsx';
+import { ReactionBar } from '../comments.jsx';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
 import { listPrintHtml, taskPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
@@ -1741,6 +1742,7 @@ function TaskComments({ task, people = [], canShare = false }) {
                   </form>
                   )
                 : <p className="task-comment-body">{c.body.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</p>}
+              <ReactionBar list={c.reactions || []} onReact={async (emoji) => { try { setList(await post(`/tasks/tasks/${task.id}/comments/${c.id}/reactions`, { emoji })); } catch (err) { toast(err.message, 'error'); } }} />
             </li>
           ))}
         </ul>

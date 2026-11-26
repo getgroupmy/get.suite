@@ -6,6 +6,7 @@ import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
 import { q, tx, fold } from '../db.js';
 import { byAddress } from '../byaddress.js';
+import { ensureReactionTables, reactionsOn, toggleReaction } from '../commentreactions.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notesFromEnex, noteFromHtml } from '../evernote.js';
@@ -1107,8 +1108,22 @@ export default function noteRoutes() {
   }
   // Comments: [{ id, text, at, by: { id, name } }], oldest first; a new one ({ text }) tells everyone else on the note in the
   // bell; deleting: your own, or any on a note of yours.
-  const commentsOf = (noteId) => q(`SELECT c.id, c.text, c.created_at AS at, c.edited_at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId).map((c) => ({ id: c.id, text: c.text, at: c.at, edited_at: c.edited_at || null, by: { id: c.user_id, name: c.name || 'Someone' } }));
+  ensureReactionTables();
+  const commentsOf = (noteId) => {
+    const rows = q(`SELECT c.id, c.text, c.created_at AS at, c.edited_at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId);
+    const reactions = reactionsOn('note', rows.map((c) => c.id));
+    return rows.map((c) => ({ id: c.id, text: c.text, at: c.at, edited_at: c.edited_at || null, by: { id: c.user_id, name: c.name || 'Someone' }, reactions: reactions.get(c.id) || [] }));
+  };
+  // React to a comment with an emoji, or take yours back (the same emoji again): anyone on the note.
+  r.post('/:id/comments/:cid/reactions', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const c = q('SELECT id FROM note_comments WHERE id = ? AND note_id = ?').get(String(req.params.cid), n.id);
+    if (!c) throw notFound('Comment not found');
+    toggleReaction('note', c.id, req.user.id, req.body?.emoji);
+    tell(n);
+    res.json(commentsOf(n.id));
+  });
   // Reading them (the note open) makes them not new to you any more.
   r.get('/:id/comments', (req, res) => {
     const n = load(req.params.id, req.user);

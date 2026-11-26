@@ -26,6 +26,7 @@ import DrawPad from '../../components/DrawPad.jsx';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 import { useBatches } from '../../components/useBatches.jsx';
 import { useMentions } from '../../components/mentions.jsx';
+import { ReactionBar } from '../comments.jsx';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
@@ -853,6 +854,7 @@ function NoteComments({ note }) {
                 </form>
                 )
               : <span style={{ whiteSpace: 'pre-wrap' }}>{c.text.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</span>}
+            <ReactionBar list={c.reactions || []} onReact={async (emoji) => { try { setList(await post(`/notes/${note.id}/comments/${c.id}/reactions`, { emoji })); } catch (err) { toast(err.message, 'error'); } }} />
           </span>
           {c.by.id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label="Edit your comment" title="Edit" onClick={() => setEditing({ id: c.id, text: c.text })}><Icon name="edit" size={14} /></button>}
           {(c.by.id === user?.id || note.mine) && <button type="button" className="icon-btn" aria-label={`Delete ${c.by.name}’s comment`} onClick={async () => { try { setList(await del(`/notes/${note.id}/comments/${c.id}`)); } catch (err) { toast(err.message, 'error'); } }}><Icon name="close" size={14} /></button>}

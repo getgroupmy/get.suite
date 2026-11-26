@@ -53,11 +53,15 @@ function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }
 const QUICK = ['👍', '❤️', '🎉', '👀', '✅', '😂'];
 /** Reactions under a comment: click one to add yours or take it back; ☺ offers a few. */
 function Reactions({ fileId, c, canReact }) {
-  const { user } = useAuth();
   const toast = useToast();
+  const react = async (emoji) => { try { await post(`/comments/${fileId}/${c.id}/reactions`, { emoji }); } catch (e) { toast(e.message, 'error'); } };
+  return <ReactionBar list={c.reactions || []} canReact={canReact} onReact={react} />;
+}
+/** Reactions as buttons (yours pressed): click one to add yours or take it back; ☺ offers a few. Also under note and task comments. */
+export function ReactionBar({ list, canReact = true, onReact }) {
+  const { user } = useAuth();
   const [picking, setPicking] = useState(false);
-  const react = async (emoji) => { setPicking(false); try { await post(`/comments/${fileId}/${c.id}/reactions`, { emoji }); } catch (e) { toast(e.message, 'error'); } };
-  const list = c.reactions || [];
+  const react = (emoji) => { setPicking(false); onReact(emoji); };
   if (!list.length && !canReact) return null;
   return (
     <div className="comment-reactions" onClick={(e) => e.stopPropagation()}>

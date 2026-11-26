@@ -17,6 +17,7 @@ import express, { Router } from 'express';
 import { splitByList, tasksFromCsv } from '../taskimport.js';
 import { q, tx, fold } from '../db.js';
 import { byAddress } from '../byaddress.js';
+import { ensureReactionTables, reactionsOn, toggleReaction } from '../commentreactions.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
@@ -313,6 +314,14 @@ const shapeFor = (userId) => (t) => {
     AND created_at > COALESCE((SELECT seen_at FROM task_comment_seen WHERE task_id = ? AND user_id = ?), 0)`).get(t.id, userId, t.id, userId).n : 0;
   return out;
 };
+ensureReactionTables();
+/** A task's comments, oldest first, each with its reactions. */
+function commentList(taskId) {
+  const rows = q(`SELECT k.id, k.body, k.created_at, k.edited_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
+                  WHERE k.task_id = ? ORDER BY k.created_at`).all(taskId);
+  const reactions = reactionsOn('task', rows.map((k) => k.id));
+  return rows.map((k) => ({ ...k, reactions: reactions.get(k.id) || [] }));
+}
 const sawComments = (taskId, userId) => q(`INSERT INTO task_comment_seen (task_id, user_id, seen_at) VALUES (?, ?, ?)
   ON CONFLICT(task_id, user_id) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)`).run(taskId, userId, now());
 
@@ -881,8 +890,16 @@ export default function taskRoutes() {
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
     sawComments(task.id, req.user.id);
-    res.json(q(`SELECT k.id, k.body, k.created_at, k.edited_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
-                WHERE k.task_id = ? ORDER BY k.created_at`).all(task.id));
+    res.json(commentList(task.id));
+  });
+  // React to a comment with an emoji, or take yours back (the same emoji again): anyone on the list.
+  r.post('/tasks/:id/comments/:cid/reactions', (req, res) => {
+    const { task, list } = taskFor(req);
+    const c = q('SELECT id FROM task_comments WHERE id = ? AND task_id = ?').get(String(req.params.cid), task.id);
+    if (!c) throw notFound('Comment not found');
+    toggleReaction('task', c.id, req.user.id, req.body?.emoji);
+    changed(list);
+    res.json(commentList(task.id));
   });
   r.post('/tasks/:id/comments', (req, res) => {
     const { task, list } = taskFor(req);

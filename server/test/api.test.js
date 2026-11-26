@@ -15457,6 +15457,42 @@ test('tasks: { add: [addresses] } adds people to a list (as when a comment menti
   const on = (await a('GET', '/api/tasks/lists')).body.lists.find((x) => x.id === l.id);
   assert.deepEqual(on.members.map((m) => m.name).sort(), ['Tim Added', 'Tom Already'], 'added; nobody dropped');
 });
+test('reactions on note and task comments: one of each emoji per person, the same again takes it back; only people on it', async () => {
+  const a = client(), b = client(), c = client();
+  const ids = {};
+  for (const [local, name] of [['rxa', 'Rae React'], ['rxb', 'Rob React'], ['rxc', 'Ria Outside']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201); ids[local] = r.body.id;
+  }
+  await login(a, 'rxa@acme.com'); await login(b, 'rxb@acme.com'); await login(c, 'rxc@acme.com');
+  // A note's
+  const n = (await a('POST', '/api/notes', { title: 'Picnic', body: 'Saturday?' })).body;
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.rxb] });
+  const cm = (await a('POST', `/api/notes/${n.id}/comments`, { text: 'I’ll bring the blanket' })).body[0];
+  assert.deepEqual(cm.reactions, []);
+  await b('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '👍' });
+  const both = (await a('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '👍' })).body[0].reactions;
+  assert.deepEqual(both, [{ emoji: '👍', users: [{ id: ids.rxb, name: 'Rob React' }, { id: ids.rxa, name: 'Rae React' }] }]);
+  const back = (await b('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '👍' })).body[0].reactions;
+  assert.deepEqual(back, [{ emoji: '👍', users: [{ id: ids.rxa, name: 'Rae React' }] }], 'the same again takes it back');
+  assert.equal((await b('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: 'ok' })).status, 400, 'an emoji, not words');
+  assert.equal((await c('POST', `/api/notes/${n.id}/comments/${cm.id}/reactions`, { emoji: '🎉' })).status, 404, 'not someone it isn’t shared with');
+  assert.equal((await b('POST', `/api/notes/${n.id}/comments/nope/reactions`, { emoji: '🎉' })).status, 404);
+  assert.deepEqual((await b('GET', `/api/notes/${n.id}/comments`)).body[0].reactions.map((x) => x.emoji), ['👍'], 'listed with the comments');
+  // A task's
+  const l = (await a('POST', '/api/tasks/lists', { name: 'Picnic jobs' })).body;
+  await a('PUT', `/api/tasks/lists/${l.id}/members`, { user_ids: [ids.rxb] });
+  const t = (await a('POST', `/api/tasks/lists/${l.id}/tasks`, { title: 'Buy bread' })).body;
+  const tc = (await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Sourdough?' })).body;
+  const tr = await b('POST', `/api/tasks/tasks/${t.id}/comments/${tc.id}/reactions`, { emoji: '❤️' });
+  assert.equal(tr.status, 200);
+  assert.deepEqual(tr.body.map((x) => [x.body, x.reactions]), [['Sourdough?', [{ emoji: '❤️', users: [{ id: ids.rxb, name: 'Rob React' }] }]]]);
+  assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/comments`)).body[0].reactions.map((x) => [x.emoji, x.users.length]), [['❤️', 1]]);
+  assert.notEqual((await c('POST', `/api/tasks/tasks/${t.id}/comments/${tc.id}/reactions`, { emoji: '❤️' })).status, 200, 'not someone off the list');
+  // Deleting a comment takes its reactions with it.
+  await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${tc.id}`);
+  assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/comments`)).body, []);
+});
 test('notes: a shared note’s comments are in its downloaded Markdown (.zip and .md), and importing it leaves them out of the text', async () => {
   const JSZip = (await import('jszip')).default;
   const a = client(), b = client();

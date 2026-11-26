@@ -197,6 +197,21 @@ await step('Home: Comments for you lists a task comment that mentions you, until
   await kim.waitForLoadState('networkidle');
   await until(async () => !(await kim.getByRole('link', { name: /Please confirm @kim/ }).count()), 5000);
 }, kim);
+await step('react to a task comment with an emoji (☺), shown with who; clicking it again takes it back', async () => {
+  await page.goto(`${B}/tasks/${listId}?task=${taskId}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  const list = d.getByRole('list', { name: 'Comments' });
+  await list.getByRole('button', { name: 'Add a reaction' }).first().click();
+  await list.getByRole('button', { name: 'React with 👍' }).click();
+  const mine = list.getByRole('button', { name: '👍 1: Olivia Owner' });
+  await mine.waitFor();
+  if ((await mine.getAttribute('aria-pressed')) !== 'true') throw new Error('not shown as yours');
+  // Kim sees it too.
+  await kim.goto(`${B}/tasks/${listId}?task=${taskId}`);
+  await kim.getByRole('complementary', { name: 'Task details' }).getByRole('button', { name: '👍 1: Olivia Owner' }).waitFor();
+  await mine.click();
+  await until(async () => !(await list.getByRole('button', { name: /^👍/ }).count()));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -256,6 +256,21 @@ await step('a comment can @mention someone on the note: suggested as you type, a
   await until(async () => !(await kim.getByRole('link', { name: /Can you book it/ }).count()), 5000);
   await kim.context().close();
 });
+await step('react to a note comment with an emoji (☺), shown with who; clicking it again takes it back', async () => {
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Offsite').locator('.note-open').click();
+  const dlg = page.getByRole('dialog', { name: 'Offsite' });
+  const box = dlg.getByRole('region', { name: 'Comments' });
+  await box.getByRole('button', { name: 'Add a reaction' }).first().click();
+  await box.getByRole('button', { name: 'React with 🎉' }).click();
+  const mine = box.getByRole('button', { name: '🎉 1: Olivia Owner' });
+  await mine.waitFor();
+  if ((await mine.getAttribute('aria-pressed')) !== 'true') throw new Error('not shown as yours');
+  if (!(await dlg.isVisible())) throw new Error('the note closed');
+  await mine.click();
+  await until(async () => !(await box.getByRole('button', { name: /^🎉/ }).count()));
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
