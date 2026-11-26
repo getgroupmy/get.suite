@@ -815,7 +815,13 @@ function NoteComments({ note }) {
   const { user } = useAuth();
   const [list, setList] = useState(null);
   const [text, setText] = useState('');
+  const [editing, setEditing] = useState(null); // { id, text }: your comment being changed
   const load = useCallback(() => get(`/notes/${note.id}/comments`).then(setList).catch(() => setList([])), [note.id]);
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing.text.trim()) return;
+    try { setList(await patch(`/notes/${note.id}/comments/${editing.id}`, { text: editing.text })); setEditing(null); } catch (err) { toast(err.message, 'error'); }
+  };
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed') load(); }), [load]);
   const send = async (e) => {
@@ -828,7 +834,18 @@ function NoteComments({ note }) {
       <strong className="small">Comments{list?.length ? ` (${list.length})` : ''}</strong>
       {list?.map((c) => (
         <div key={c.id} className="row" style={{ alignItems: 'flex-start', gap: 8 }}>
-          <span className="grow"><strong className="small">{c.by.name}</strong> <span className="muted small">{new Date(c.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span><br /><span style={{ whiteSpace: 'pre-wrap' }}>{c.text}</span></span>
+          <span className="grow"><strong className="small">{c.by.name}</strong> <span className="muted small">{new Date(c.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}{c.edited_at && ' (edited)'}</span><br />
+            {editing?.id === c.id
+              ? (
+                <form className="row" onSubmit={saveEdit} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}>
+                  <input className="grow" aria-label="Change your comment" maxLength={2000} autoFocus value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })} />
+                  <button className="btn small" disabled={!editing.text.trim()}>Save</button>
+                  <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
+                </form>
+                )
+              : <span style={{ whiteSpace: 'pre-wrap' }}>{c.text}</span>}
+          </span>
+          {c.by.id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label="Edit your comment" title="Edit" onClick={() => setEditing({ id: c.id, text: c.text })}><Icon name="edit" size={14} /></button>}
           {(c.by.id === user?.id || note.mine) && <button type="button" className="icon-btn" aria-label={`Delete ${c.by.name}’s comment`} onClick={async () => { try { setList(await del(`/notes/${note.id}/comments/${c.id}`)); } catch (err) { toast(err.message, 'error'); } }}><Icon name="close" size={14} /></button>}
         </div>
       ))}

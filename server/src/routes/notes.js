@@ -274,6 +274,8 @@ export const TRASH_DAYS = 7;
 q(`CREATE TABLE IF NOT EXISTS note_comments (id TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL)`).run();
 q('CREATE INDEX IF NOT EXISTS note_comments_note ON note_comments(note_id, created_at)').run();
+// When its writer last changed it (none: never).
+if (!q('PRAGMA table_info(note_comments)').all().some((c) => c.name === 'edited_at')) q('ALTER TABLE note_comments ADD COLUMN edited_at INTEGER').run();
 const MAX_COMMENTS = 200;
 const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE note_id = ?').all(n.id).map((s) => s.user_id)];
 function shape(n, me) {
@@ -1065,8 +1067,8 @@ export default function noteRoutes() {
   }
   // Comments: [{ id, text, at, by: { id, name } }], oldest first; a new one ({ text }) tells everyone else on the note in the
   // bell; deleting: your own, or any on a note of yours.
-  const commentsOf = (noteId) => q(`SELECT c.id, c.text, c.created_at AS at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId).map((c) => ({ id: c.id, text: c.text, at: c.at, by: { id: c.user_id, name: c.name || 'Someone' } }));
+  const commentsOf = (noteId) => q(`SELECT c.id, c.text, c.created_at AS at, c.edited_at, c.user_id, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.note_id = ? ORDER BY c.created_at, c.rowid`).all(noteId).map((c) => ({ id: c.id, text: c.text, at: c.at, edited_at: c.edited_at || null, by: { id: c.user_id, name: c.name || 'Someone' } }));
   r.get('/:id/comments', (req, res) => res.json(commentsOf(load(req.params.id, req.user).id)));
   r.post('/:id/comments', (req, res) => {
     const n = load(req.params.id, req.user);
@@ -1079,6 +1081,18 @@ export default function noteRoutes() {
     if (others.length) bell(others, { kind: 'comment', title: `${req.user.name} commented on “${n.title || 'a note'}”`, body: text.slice(0, 200), link: `/notes?note=${n.id}`, actor: req.user.name });
     tell(n);
     res.status(201).json(commentsOf(n.id));
+  });
+  // Changing a comment: only its writer; it says it was edited (no one is told again).
+  r.patch('/:id/comments/:cid', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const c = q('SELECT * FROM note_comments WHERE id = ? AND note_id = ?').get(String(req.params.cid), n.id);
+    if (!c) throw notFound('Comment not found');
+    if (c.user_id !== req.user.id) throw forbidden('Only its writer can change a comment');
+    const text = str(req.body?.text, { required: true, name: 'Comment', max: 2000 }).trim();
+    if (!text) throw bad('Write a comment');
+    if (text !== c.text) q('UPDATE note_comments SET text = ?, edited_at = ? WHERE id = ?').run(text, now(), c.id);
+    tell(n);
+    res.json(commentsOf(n.id));
   });
   r.delete('/:id/comments/:cid', (req, res) => {
     const n = load(req.params.id, req.user);

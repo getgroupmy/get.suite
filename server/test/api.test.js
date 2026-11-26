@@ -6992,7 +6992,7 @@ test('approvals: ask, approve, reject, cancel; changes after approval are flagge
   assert.equal(hist.history.length, 3);
 });
 
-test('notes: comments on a shared note — everyone on it writes, the others are told; deleting your own, or any on your note', async () => {
+test('notes: comments on a shared note — everyone on it writes, the others are told; changing your own; deleting your own, or any on your note', async () => {
   const a = client(), b = client(), c = client();
   const ids = {};
   for (const [local, name] of [['ncma', 'Nia Comment'], ['ncmb', 'Ned Comment'], ['ncmc', 'Nat Outside']]) {
@@ -7012,6 +7012,20 @@ test('notes: comments on a shared note — everyone on it writes, the others are
   assert.equal((await c('GET', `/api/notes/${n.id}/comments`)).status, 404, 'not someone it isn’t shared with');
   assert.equal((await c('POST', `/api/notes/${n.id}/comments`, { text: 'hi' })).status, 404);
   assert.equal((await a('POST', `/api/notes/${n.id}/comments`, { text: '   ' })).status, 400);
+  // Changing one: only its writer (not even the note's owner); it says it was edited; no one is told again.
+  assert.equal(two[0].edited_at, null);
+  const bells = (await a('GET', '/api/notifications')).body.items.length;
+  const changed = await b('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: '  The lake house is free  ' });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body[0].text, 'The lake house is free');
+  assert.ok(changed.body[0].edited_at > 0);
+  assert.equal(changed.body[0].at, two[0].at, 'keeps its place and time');
+  assert.equal((await a('GET', '/api/notifications')).body.items.length, bells);
+  assert.equal((await a('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: 'Mine now' })).status, 403);
+  assert.equal((await c('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: 'x' })).status, 404);
+  assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: ' ' })).status, 400);
+  assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/nope`, { text: 'x' })).status, 404);
+  assert.equal((await b('GET', `/api/notes/${n.id}/comments`)).body[0].text, 'The lake house is free');
   // Ned can't delete Nia's; Nia (the owner) can delete Ned's; Ned his own.
   assert.equal((await b('DELETE', `/api/notes/${n.id}/comments/${two[1].id}`)).status, 403);
   assert.equal((await a('DELETE', `/api/notes/${n.id}/comments/${two[0].id}`)).status, 200);

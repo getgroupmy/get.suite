@@ -110,6 +110,23 @@ await step('a shared note: a comment written in it, listed, and counted on its c
   await dlg.getByRole('button', { name: 'Close' }).last().click();
   await cardOf(page, 'Offsite').getByLabel('1 comment').waitFor();
 });
+await step('Edit your comment: Escape keeps it (and the note open), Save changes it and says (edited)', async () => {
+  await cardOf(page, 'Offsite').locator('.note-open').click();
+  const dlg = page.getByRole('dialog', { name: 'Offsite' });
+  const box = dlg.getByRole('region', { name: 'Comments' });
+  await box.getByRole('button', { name: 'Edit your comment' }).click();
+  const input = box.getByLabel('Change your comment');
+  await input.fill('Nope');
+  await input.press('Escape');
+  await box.getByText('The lake house is free').waitFor();
+  if (!(await dlg.isVisible())) throw new Error('Escape closed the note');
+  await box.getByRole('button', { name: 'Edit your comment' }).click();
+  await input.fill('The lake house is free that week');
+  await box.getByRole('button', { name: 'Save' }).click();
+  await box.getByText('The lake house is free that week').waitFor();
+  await box.getByText('(edited)').waitFor();
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+});
 await step('Download (.zip) of the shared note: its comment is in the Markdown, after a marker', async () => {
   await cardOf(page, 'Offsite').hover();
   await page.getByRole('button', { name: 'Select note: Offsite' }).click();
@@ -119,7 +136,7 @@ await step('Download (.zip) of the shared note: its comment is in the Markdown, 
   const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
   const zip = await JSZip.loadAsync((await import('node:fs')).readFileSync(await dl.path()));
   const md = await zip.file('Offsite.md').async('string');
-  if (!/Where shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
+  if (!/Where shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free that week\n$/.test(md)) throw new Error(md);
   await page.keyboard.press('Escape');
 });
 await step('⋮ → Print: the shared note’s comments are on its printout, under it', async () => {
@@ -131,7 +148,7 @@ await step('⋮ → Print: the shared note’s comments are on its printout, und
   const frame = page.frameLocator('iframe.print-frame').last();
   await frame.getByRole('heading', { name: 'Comments' }).waitFor({ state: 'attached' });
   const text = await frame.locator('.comments li').first().innerText();
-  if (!/^Olivia.*\n?The lake house is free$/s.test(text)) throw new Error(text);
+  if (!/^Olivia.*\(edited\)\n?The lake house is free that week$/s.test(text)) throw new Error(text);
   const after = await page.locator('iframe.print-frame').last().evaluate((f) => f.contentDocument.body.innerText);
   if (after.indexOf('Where shall we go?') > after.indexOf('Comments')) throw new Error('comments before the note');
 });
@@ -142,7 +159,7 @@ await step('⋮ → Download (.md) of the shared note carries its comment too', 
   await card.getByRole('button', { name: 'More' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download (.md)' }).click()]);
   const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
-  if (!/^# Offsite\n\nWhere shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free\n$/.test(md)) throw new Error(md);
+  if (!/^# Offsite\n\nWhere shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free that week\n$/.test(md)) throw new Error(md);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

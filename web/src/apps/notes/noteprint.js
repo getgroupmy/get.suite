@@ -9,7 +9,7 @@ export function notePrintHtml(n) {
   // Its pictures, from this server (the print frame loads them before printing).
   const pics = n.id && n.pictures?.length ? `<div class="pics">${n.pictures.map((p) => `<img src="/api/notes/${encodeURIComponent(n.id)}/pictures/${encodeURIComponent(p.id || p)}" alt="">`).join('')}</div>` : '';
   // Its comments (a shared note's), when given: [{ text, at, by: { name } }], under it.
-  const comments = n.commentList?.length ? `<section class="comments"><h2>Comments</h2><ul>${n.commentList.map((c) => `<li><b>${esc(c.by?.name || 'Someone')}</b> <span class="when">${esc(new Date(c.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</span><br>${esc(c.text).replace(/\n/g, '<br>')}</li>`).join('')}</ul></section>` : '';
+  const comments = n.commentList?.length ? `<section class="comments"><h2>Comments</h2><ul>${n.commentList.map((c) => `<li><b>${esc(c.by?.name || 'Someone')}</b> <span class="when">${esc(new Date(c.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}${c.edited_at ? ' (edited)' : ''}</span><br>${esc(c.text).replace(/\n/g, '<br>')}</li>`).join('')}</ul></section>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(n.title || 'Note')}</title><style>
     body { font: 14px/1.5 system-ui, sans-serif; color: #202124; margin: 24px; } h1 { font-size: 20px; margin: 0 0 10px; }
     ul { list-style: none; padding: 0; margin: 0; } li { padding: 2px 0; } li.sub { padding-left: 24px; } li.done { text-decoration: line-through; color: #5f6368; }

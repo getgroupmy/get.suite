@@ -63,8 +63,9 @@ test('scheduling time for a note: the next full hour, or the day and time its ti
 });
 
 test('printing a shared note: its comments under it (escaped), fetched only for notes that have some', async () => {
-  const html = notePrintHtml({ title: 'Offsite', body: 'Where?', commentList: [{ text: 'Lake <house>\nfree', at: Date.UTC(2026, 10, 26, 9), by: { name: 'Kim & Co' } }, { text: 'ok', at: 1 }] });
-  assert.match(html, /Where\?<\/p><section class="comments"><h2>Comments<\/h2><ul><li><b>Kim &amp; Co<\/b> <span class="when">[^<]+<\/span><br>Lake &lt;house&gt;<br>free<\/li><li><b>Someone<\/b>/);
+  const html = notePrintHtml({ title: 'Offsite', body: 'Where?', commentList: [{ text: 'Lake <house>\nfree', at: Date.UTC(2026, 10, 26, 9), by: { name: 'Kim & Co' } }, { text: 'ok', at: 1, edited_at: 2 }] });
+  assert.match(html, /Where\?<\/p><section class="comments"><h2>Comments<\/h2><ul><li><b>Kim &amp; Co<\/b> <span class="when">[^<]+<\/span><br>Lake &lt;house&gt;<br>free<\/li><li><b>Someone<\/b> <span class="when">[^<]+ \(edited\)<\/span><br>ok<\/li>/);
+  assert.doesNotMatch(html.split('Someone')[0], /edited/, 'only the one changed');
   assert.doesNotMatch(notePrintHtml({ title: 'Plain', body: 'x' }), /class="comments"/);
   const asked = [];
   const got = await withComments([{ id: 'a', comments: 2 }, { id: 'b', comments: 0 }, { id: 'c', comments: 1 }], async (u) => { asked.push(u); if (u.includes('/c/')) throw new Error('gone'); return [{ text: 'hi' }]; });
