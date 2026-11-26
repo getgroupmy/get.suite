@@ -182,6 +182,8 @@ q(`CREATE TABLE IF NOT EXISTS task_comments (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)').run();
+// When its writer last changed it (none: never).
+if (!q('PRAGMA table_info(task_comments)').all().some((c) => c.name === 'edited_at')) q('ALTER TABLE task_comments ADD COLUMN edited_at INTEGER').run();
 const MAX_COMMENTS = 500;
 
 const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name, l.color AS list_color, l.emoji AS list_emoji,
@@ -840,7 +842,7 @@ export default function taskRoutes() {
   });
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
-    res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
+    res.json(q(`SELECT k.id, k.body, k.created_at, k.edited_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
                 WHERE k.task_id = ? ORDER BY k.created_at`).all(task.id));
   });
   r.post('/tasks/:id/comments', (req, res) => {
@@ -856,6 +858,18 @@ export default function taskRoutes() {
     if (told.size) bell([...told], { kind: 'task', title: `${req.user.name || req.user.username} commented on “${task.title}”`, body: body.slice(0, 200), link: `/tasks/${task.list_id}?task=${task.id}`, actor: req.user.name });
     changed(list);
     res.status(201).json({ id, body, created_at: now(), author_id: req.user.id, author_name: req.user.name });
+  });
+  // Changing your own comment (no one else's); it says it was edited, and no one is told again.
+  r.patch('/tasks/:id/comments/:cid', (req, res) => {
+    const { task } = taskFor(req);
+    const c = q('SELECT * FROM task_comments WHERE id = ? AND task_id = ?').get(String(req.params.cid), task.id);
+    if (!c || c.author_id !== req.user.id) throw notFound('Comment not found'); // your own only
+    const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
+    if (!body.trim()) throw bad('Write a comment');
+    if (body !== c.body) q('UPDATE task_comments SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), c.id);
+    changed(loadList(task.list_id, req.user));
+    const row = q('SELECT body, edited_at FROM task_comments WHERE id = ?').get(c.id);
+    res.json({ id: c.id, body: row.body, created_at: c.created_at, edited_at: row.edited_at, author_id: c.author_id, author_name: req.user.name });
   });
   r.delete('/tasks/:id/comments/:cid', (req, res) => {
     const { task } = taskFor(req);

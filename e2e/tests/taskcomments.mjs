@@ -64,6 +64,23 @@ await step('the colleague is told, sees it and answers; it shows live', async ()
   const bell = (await api(kim, 'GET', '/notifications')).body;
   if (!JSON.stringify(bell).includes('Olivia Owner commented on “Book venue”')) throw new Error('not told');
 }, kim);
+await step('edit your own comment: Escape keeps it and the details open; Save changes it, (edited), live for the colleague', async () => {
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  const mine = d.getByRole('list', { name: 'Comments' }).getByRole('listitem').filter({ hasText: 'Hotel or hall?' });
+  if (await d.getByRole('list', { name: 'Comments' }).getByRole('listitem').filter({ hasText: 'Hall, it is cheaper' }).getByRole('button', { name: 'Edit comment' }).count()) throw new Error('can edit someone else’s');
+  await mine.getByRole('button', { name: 'Edit comment' }).click();
+  const input = d.getByLabel('Change your comment');
+  await input.fill('Nope');
+  await input.press('Escape');
+  await d.getByText('Hotel or hall?').waitFor();
+  if (!(await d.isVisible())) throw new Error('Escape closed the details');
+  await mine.getByRole('button', { name: 'Edit comment' }).click();
+  await input.fill('Hotel, or the town hall?');
+  await input.locator('xpath=..').getByRole('button', { name: 'Save' }).click();
+  await d.getByText('Hotel, or the town hall?').waitFor();
+  await d.getByRole('list', { name: 'Comments' }).getByText(/\(edited\)/).waitFor();
+  await kim.getByRole('complementary', { name: 'Task details' }).getByText('Hotel, or the town hall?').waitFor({ timeout: 10000 });
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

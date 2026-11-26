@@ -5477,6 +5477,19 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.deepEqual(list2.map((x) => [x.author_name, x.body]), [['Talk Ann', 'Hotel or hall?'], ['Talk Ben', 'Hall, cheaper']]);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).comments, 2);
   assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/comments`)).status, 404, 'not for people off the list');
+  // Changing a comment: your own only; it says it was edited; no one is told again.
+  assert.equal(list2[0].edited_at, null);
+  const bensBells = JSON.stringify(await bell(b));
+  const ed = await a('PATCH', `/api/tasks/tasks/${t.id}/comments/${list2[0].id}`, { body: 'Hotel, or the hall?' });
+  assert.equal(ed.status, 200);
+  assert.equal(ed.body.body, 'Hotel, or the hall?');
+  assert.ok(ed.body.edited_at > 0);
+  assert.equal(JSON.stringify(await bell(b)), bensBells);
+  const after = (await b('GET', `/api/tasks/tasks/${t.id}/comments`)).body;
+  assert.deepEqual(after.map((x) => [x.body, !!x.edited_at]), [['Hotel, or the hall?', true], ['Hall, cheaper', false]], 'its place kept');
+  assert.equal((await b('PATCH', `/api/tasks/tasks/${t.id}/comments/${list2[0].id}`, { body: 'Mine' })).status, 404, 'not someone else’s');
+  assert.equal((await c('PATCH', `/api/tasks/tasks/${t.id}/comments/${list2[0].id}`, { body: 'x' })).status, 404);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}/comments/${list2[0].id}`, { body: '  ' })).status, 400);
   assert.equal((await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 404, 'only your own');
   assert.equal((await b('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 200);
   assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: '  ' })).status, 400);

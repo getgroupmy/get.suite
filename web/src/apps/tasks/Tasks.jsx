@@ -1668,14 +1668,21 @@ function TaskHistory({ task }) {
   );
 }
 
-/** A task's comments: everyone on the list sees them; you can remove your own. */
+/** A task's comments: everyone on the list sees them; you can change or remove your own. */
 function TaskComments({ task }) {
   const toast = useToast();
   const { user } = useAuth();
   const [list, setList] = useState([]);
   const [text, setText] = useState('');
+  const [editing, setEditing] = useState(null); // { id, body }: your comment being changed
   const load = useCallback(() => get(`/tasks/tasks/${task.id}/comments`).then(setList).catch(() => {}), [task.id]);
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing.body.trim()) return;
+    try { await patch(`/tasks/tasks/${task.id}/comments/${editing.id}`, { body: editing.body }); setEditing(null); load(); } catch (err) { toast(err.message, 'error'); }
+  };
   useEffect(() => { load(); }, [load, task.comments]); // the count changes live when someone comments
+  useEffect(() => onLive((m) => { if (m.type === 'tasks-changed' && m.list_id === task.list_id) load(); }), [load, task.list_id]); // and an edited one
   const send = async (e) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -1687,9 +1694,18 @@ function TaskComments({ task }) {
         <ul className="task-comment-list" aria-label="Comments">
           {list.map((c) => (
             <li key={c.id}>
-              <div className="row"><strong className="small">{c.author_name || 'Someone'}</strong><span className="muted small grow">{new Date(c.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              <div className="row"><strong className="small">{c.author_name || 'Someone'}</strong><span className="muted small grow">{new Date(c.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{c.edited_at && ' (edited)'}</span>
+                {c.author_id === user.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label="Edit comment" title="Edit" onClick={() => setEditing({ id: c.id, body: c.body })}><Icon name="edit" size={14} /></button>}
                 {c.author_id === user.id && <button type="button" className="icon-btn" aria-label="Delete comment" onClick={async () => { await del(`/tasks/tasks/${task.id}/comments/${c.id}`).catch((err) => toast(err.message, 'error')); load(); }}><Icon name="close" size={14} /></button>}</div>
-              <p className="task-comment-body">{c.body}</p>
+              {editing?.id === c.id
+                ? (
+                  <form className="row" onSubmit={saveEdit} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null); } }}>
+                    <input className="grow" aria-label="Change your comment" maxLength={4000} autoFocus value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })} />
+                    <button className="btn small" disabled={!editing.body.trim()}>Save</button>
+                    <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
+                  </form>
+                  )
+                : <p className="task-comment-body">{c.body}</p>}
             </li>
           ))}
         </ul>
