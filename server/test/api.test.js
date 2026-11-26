@@ -1766,6 +1766,19 @@ test('activity log: sign-ins, account changes and sharing, for each company\'s a
   assert.ok((await g('GET', `/api/audit?org_id=${(await owner('GET', '/api/orgs/current')).body.id}`)).body.entries.every((e) => e.target !== 'auditee@acme.com'), 'and cannot ask for it');
 });
 
+test('chat: changing your message to mention someone tells them, once; those it mentioned already aren’t told again', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['cema', 'Edit Ann'], ['cemb', 'Edit Ben'], ['cemc', 'Edit Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cema@acme.com'); await login(b, 'cemb@acme.com'); await login(c, 'cemc@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'edit-mentions' })).body.id;
+  const told = async (who) => (await who('GET', '/api/notifications')).body.items.filter((x) => x.kind === 'mention' && x.title === 'Edit Ann mentioned you in #edit-mentions').length;
+  const m = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Stand-up moved to 10, @cemb@acme.com' })).body;
+  assert.deepEqual([await told(b), await told(c)], [1, 0]);
+  assert.equal((await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Stand-up moved to 10, @cemb@acme.com and @cemc@acme.com' })).status, 200);
+  assert.deepEqual([await told(b), await told(c)], [1, 1], 'Cat is told now; Ben not again');
+  await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Stand-up moved to 10:30, @cemb@acme.com and @cemc@acme.com' });
+  assert.deepEqual([await told(b), await told(c)], [1, 1], 'nor on another change');
+});
 test('chat threads: replies beside a message, counted on it; unread only for people in the thread', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['thra', 'Thread Ann'], ['thrb', 'Thread Ben'], ['thrc', 'Thread Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

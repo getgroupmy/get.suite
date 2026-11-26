@@ -87,6 +87,21 @@ await step('mentions work in thread replies too', async () => {
   await page.keyboard.press('Enter');
   await kim.locator('.toast', { hasText: 'mentioned you: @kim@acme.com what do you think?' }).waitFor();
 });
+await step('changing your message to mention someone tells them (live, as a new mention would)', async () => {
+  await page.goto(`${B}/chat/${ch}`);
+  await kim.goto(`${B}/chat/${other}`);
+  await kim.getByLabel('Message', { exact: true }).waitFor();
+  await main(page).getByLabel('Message', { exact: true }).fill('Who books the room?');
+  await page.keyboard.press('Enter');
+  const m = msg(main(page), 'Who books the room?');
+  await m.waitFor();
+  await m.hover();
+  await m.getByRole('button', { name: 'Edit message' }).click();
+  await page.getByLabel('Change the message').fill('Who books the room? @kim@acme.com');
+  await page.keyboard.press('Enter');
+  await msg(main(page), 'Who books the room?').getByText('(edited)').waitFor();
+  await kim.locator('.toast', { hasText: 'mentioned you: Who books the room? @kim@acme.com' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

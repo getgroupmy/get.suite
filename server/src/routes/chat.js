@@ -689,7 +689,7 @@ function notifyKeywords(c, from, msg, mentioned) {
 const MENTION_RE = /@([\w.+-]+@[\w.-]+\.[a-z]{2,})/gi;
 // @a-group (one of the company's groups, by its name with dashes) and @channel (everyone in the conversation).
 const GROUP_MENTION_RE = /(?<![\w@.+-])@([a-z0-9][a-z0-9-]{0,79})(?![\w@.-])/gi;
-function notifyMentions(c, from, msg) {
+function notifyMentions(c, from, msg, { onlyNew = false } = {}) {
   const body = String(msg.body);
   const names = [...new Set([...body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 50);
   const words = [...new Set([...body.matchAll(GROUP_MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 20);
@@ -704,7 +704,9 @@ function notifyMentions(c, from, msg) {
       for (const m of q('SELECT user_id FROM group_members WHERE group_id = ?').all(g.id)) people.add(m.user_id);
     }
   }
-  const ids = [...people].filter((id) => id !== from.id && inIt.has(id)); // only people in the conversation
+  // Only people in the conversation; for an edited message, only those it didn't already mention (they were told then).
+  const had = onlyNew ? new Set(q('SELECT user_id FROM chat_mentions WHERE message_id = ?').all(msg.id).map((x) => x.user_id)) : new Set();
+  const ids = [...people].filter((id) => id !== from.id && inIt.has(id) && !had.has(id));
   if (ids.length) tx(() => { for (const id of ids) q('INSERT OR IGNORE INTO chat_mentions (message_id, user_id) VALUES (?, ?)').run(msg.id, id); });
   queueChatEmail(ids, msg.id);
   if (ids.length) notify(ids, { kind: 'mention', title: `${from.name || from.username} mentioned you in ${c.dm_key ? 'a message' : `#${c.name}`}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}`, actor: from.name });
@@ -1862,6 +1864,7 @@ export default function chatRoutes() {
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     addPreview(c, msg); // the link (if any) as it is now
+    notifyMentions(c, req.user, { id: m.id, body, parent_id: m.parent_id }, { onlyNew: true }); // someone it now mentions is told
     res.json(msg);
   });
 
