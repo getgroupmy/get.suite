@@ -391,6 +391,7 @@ export default function davRoutes() {
         if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, title = ?, address = ?, website = ?, notes = ?, birthday = ?, vcard_extra = ?, more_emails = ?, more_phones = ? WHERE id = ?').run(...vals, id);
         else q('INSERT INTO contacts (name, email, phone, company, title, address, website, notes, birthday, vcard_extra, more_emails, more_phones, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
         q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates?.length ? JSON.stringify(c.dates) : null, c.custom_fields?.length ? JSON.stringify(c.custom_fields) : null, id); // other dates, fields of your own
+        q('UPDATE contacts SET related = ? WHERE id = ?').run(c.related?.length ? JSON.stringify(c.related) : null, id); // related people
         photoFromCard(id, c); // the phone's photo (or none, when the card has none)
         const saved = q('SELECT * FROM contacts WHERE id = ?').get(id);
         res.setHeader('ETag', etagOf(vcfOf(saved)));

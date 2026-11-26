@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-const { cleanDates, cleanCustom } = await import('../src/contactfields.js');
+const { cleanDates, cleanCustom, cleanRelated } = await import('../src/contactfields.js');
 const { buildVcard, parseVcard } = await import('../src/vcard.js');
 const { contactsToCsv, contactsFromCsv } = await import('../src/contactfiles.js');
 
@@ -35,4 +35,22 @@ test('in CSV: Gmail\'s Event and Custom Field columns, both ways', () => {
   const [c] = contactsFromCsv(csv);
   assert.deepEqual(c.dates, [{ label: 'Anniversary', date: '2015-06-20' }]);
   assert.deepEqual(c.custom_fields, [{ label: 'Customer no.', value: '4711' }]);
+});
+
+test('related people: kept with a label, written for iPhones and Macs, read back (and from vCard 4 RELATED)', () => {
+  assert.deepEqual(cleanRelated([{ label: 'Spouse', name: '  Ana  Silva ' }, { name: 'Bo' }, { label: 'Manager', name: '' }]), [{ label: 'Spouse', name: 'Ana Silva' }, { label: 'Other', name: 'Bo' }]);
+  assert.throws(() => cleanRelated([{ label: 'Manager', name: ' ' }], { strict: true }), /needs a name/);
+  const card = buildVcard({ id: 'c1', name: 'Kim Park', related: [{ label: 'Spouse', name: 'Ana; Silva' }, { label: 'Godmother', name: 'Eve' }] });
+  assert.ok(card.includes('item9101.X-ABRELATEDNAMES:Ana\\; Silva\r\nitem9101.X-ABLabel:_$!<Spouse>!$_\r\nitem9102.X-ABRELATEDNAMES:Eve\r\nitem9102.X-ABLabel:Godmother\r\n'), card);
+  assert.deepEqual(parseVcard(card).related, [{ label: 'Spouse', name: 'Ana; Silva' }, { label: 'Godmother', name: 'Eve' }]);
+  // A phone's own groups, and vCard 4 RELATED as text (a link to another card is left as it was).
+  const phone = ['BEGIN:VCARD', 'VERSION:4.0', 'FN:Lee', 'item1.X-ABRELATEDNAMES:Max', 'item1.X-ABLabel:_$!<Manager>!$_', 'RELATED;TYPE=child;VALUE=text:Pip', 'RELATED;TYPE=friend:urn:uuid:123', 'END:VCARD'].join('\r\n');
+  const got = parseVcard(phone);
+  assert.deepEqual(got.related, [{ label: 'Manager', name: 'Max' }, { label: 'Child', name: 'Pip' }]);
+  assert.match(got.vcard_extra, /RELATED;TYPE=friend:urn:uuid:123/);
+  assert.doesNotMatch(got.vcard_extra || '', /X-ABRELATEDNAMES|item1\.X-ABLabel/);
+  // Written back: once, not twice.
+  const again = buildVcard({ id: 'c2', name: 'Lee', related: got.related, vcard_extra: got.vcard_extra });
+  assert.equal(again.match(/X-ABRELATEDNAMES/g).length, 2);
+  assert.match(again, /RELATED;TYPE=friend:urn:uuid:123/, 'a link to another card is kept as it came');
 });

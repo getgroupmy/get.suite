@@ -81,6 +81,26 @@ await step('editing keeps them; they go into the vCard and CSV downloads', async
   const csv = await page.evaluate(async () => (await fetch('/api/contacts/export?format=csv')).text());
   if (!/Custom Field 1 - Value/.test(csv) || !/4712/.test(csv)) throw new Error(csv.slice(0, 300));
 });
+await step('related people: added in the form, shown in the list, kept on edit, in the vCard', async () => {
+  await page.getByRole('button', { name: 'Edit Ann Lee' }).click();
+  const m = page.getByRole('dialog');
+  await m.getByRole('button', { name: '+ Add a person' }).click();
+  if ((await m.getByLabel('Related person 1: who they are').inputValue()) !== 'Spouse') throw new Error('Spouse first');
+  await m.getByLabel('Related person 1: name').fill('Ben Lee');
+  await m.getByRole('button', { name: '+ Add a person' }).click();
+  await m.getByLabel('Related person 2: who they are').fill('Manager');
+  await m.getByLabel('Related person 2: name').fill('Max Ode');
+  await m.getByRole('button', { name: 'Save' }).click();
+  await m.waitFor({ state: 'detached' });
+  await page.locator('tbody tr', { hasText: 'Ann Lee' }).getByText(/Spouse: Ben Lee · Manager: Max Ode/).waitFor();
+  await page.getByRole('button', { name: 'Edit Ann Lee' }).click();
+  if ((await m.getByLabel('Related person 2: name').inputValue()) !== 'Max Ode') throw new Error('not kept');
+  await m.getByRole('button', { name: 'Remove related person 2' }).click();
+  await m.getByRole('button', { name: 'Save' }).click();
+  await m.waitFor({ state: 'detached' });
+  const vcf = await page.evaluate(async () => (await fetch('/api/contacts/export?format=vcf')).text());
+  if (!/X-ABRELATEDNAMES:Ben Lee\r\nitem\d+\.X-ABLabel:_\$!<Spouse>!\$_/.test(vcf) || /Max Ode/.test(vcf)) throw new Error(vcf.slice(0, 600));
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

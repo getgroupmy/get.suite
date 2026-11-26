@@ -324,7 +324,7 @@ export default function Contacts() {
                   {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}
                   {c.more_phones?.map((m) => <div key={m.value} className="small"><a href={`tel:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
-                <td className="hide-sm muted">{own && (c.custom_fields?.length > 0 || c.dates?.length > 0) && <div className="small contact-extra">{[...(c.custom_fields || []).map((x) => `${x.label}: ${x.value}`), ...(c.dates || []).map((x) => `${x.label}: ${x.date.startsWith('--') ? x.date.slice(2) : x.date}`)].join(' · ')}</div>}{own ? <>{c.title}{c.title && c.company && ' · '}{c.company && <button type="button" className="link-btn company-link" title={`Show everyone at ${c.company.trim()}`} onClick={() => setFilter(c.company.trim().replace(/\s+/g, ' '))}>{c.company}</button>}{!c.title && !c.company && '—'}</> : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
+                <td className="hide-sm muted">{own && (c.custom_fields?.length > 0 || c.dates?.length > 0 || c.related?.length > 0) && <div className="small contact-extra">{[...(c.related || []).map((x) => `${x.label}: ${x.name}`), ...(c.custom_fields || []).map((x) => `${x.label}: ${x.value}`), ...(c.dates || []).map((x) => `${x.label}: ${x.date.startsWith('--') ? x.date.slice(2) : x.date}`)].join(' · ')}</div>}{own ? <>{c.title}{c.title && c.company && ' · '}{c.company && <button type="button" className="link-btn company-link" title={`Show everyone at ${c.company.trim()}`} onClick={() => setFilter(c.company.trim().replace(/\s+/g, ' '))}>{c.company}</button>}{!c.title && !c.company && '—'}</> : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {own && tab !== 'mine' && !c.can_edit && <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>}
                   {own && tab !== 'mine' && !c.can_edit && <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>}
@@ -741,7 +741,8 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
   // meanwhile (a phone number added on a phone) isn't put back.
   const formBody = (f) => ({ name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
       more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
-      dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) });
+      dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()),
+      related: (f.related || []).filter((x) => x.name.trim()) });
   const opened = useRef(null);
   if (opened.current === null) opened.current = formBody(f);
   async function submit(e) {
@@ -808,6 +809,7 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
         <label className="field"><span>Address</span><textarea rows={3} value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
         <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />
         <DatesField list={f.dates || []} onChange={(dates) => setF({ ...f, dates })} />
+        <RelatedField list={f.related || []} onChange={(related) => setF({ ...f, related })} />
         <CustomFields list={f.custom_fields || []} onChange={(custom_fields) => setF({ ...f, custom_fields })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
         {(!contact.id || contact.owner_id === user.id) && <label className="field"><span>Keep in touch</span>
@@ -863,6 +865,25 @@ function DatesField({ list, onChange }) {
     </fieldset>
   );
 }
+const RELATIONS = ['Spouse', 'Partner', 'Child', 'Parent', 'Sibling', 'Friend', 'Manager', 'Assistant', 'Relative', 'Other'];
+/** Related people: who they are to this person (Spouse, Manager… or a word of your own) and their name; up to ten. */
+function RelatedField({ list, onChange }) {
+  const set = (i, patch) => onChange(list.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <fieldset className="stack-tight contact-more"><legend className="small">Related people</legend>
+      {list.map((r, i) => (
+        <div key={i} className="row wrap" style={{ gap: 6 }}>
+          <input aria-label={`Related person ${i + 1}: who they are`} list="contact-relations" placeholder="Spouse, Manager…" value={r.label} maxLength={40} onChange={(e) => set(i, { label: e.target.value })} style={{ width: 128 }} />
+          <input aria-label={`Related person ${i + 1}: name`} placeholder="Name" value={r.name} maxLength={200} onChange={(e) => set(i, { name: e.target.value })} className="grow" />
+          <button type="button" className="icon-btn" aria-label={`Remove related person ${i + 1}`} onClick={() => onChange(list.filter((_, k) => k !== i))}>×</button>
+        </div>
+      ))}
+      <datalist id="contact-relations">{RELATIONS.map((x) => <option key={x} value={x} />)}</datalist>
+      {list.length < 10 && <div><button type="button" className="link-btn small" onClick={() => onChange([...list, { label: 'Spouse', name: '' }])}>+ Add a person</button></div>}
+    </fieldset>
+  );
+}
+
 /** Fields of your own: a label and a value (a customer number, a parking space); up to ten. */
 function CustomFields({ list, onChange }) {
   const set = (i, patch) => onChange(list.map((x, k) => (k === i ? { ...x, ...patch } : x)));

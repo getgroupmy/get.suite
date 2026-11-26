@@ -331,8 +331,8 @@ test('calendars colleagues share: on the phone too, read-only unless you may mak
   assert.equal((await dav('PROPFIND', `/dav/calendars/${me.id}/${see.id}/`, { depth: 0 })).status, 404);
 });
 
-test('contacts: dates and fields of your own sync with phones both ways', async () => {
-  const card = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:DATES-1', 'FN:Dee Dates', 'item1.X-ABDATE:2012-08-08', 'item1.X-ABLabel:_$!<Anniversary>!$_', 'X-WORKSPACE-FIELD;LABEL="Locker":42', 'END:VCARD'].join('\r\n');
+test('contacts: dates, fields of your own and related people sync with phones both ways', async () => {
+  const card = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:DATES-1', 'FN:Dee Dates', 'item1.X-ABDATE:2012-08-08', 'item1.X-ABLabel:_$!<Anniversary>!$_', 'X-WORKSPACE-FIELD;LABEL="Locker":42', 'item2.X-ABRELATEDNAMES:Ray Dates', 'item2.X-ABLabel:_$!<Spouse>!$_', 'END:VCARD'].join('\r\n');
   assert.equal((await dav('PUT', `/dav/addressbooks/${me.id}/default/dates-1.vcf`, { body: card, headers: { 'content-type': 'text/vcard' } })).status, 201);
   const mine = (await api('GET', '/api/contacts')).body.find((c) => c.name === 'Dee Dates');
   assert.deepEqual(mine.dates, [{ label: 'Anniversary', date: '2012-08-08' }]);
@@ -342,6 +342,12 @@ test('contacts: dates and fields of your own sync with phones both ways', async 
   assert.match(back, /X-ABDATE:2012-08-09/);
   assert.doesNotMatch(back, /2012-08-08/, 'the old date isn’t kept beside it');
   assert.match(back, /X-WORKSPACE-FIELD;LABEL="Locker":42/);
+  // Related people too, both ways, once each.
+  assert.deepEqual(mine.related, [{ label: 'Spouse', name: 'Ray Dates' }]);
+  await api('PATCH', `/api/contacts/${mine.id}`, { related: [{ label: 'Spouse', name: 'Ray Dates' }, { label: 'Assistant', name: 'Sam Aide' }] });
+  const back2 = (await dav('GET', `/dav/addressbooks/${me.id}/default/dates-1.vcf`)).text;
+  assert.equal(back2.match(/X-ABRELATEDNAMES:Ray Dates/g).length, 1);
+  assert.match(back2, /X-ABRELATEDNAMES:Sam Aide\r\nitem\d+\.X-ABLabel:_\$!<Assistant>!\$_/);
 });
 
 test('"Holidays in …": a read-only calendar on the phone, its events worked out', async () => {

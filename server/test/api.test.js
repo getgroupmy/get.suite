@@ -11682,7 +11682,7 @@ test('PDF signature boxes: the sender places them per signer; signatures and dat
   assert.ok(fonts(1) >= 1, 'the typed signature is written');
 });
 
-test('contact dates and fields of your own: saved, checked, on the calendar with birthdays', async () => {
+test('contact dates, fields of your own and related people: saved, checked, on the calendar with birthdays, on the card', async () => {
   const nia = client();
   assert.equal((await owner('POST', '/api/users', { local: 'cfnia', domain: 'acme.com', name: 'Nia Fields', password: 'password123' })).status, 201);
   await login(nia, 'cfnia@acme.com');
@@ -11698,6 +11698,18 @@ test('contact dates and fields of your own: saved, checked, on the calendar with
   assert.deepEqual(cal.map((x) => [x.date, x.label, x.years]), [['2026-06-20', 'Anniversary', 11], ['2026-11-12', 'Started', null]]);
   const vcf = (await nia('GET', '/api/contacts/export?format=vcf')).body;
   assert.match(String(vcf), /X-ABDATE:2015-06-20/);
+  // Related people: saved, changed, checked, on the card (as iPhones read them), read back from a phone's card.
+  assert.match((await nia('POST', '/api/contacts', { name: 'Bad', related: [{ label: 'Manager', name: ' ' }] })).body.error, /needs a name/);
+  const r = (await nia('PATCH', `/api/contacts/${c.id}`, { related: [{ label: 'Spouse', name: 'Ben Lee' }, { label: 'Manager', name: 'Max Ode' }] })).body;
+  assert.deepEqual(r.related, [{ label: 'Spouse', name: 'Ben Lee' }, { label: 'Manager', name: 'Max Ode' }]);
+  assert.equal(r.custom_fields.length, 2, 'fields untouched');
+  assert.deepEqual((await nia('PATCH', `/api/contacts/${c.id}`, { name: 'Ann Lee' })).body.related.length, 2, 'kept when not sent');
+  const card = String((await nia('GET', '/api/contacts/export?format=vcf')).body);
+  assert.match(card, /X-ABRELATEDNAMES:Ben Lee\r\nitem\d+\.X-ABLabel:_\$!<Spouse>!\$_/);
+  const imp = await nia('POST', '/api/contacts/import', 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Lou Ray\r\nEMAIL:lou@ray.test\r\nitem1.X-ABRELATEDNAMES:Kit Ray\r\nitem1.X-ABLabel:_$!<Child>!$_\r\nEND:VCARD\r\n', { raw: true, headers: { 'content-type': 'text/vcard' } });
+  assert.ok(imp.status < 300, JSON.stringify(imp.body));
+  const lou = (await nia('GET', '/api/contacts')).body.find((x) => x.name === 'Lou Ray');
+  assert.deepEqual(lou?.related, [{ label: 'Child', name: 'Kit Ray' }]);
 });
 
 test('OpenDocument: a document downloads as .odt; an .odt file previews, compares and opens as a document', async () => {
