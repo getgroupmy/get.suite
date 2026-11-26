@@ -1104,7 +1104,12 @@ export default function noteRoutes() {
     q(`INSERT INTO note_comment_seen (note_id, user_id, seen_at) VALUES (?, ?, ?)
        ON CONFLICT(note_id, user_id) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)`).run(n.id, req.user.id, now()); // (you've read those above yours)
     const others = team(n).filter((x) => x !== req.user.id);
-    if (others.length) bell(others, { kind: 'comment', title: `${req.user.name} commented on “${n.title || 'a note'}”`, body: text.slice(0, 200), link: `/notes?note=${n.id}`, actor: req.user.name });
+    // @someone@address of a person on the note: told they were mentioned, instead of only that there's a comment.
+    const named = new Set([...text.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()));
+    const mentioned = named.size ? q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...named])).map((u) => u.id).filter((u) => others.includes(u)) : [];
+    const rest = others.filter((x) => !mentioned.includes(x)), title = n.title || 'a note', link = `/notes?note=${n.id}`;
+    if (mentioned.length) bell(mentioned, { kind: 'mention', title: `${req.user.name} mentioned you on “${title}”`, body: text.slice(0, 200), link, actor: req.user.name });
+    if (rest.length) bell(rest, { kind: 'comment', title: `${req.user.name} commented on “${title}”`, body: text.slice(0, 200), link, actor: req.user.name });
     tell(n);
     res.status(201).json(commentsOf(n.id));
   });

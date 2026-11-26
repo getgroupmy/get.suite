@@ -25,6 +25,7 @@ import { quickTimes, reminderText } from './remind.js';
 import DrawPad from '../../components/DrawPad.jsx';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 import { useBatches } from '../../components/useBatches.jsx';
+import { useMentions } from '../../components/mentions.jsx';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
@@ -821,6 +822,8 @@ function NoteComments({ note }) {
   const [list, setList] = useState(null);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(null); // { id, text }: your comment being changed
+  const box = useRef(null);
+  const mention = useMentions(box, text, setText); // "@" plus a few letters suggests people to mention
   const load = useCallback(() => get(`/notes/${note.id}/comments`).then(setList).catch(() => setList([])), [note.id]);
   const saveEdit = async (e) => {
     e.preventDefault();
@@ -848,14 +851,24 @@ function NoteComments({ note }) {
                   <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
                 </form>
                 )
-              : <span style={{ whiteSpace: 'pre-wrap' }}>{c.text}</span>}
+              : <span style={{ whiteSpace: 'pre-wrap' }}>{c.text.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</span>}
           </span>
           {c.by.id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label="Edit your comment" title="Edit" onClick={() => setEditing({ id: c.id, text: c.text })}><Icon name="edit" size={14} /></button>}
           {(c.by.id === user?.id || note.mine) && <button type="button" className="icon-btn" aria-label={`Delete ${c.by.name}’s comment`} onClick={async () => { try { setList(await del(`/notes/${note.id}/comments/${c.id}`)); } catch (err) { toast(err.message, 'error'); } }}><Icon name="close" size={14} /></button>}
         </div>
       ))}
+      {/* someone mentioned who isn't on the note won't be told (or see it) */}
+      {(() => {
+        const on = new Set([note.owner, ...(note.shared || [])].map((p) => String(p?.username || '').toLowerCase()).filter(Boolean));
+        const off = [...new Set([...text.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))].filter((e) => !on.has(e));
+        return off.length > 0 && <p className="small muted" role="status" style={{ margin: 0 }}>{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this note, so won't be told. Share the note first.</p>;
+      })()}
       <form className="row" onSubmit={send}>
-        <input className="grow" aria-label="Write a comment" placeholder="Write a comment" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="mention-box grow">
+          <input ref={box} style={{ width: '100%' }} aria-label="Write a comment" placeholder="Write a comment (@ to mention someone)" maxLength={2000} value={text}
+            onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }} onKeyDown={(e) => mention.keyDown(e)} onBlur={() => mention.close()} />
+          {mention.list}
+        </div>
         <button className="btn small" disabled={!text.trim()}>Comment</button>
       </form>
     </section>

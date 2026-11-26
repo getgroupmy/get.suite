@@ -212,6 +212,30 @@ await step('⋮ → Download (.md) of the shared note carries its comment too', 
   const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!/^# Offsite\n\nWhere shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free that week\n$/.test(md)) throw new Error(md);
 });
+await step('a comment can @mention someone on the note: suggested as you type, and they are told; someone it isn’t shared with is flagged', async () => {
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Offsite').locator('.note-open').click();
+  const dlg = page.getByRole('dialog', { name: 'Offsite' });
+  const box = dlg.getByRole('region', { name: 'Comments' });
+  const input = box.getByLabel('Write a comment');
+  await input.fill('Ask @zed@acme.com too');
+  await box.getByRole('status').filter({ hasText: "@zed@acme.com isn't on this note, so won't be told" }).waitFor();
+  await input.fill('');
+  await input.pressSequentially('Can you book it @kim');
+  await page.getByRole('listbox', { name: 'People to mention' }).getByRole('option', { name: /Kim Park/ }).waitFor();
+  await input.press('Enter'); // picks, doesn't post
+  if ((await input.inputValue()) !== 'Can you book it @kim@acme.com ') throw new Error(await input.inputValue());
+  if (await box.getByRole('status').count()) throw new Error('Kim is on the note');
+  await input.pressSequentially('today?');
+  await box.getByRole('button', { name: 'Comment', exact: true }).click();
+  await box.locator('.mention', { hasText: '@kim@acme.com' }).waitFor();
+  if (!(await dlg.isVisible())) throw new Error('the note closed');
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+  const kim = await mk('kim');
+  await signIn(kim, 'kim@acme.com');
+  await until(async () => JSON.stringify((await api(kim, 'GET', '/notifications')).body).includes('Olivia Owner mentioned you on “Offsite”'));
+  await kim.context().close();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

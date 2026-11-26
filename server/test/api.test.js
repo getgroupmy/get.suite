@@ -15397,6 +15397,29 @@ test('notes: the .zip download carries each note’s pictures in a folder beside
   assert.doesNotMatch(await zip.file('Plain.md').async('string'), /!\[/);
 });
 
+test('notes: @mentioning someone on a shared note in a comment tells them they were mentioned; not someone it isn’t shared with', async () => {
+  const a = client(), b = client(), c = client(), d = client();
+  const ids = {};
+  for (const [local, name] of [['nmna', 'Nia Mention'], ['nmnb', 'Ned Mention'], ['nmnc', 'Nat Mention'], ['nmnd', 'Noa Outside']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201); ids[local] = r.body.id;
+  }
+  await login(a, 'nmna@acme.com'); await login(b, 'nmnb@acme.com'); await login(c, 'nmnc@acme.com'); await login(d, 'nmnd@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Launch checklist', body: 'Who books the room?' })).body;
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nmnb, ids.nmnc] });
+  const r = await a('POST', `/api/notes/${n.id}/comments`, { text: '@NMNB@acme.com can you book it? cc @nmnd@acme.com' });
+  assert.equal(r.status, 201);
+  const items = async (who) => (await who('GET', '/api/notifications')).body.items.filter((x) => /“Launch checklist”/.test(x.title));
+  const ned = await items(b);
+  assert.deepEqual(ned.map((x) => [x.kind, x.title]), [['mention', 'Nia Mention mentioned you on “Launch checklist”']], 'Ned: mentioned, and only that');
+  assert.equal(ned[0].link, `/notes?note=${n.id}`);
+  assert.deepEqual((await items(c)).map((x) => [x.kind, x.title]), [['comment', 'Nia Mention commented on “Launch checklist”']], 'Nat: just a comment');
+  assert.deepEqual(await items(d), [], 'Noa isn’t on the note, so isn’t told');
+  assert.deepEqual(await items(a), [], 'not the writer');
+  // Mentioning yourself is nothing new.
+  await b('POST', `/api/notes/${n.id}/comments`, { text: 'Done @nmnb@acme.com' });
+  assert.deepEqual((await items(b)).length, 1);
+});
 test('notes: a shared note’s comments are in its downloaded Markdown (.zip and .md), and importing it leaves them out of the text', async () => {
   const JSZip = (await import('jszip')).default;
   const a = client(), b = client();
