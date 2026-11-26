@@ -3217,12 +3217,13 @@ test('contacts: duplicates found by email, phone or name; merging keeps one with
   await login(b, 'dupb@acme.com');
   const add = async (c) => (await a('POST', '/api/contacts', c)).body;
   const k1 = await add({ name: 'Kim Park', email: 'kim@park.example', company: 'Acme', notes: 'Met at expo' });
-  const k2 = await add({ name: 'K. Park', email: 'KIM@park.example', phone: '+44 7700 900123', birthday: '1990-05-01' });
-  const k3 = await add({ name: 'Kimberly Park', email: 'kim.park@gmail.example', phone: '07700 900 123' });
+  const k2 = await add({ name: 'K. Park', email: 'KIM@park.example', phone: '+44 7700 900123', birthday: '1990-05-01', related: [{ label: 'Spouse', name: 'Lee Park' }], dates: [{ label: 'Started', date: '2019-03-01' }] });
+  const k3 = await add({ name: 'Kimberly Park', email: 'kim.park@gmail.example', phone: '07700 900 123', related: [{ label: 'spouse', name: 'lee park' }, { label: 'Manager', name: 'Max Ode' }], custom_fields: [{ label: 'Customer no.', value: '4711' }] });
   await add({ name: 'Somebody Else', email: 'else@x.example' });
   const groups = (await a('GET', '/api/contacts/duplicates')).body;
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].map((c) => c.id).sort(), [k1.id, k2.id, k3.id].sort());
+  assert.ok(groups[0].every((c) => Array.isArray(c.more_emails) && Array.isArray(c.related)), 'lists as lists, as the dialog reads them');
   assert.deepEqual((await b('GET', '/api/contacts/duplicates')).body, [], 'only your own');
   assert.equal((await b('POST', '/api/contacts/merge', { keep: k1.id, ids: [k2.id] })).status, 404, 'not theirs');
   assert.equal((await a('POST', '/api/contacts/merge', { keep: k1.id, ids: [] })).status, 400);
@@ -3233,6 +3234,10 @@ test('contacts: duplicates found by email, phone or name; merging keeps one with
   assert.equal(m.birthday, '1990-05-01');
   assert.equal(m.notes, 'Met at expo');
   assert.deepEqual(m.more_emails, [{ type: 'other', value: 'kim.park@gmail.example' }], 'the other address is kept as another email');
+  // Their dates, fields and related people come together, each once (not only the kept contact's).
+  assert.deepEqual(m.related, [{ label: 'Spouse', name: 'Lee Park' }, { label: 'Manager', name: 'Max Ode' }]);
+  assert.deepEqual(m.dates, [{ label: 'Started', date: '2019-03-01' }]);
+  assert.deepEqual(m.custom_fields, [{ label: 'Customer no.', value: '4711' }]);
   const left = (await a('GET', '/api/contacts')).body.map((c) => c.name).sort();
   assert.deepEqual(left, ['Kim Park', 'Somebody Else']);
   assert.deepEqual((await a('GET', '/api/contacts/duplicates')).body, []);

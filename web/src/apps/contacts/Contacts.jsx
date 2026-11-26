@@ -408,7 +408,7 @@ function DuplicatesDialog({ onClose, onMerged }) {
     <Modal wide title="Merge duplicates" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
       {groups === null ? <p className="muted">Looking…</p> : !groups.length ? <p className="muted">No duplicates: no two contacts share an email address, phone number or name.</p> : (
         <div className="stack">
-          <p className="muted small" style={{ margin: 0 }}>These contacts share an email address, phone number or name. Merging keeps the one you choose, fills in what it's missing from the others, adds their other email addresses and phone numbers to it, and notes anything else that differs. The others are deleted.</p>
+          <p className="muted small" style={{ margin: 0 }}>These contacts share an email address, phone number or name. Merging keeps the one you choose, fills in what it's missing from the others, adds their other email addresses and phone numbers, dates, fields and related people to it, and notes anything else that differs. The others are deleted.</p>
           {groups.map((g, i) => (
             <fieldset key={g.map((c) => c.id).join()} className="dup-group" aria-label={`Duplicates of ${g[0].name}`}>
               {g.map((c) => (

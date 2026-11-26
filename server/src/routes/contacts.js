@@ -756,7 +756,8 @@ export default function contactRoutes() {
 
   // Contacts that look like the same person (same email, phone or name), to merge.
   r.get('/duplicates', (req, res) => {
-    res.json(duplicateGroups(q('SELECT * FROM contacts WHERE owner_id = ?').all(req.user.id)));
+    // (each as the browser reads a contact: its lists as lists)
+    res.json(duplicateGroups(q('SELECT * FROM contacts WHERE owner_id = ?').all(req.user.id)).map((g) => g.map(withMore)));
   });
 
   // Merge contacts into one: `keep` stays (its empty fields filled from the others, anything that
@@ -773,6 +774,8 @@ export default function contactRoutes() {
     const m = mergedFields(keep, others);
     tx(() => {
       q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')}, more_emails = ?, more_phones = ? WHERE id = ?`).run(...COLS.map((k) => m[k] ?? null), JSON.stringify(m.more_emails), JSON.stringify(m.more_phones), keep.id);
+      const list = (l) => (l.length ? JSON.stringify(l) : null);
+      q('UPDATE contacts SET dates = ?, custom_fields = ?, related = ? WHERE id = ?').run(list(m.dates), list(m.custom_fields), list(m.related), keep.id); // all of theirs
       for (const o of others) q('DELETE FROM contacts WHERE id = ?').run(o.id);
     });
     res.json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(keep.id)));

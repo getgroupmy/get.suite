@@ -103,6 +103,23 @@ await step('related people: added in the form, shown in the list, kept on edit, 
   const csv = await page.evaluate(async () => (await fetch('/api/contacts/export?format=csv')).text());
   if (!/Relation 1 - Type,Relation 1 - Value/.test(csv) || !/Spouse,Ben Lee/.test(csv)) throw new Error(csv.slice(0, 400));
 });
+await step('Merge duplicates: the related people, dates and fields of both are kept', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Ann Lee', related: [{ label: 'Manager', name: 'Zoe Boss' }], custom_fields: [{ label: 'Locker', value: '7' }] });
+  await page.goto(`${B}/contacts`);
+  await page.locator('tbody tr', { hasText: 'Ann Lee' }).first().waitFor();
+  await page.getByRole('button', { name: 'Merge duplicates' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Merge duplicates' });
+  await dlg.getByRole('group', { name: 'Duplicates of Ann Lee' }).getByRole('button', { name: 'Merge 2' }).click();
+  await dlg.getByText(/No duplicates/).waitFor();
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+  const anns = (await api(page, 'GET', '/contacts')).body.filter((x) => x.name === 'Ann Lee');
+  if (anns.length !== 1) throw new Error(`${anns.length} Ann Lees`);
+  const [ann] = anns;
+  const rel = ann.related.map((r) => `${r.label}: ${r.name}`).sort().join(' | ');
+  if (rel !== 'Manager: Zoe Boss | Spouse: Ben Lee') throw new Error(rel);
+  if (!ann.custom_fields.some((f) => f.label === 'Locker') || !ann.custom_fields.some((f) => f.label === 'Customer no.') || !ann.dates.length) throw new Error(JSON.stringify(ann));
+  await page.locator('tbody tr', { hasText: 'Ann Lee' }).getByText(/Zoe Boss/).waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -2,6 +2,7 @@
 // spaces and the country prefix) or the same name (ignoring case and spacing) puts contacts in one
 // group. Merging keeps one of them, fills its empty fields from the others, adds their other email
 // addresses and numbers to its own, and notes anything else that differs, so nothing is lost.
+import { cleanDates, cleanCustom, cleanRelated } from './contactfields.js';
 import { cleanMore } from './contactmore.js';
 
 const norm = {
@@ -60,5 +61,11 @@ export function mergedFields(keep, others) {
   const notes = [out.notes, ...others.map((o) => o.notes)].map((n) => String(n || '').trim()).filter(Boolean);
   const all = [...new Set([...notes, ...new Set(extra)])];
   out.notes = all.length ? all.join('\n').slice(0, 5000) : null;
+  // Their other dates, fields of your own and related people, together (each once; up to ten of each).
+  const once = (list, key) => list.filter((x, i) => list.findIndex((y) => key(y) === key(x)) === i);
+  const low = (s) => String(s).trim().toLowerCase();
+  out.dates = cleanDates(once([keep, ...others].flatMap((c) => cleanDates(c.dates)), (d) => `${low(d.label)}|${d.date}`));
+  out.custom_fields = cleanCustom(once([keep, ...others].flatMap((c) => cleanCustom(c.custom_fields)), (f) => `${low(f.label)}|${low(f.value)}`));
+  out.related = cleanRelated(once([keep, ...others].flatMap((c) => cleanRelated(c.related)), (r) => `${low(r.label)}|${low(r.name)}`));
   return out;
 }
