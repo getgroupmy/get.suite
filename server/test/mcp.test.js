@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -625,6 +625,16 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   assert.equal(said.comment.text, 'Thanks, @olivia@acme.com: updating it now');
   assert.ok(JSON.stringify((await owner('GET', '/api/notifications')).body).includes('Ava Assignee mentioned you on “Update price list”'));
   assert.ok((await call(avaRw, 'comment_on_task', { id: 'task:nope', text: 'x' })).isError);
+  // A shared note's comments: read by title, answered; Olivia is told.
+  const note = (await owner('POST', '/api/notes', { title: 'Team lunch', body: 'Friday?' })).body;
+  await owner('PUT', `/api/notes/${note.id}/shares`, { user_ids: [avaId] });
+  await owner('POST', `/api/notes/${note.id}/comments`, { text: 'Thai or pizza?' });
+  const nc = (await call(avaToken, 'read_note_comments', { note: 'team lunch' })).structuredContent;
+  assert.deepEqual([nc.note, nc.title, nc.comments.map((x) => [x.by, x.text])], [`note:${note.id}`, 'Team lunch', [['Olivia Owner', 'Thai or pizza?']]]);
+  assert.ok((await call(avaToken, 'comment_on_note', { note: nc.note, text: 'Thai' })).isError, 'not with a read-only token');
+  assert.equal((await call(avaRw, 'comment_on_note', { note: nc.note, text: 'Thai, please' })).structuredContent.comment.text, 'Thai, please');
+  assert.ok(JSON.stringify((await owner('GET', '/api/notifications')).body).includes('Ava Assignee commented on “Team lunch”'));
+  assert.match((await call(avaRw, 'comment_on_note', { note: 'No such note', text: 'x' })).content[0].text, /No note called/);
   await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
   assert.ok((await avasTask()).done_at, 'ticked off when resolved');
   assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads, [], 'resolved: no longer waiting');
