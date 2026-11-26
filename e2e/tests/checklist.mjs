@@ -220,6 +220,17 @@ await step('a comment can @mention someone on the note: suggested as you type, a
   const input = box.getByLabel('Write a comment');
   await input.fill('Ask @zed@acme.com too');
   await box.getByRole('status').filter({ hasText: "@zed@acme.com isn't on this note, so won't be told" }).waitFor();
+  // The note's owner can share it with someone mentioned from there.
+  await api(page, 'POST', '/users', { local: 'lee', domain: 'acme.com', name: 'Lee Chan', password: 'password123' });
+  await input.fill('@lee@acme.com have a look');
+  await box.getByRole('status').filter({ hasText: "@lee@acme.com isn't on this note" }).getByRole('button', { name: 'Share the note with them' }).click();
+  await page.getByText('Note shared with lee@acme.com').first().waitFor();
+  await until(async () => !(await box.getByRole('status').count()));
+  await box.getByRole('button', { name: 'Comment', exact: true }).click();
+  await box.getByText('@lee@acme.com').first().waitFor();
+  const lee = await mk('lee'); await signIn(lee, 'lee@acme.com');
+  await until(async () => { const t = JSON.stringify((await api(lee, 'GET', '/notifications')).body); return t.includes('shared a note with you') && t.includes('Olivia Owner mentioned you on “Offsite”'); });
+  await lee.context().close();
   await input.fill('');
   await input.pressSequentially('Can you book it @kim');
   await page.getByRole('listbox', { name: 'People to mention' }).getByRole('option', { name: /Kim Park/ }).waitFor();

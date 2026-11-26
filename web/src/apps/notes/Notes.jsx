@@ -822,6 +822,7 @@ function NoteComments({ note }) {
   const [list, setList] = useState(null);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(null); // { id, text }: your comment being changed
+  const [added, setAdded] = useState([]); // addresses just shared with (until the note catches up)
   const box = useRef(null);
   const mention = useMentions(box, text, setText); // "@" plus a few letters suggests people to mention
   const load = useCallback(() => get(`/notes/${note.id}/comments`).then(setList).catch(() => setList([])), [note.id]);
@@ -859,9 +860,13 @@ function NoteComments({ note }) {
       ))}
       {/* someone mentioned who isn't on the note won't be told (or see it) */}
       {(() => {
-        const on = new Set([note.owner, ...(note.shared || [])].map((p) => String(p?.username || '').toLowerCase()).filter(Boolean));
+        const on = new Set([...[note.owner, ...(note.shared || [])].map((p) => String(p?.username || '').toLowerCase()), ...added].filter(Boolean));
         const off = [...new Set([...text.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))].filter((e) => !on.has(e));
-        return off.length > 0 && <p className="small muted" role="status" style={{ margin: 0 }}>{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this note, so won't be told. Share the note first.</p>;
+        const share = async () => { try { await put(`/notes/${note.id}/shares`, { add: off }); setAdded([...added, ...off]); toast(`Note shared with ${off.join(', ')}`); } catch (err) { toast(err.message, 'error'); } };
+        return off.length > 0 && (
+          <p className="small muted row wrap" role="status" style={{ margin: 0, gap: 8 }}>{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this note, so won't be told. {note.mine ? '' : 'Only its owner can share it.'}
+            {note.mine && <button type="button" className="btn small" onClick={share}>Share the note with {off.length === 1 ? 'them' : `all ${off.length}`}</button>}</p>
+        );
       })()}
       <form className="row" onSubmit={send}>
         <div className="mention-box grow">

@@ -5,6 +5,7 @@ import { nextRemind, REPEATS } from '../noterepeat.js';
 import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
 import { q, tx, fold } from '../db.js';
+import { byAddress } from '../byaddress.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notesFromEnex, noteFromHtml } from '../evernote.js';
@@ -1222,7 +1223,10 @@ export default function noteRoutes() {
   r.put('/:id/shares', (req, res) => {
     const n = load(req.params.id, req.user);
     if (n.owner_id !== req.user.id) throw forbidden('Only the owner can change who it is shared with');
-    const ids = Array.isArray(req.body?.user_ids) ? [...new Set(req.body.user_ids.map(String))].filter((x) => x !== n.owner_id) : null;
+    // { add: [addresses] } adds those people to whoever it's shared with (as when a comment mentions someone not on it).
+    const adding = Array.isArray(req.body?.add) ? byAddress(req.body.add, req.user) : null;
+    const asked = adding ? [...team(n), ...adding] : req.body?.user_ids;
+    const ids = Array.isArray(asked) ? [...new Set(asked.map(String))].filter((x) => x !== n.owner_id) : null;
     if (!ids) throw bad('user_ids must be a list');
     const before = team(n);
     tx(() => {

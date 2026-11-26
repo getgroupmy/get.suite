@@ -1501,7 +1501,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
           else { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: r.id }); toast(`Copied to ${r.name}`); }
         }} />}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
-      <TaskComments task={task} people={people} />
+      <TaskComments task={task} people={people} canShare={!!lists.find((l) => l.id === task.list_id)?.mine} />
       <TaskHistory task={task} />
       <div className="row wrap" style={{ gap: 8 }}>
         {task.repeat && task.due && !task.done && (
@@ -1700,12 +1700,13 @@ function TaskHistory({ task }) {
 }
 
 /** A task's comments: everyone on the list sees them; you can change or remove your own. */
-function TaskComments({ task, people = [] }) {
+function TaskComments({ task, people = [], canShare = false }) {
   const toast = useToast();
   const { user } = useAuth();
   const [list, setList] = useState([]);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(null); // { id, body }: your comment being changed
+  const [added, setAdded] = useState([]); // addresses just shared with (until the list's people catch up)
   const box = useRef(null);
   const mention = useMentions(box, text, setText); // "@" plus a few letters suggests people to mention
   // (read now: the list stops calling them new)
@@ -1746,9 +1747,13 @@ function TaskComments({ task, people = [] }) {
       )}
       {/* someone mentioned who isn't on the list won't be told (or see the task) */}
       {(() => {
-        const on = new Set(people.map((p) => String(p.username || '').toLowerCase()).filter(Boolean));
+        const on = new Set([...people.map((p) => String(p.username || '').toLowerCase()), ...added].filter(Boolean));
         const off = [...new Set([...text.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))].filter((e) => !on.has(e));
-        return off.length > 0 && <p className="small muted" role="status">{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this list, so won't be told. Share the list first.</p>;
+        const share = async () => { try { await put(`/tasks/lists/${task.list_id}/members`, { add: off }); setAdded([...added, ...off]); toast(`List shared with ${off.join(', ')}`); } catch (err) { toast(err.message, 'error'); } };
+        return off.length > 0 && (
+          <p className="small muted row wrap" role="status" style={{ gap: 8 }}>{off.map((e) => `@${e}`).join(', ')} {off.length === 1 ? "isn't" : "aren't"} on this list, so won't be told. {canShare ? '' : 'Share the list first.'}
+            {canShare && <button type="button" className="btn small" onClick={share}>Share the list with {off.length === 1 ? 'them' : `all ${off.length}`}</button>}</p>
+        );
       })()}
       <form className="row" onSubmit={send}>
         <div className="mention-box grow">

@@ -16,6 +16,7 @@ import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktra
 import express, { Router } from 'express';
 import { splitByList, tasksFromCsv } from '../taskimport.js';
 import { q, tx, fold } from '../db.js';
+import { byAddress } from '../byaddress.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
@@ -674,7 +675,9 @@ export default function taskRoutes() {
   // Sharing: the people (besides the owner) who can see and change the list.
   r.put('/lists/:id/members', (req, res) => {
     const list = loadList(req.params.id, req.user, { own: true });
-    const ids = [...new Set((Array.isArray(req.body.user_ids) ? req.body.user_ids : []).map(String))].filter((id) => id !== list.owner_id);
+    // { add: [addresses] } adds those people to whoever is on it (as when a comment mentions someone not on it).
+    const asked = Array.isArray(req.body?.add) ? [...peopleOn(list), ...byAddress(req.body.add, req.user)] : req.body.user_ids;
+    const ids = [...new Set((Array.isArray(asked) ? asked : []).map(String))].filter((id) => id !== list.owner_id);
     for (const id of ids) if (!canReach(req.user, id)) throw bad('You cannot share with that person');
     const before = peopleOn(list);
     tx(() => {

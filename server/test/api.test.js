@@ -15433,6 +15433,29 @@ test('notes: @mentioning someone on a shared note in a comment tells them they w
   await a('POST', `/api/notes/${n.id}/comments`, { text: '@nmnc@acme.com one more thing' });
   const { digestFor } = await import('../src/digest.js');
   assert.match(digestFor(ids.nmnc).text, /Comments for you \(1\):\n  🗒 “Launch checklist”: Nia Mention: @nmnc@acme\.com one more thing/);
+  // Sharing with someone mentioned: { add: [addresses] } adds them to who's on it (only the owner; an address no one has is an error).
+  assert.equal((await b('PUT', `/api/notes/${n.id}/shares`, { add: ['@nmnd@acme.com'] })).status, 403);
+  assert.equal((await a('PUT', `/api/notes/${n.id}/shares`, { add: ['@nobody@acme.com'] })).status, 400);
+  const added = await a('PUT', `/api/notes/${n.id}/shares`, { add: ['@NMND@acme.com', 'nmna@acme.com'] });
+  assert.equal(added.status, 200);
+  assert.deepEqual(added.body.shared.map((x) => x.name), ['Nat Mention', 'Ned Mention', 'Noa Outside'], 'added; nobody dropped');
+  assert.ok((await d('GET', '/api/notifications')).body.items.some((x) => x.title === 'Nia Mention shared a note with you'));
+});
+test('tasks: { add: [addresses] } adds people to a list (as when a comment mentions someone not on it), keeping those on it', async () => {
+  const a = client(), b = client();
+  const ids = {};
+  for (const [local, name] of [['tadda', 'Tia Adder'], ['taddb', 'Tom Already'], ['taddc', 'Tim Added']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201); ids[local] = r.body.id;
+  }
+  await login(a, 'tadda@acme.com'); await login(b, 'taddb@acme.com');
+  const l = (await a('POST', '/api/tasks/lists', { name: 'Fair stand' })).body;
+  await a('PUT', `/api/tasks/lists/${l.id}/members`, { user_ids: [ids.taddb] });
+  assert.equal((await a('PUT', `/api/tasks/lists/${l.id}/members`, { add: ['@nobody@acme.com'] })).status, 400);
+  assert.notEqual((await b('PUT', `/api/tasks/lists/${l.id}/members`, { add: ['@taddc@acme.com'] })).status, 200, 'only the owner');
+  assert.equal((await a('PUT', `/api/tasks/lists/${l.id}/members`, { add: ['@taddc@acme.com'] })).status, 200);
+  const on = (await a('GET', '/api/tasks/lists')).body.lists.find((x) => x.id === l.id);
+  assert.deepEqual(on.members.map((m) => m.name).sort(), ['Tim Added', 'Tom Already'], 'added; nobody dropped');
 });
 test('notes: a shared note’s comments are in its downloaded Markdown (.zip and .md), and importing it leaves them out of the text', async () => {
   const JSZip = (await import('jszip')).default;

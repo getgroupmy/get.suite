@@ -173,6 +173,17 @@ await step('mentioning someone who isn’t on the list says they won’t be told
   await d.getByRole('status').filter({ hasText: "@zed@acme.com isn't on this list, so won't be told" }).waitFor();
   await input.fill('Ask @kim@acme.com and @olivia@acme.com');
   await until(async () => !(await d.getByText(/on this list, so won.t be told/).count()));
+  // The list's owner can share it with them from there; then they're told.
+  await api(page, 'POST', '/users', { local: 'lee', domain: 'acme.com', name: 'Lee Chan', password: 'password123' });
+  await input.fill('@lee@acme.com can you help?');
+  const st = d.getByRole('status').filter({ hasText: "@lee@acme.com isn't on this list" });
+  await st.getByRole('button', { name: 'Share the list with them' }).click();
+  await page.getByText('List shared with lee@acme.com').first().waitFor();
+  await until(async () => !(await d.getByText(/on this list, so won.t be told/).count()));
+  await d.getByRole('button', { name: 'Post' }).click();
+  const lee = await mk('lee'); await signIn(lee, 'lee@acme.com');
+  await until(async () => { const t = JSON.stringify((await api(lee, 'GET', '/notifications')).body); return t.includes('shared the list') && t.includes('Olivia Owner mentioned you on'); });
+  await lee.context().close();
   await input.fill('');
 });
 await step('Home: Comments for you lists a task comment that mentions you, until the task is opened', async () => {
