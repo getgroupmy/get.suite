@@ -151,6 +151,21 @@ await step('the sidebar marks a list with new comments (💬), until the task is
   await page.getByRole('complementary', { name: 'Task details' }).getByText('Menu agreed').waitFor();
   await until(async () => !(await mark.count()));
 });
+await step('@ in a comment suggests people; picking one mentions them, and they are told so', async () => {
+  await page.goto(`${B}/tasks/${listId}?task=${taskId}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  const input = d.getByLabel('Add a comment');
+  await input.click();
+  await input.pressSequentially('Please confirm @kim');
+  const pick = page.getByRole('listbox', { name: 'People to mention' });
+  await pick.getByRole('option', { name: /Kim Park/ }).waitFor();
+  await input.press('Enter'); // picks, doesn't post
+  if ((await input.inputValue()) !== 'Please confirm @kim@acme.com ') throw new Error(await input.inputValue());
+  await input.pressSequentially('by Friday');
+  await d.getByRole('button', { name: 'Post' }).click();
+  await d.getByRole('list', { name: 'Comments' }).locator('.mention', { hasText: '@kim@acme.com' }).waitFor();
+  await until(async () => JSON.stringify((await api(kim, 'GET', '/notifications')).body).includes('Olivia Owner mentioned you on “Book venue”'));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

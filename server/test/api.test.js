@@ -5518,6 +5518,16 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.equal((await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 404, 'only your own');
   assert.equal((await b('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 200);
   assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: '  ' })).status, 400);
+  // @mentions: anyone on the list mentioned is told (even if not otherwise involved); someone off the list isn't.
+  const t2 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Print flyers' })).body;
+  const bells = async (who) => JSON.stringify((await who('GET', '/api/notifications')).body);
+  assert.equal((await a('POST', `/api/tasks/tasks/${t2.id}/comments`, { body: 'Can @TCB@acme.com and @tcc@acme.com check the proof?' })).status, 201);
+  assert.ok((await bells(b)).includes('Talk Ann mentioned you on “Print flyers”'), 'Ben is mentioned');
+  assert.ok(!(await bells(b)).includes('Talk Ann commented on “Print flyers”'), 'told once');
+  assert.ok(!(await bells(c)).includes('Print flyers'), 'not someone off the list');
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid, (await c('GET', '/api/auth/me')).body.user.id] });
+  await a('POST', `/api/tasks/tasks/${t2.id}/comments`, { body: '@tcc@acme.com now you can see it' });
+  assert.ok((await bells(c)).includes('Talk Ann mentioned you on “Print flyers”'));
 });
 
 test('drive: who can open a document but not a file it links to', async () => {

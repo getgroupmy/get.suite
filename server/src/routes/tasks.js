@@ -873,7 +873,13 @@ export default function taskRoutes() {
     const on = new Set(peopleOn(list));
     const told = new Set([task.assignee_id, task.created_by, ...q('SELECT DISTINCT author_id FROM task_comments WHERE task_id = ?').all(task.id).map((x) => x.author_id)]
       .filter((u) => u && u !== req.user.id && on.has(u)));
-    if (told.size) bell([...told], { kind: 'task', title: `${req.user.name || req.user.username} commented on “${task.title}”`, body: body.slice(0, 200), link: `/tasks/${task.list_id}?task=${task.id}`, actor: req.user.name });
+    // @someone@address of a person on the list: told that they were mentioned (anyone on the list, not only those above).
+    const named = new Set([...body.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()));
+    const mentioned = named.size ? q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...named])).map((u) => u.id).filter((u) => u !== req.user.id && on.has(u)) : [];
+    for (const u of mentioned) told.delete(u);
+    const by = req.user.name || req.user.username, link = `/tasks/${task.list_id}?task=${task.id}`;
+    if (mentioned.length) bell(mentioned, { kind: 'mention', title: `${by} mentioned you on “${task.title}”`, body: body.slice(0, 200), link, actor: req.user.name });
+    if (told.size) bell([...told], { kind: 'task', title: `${by} commented on “${task.title}”`, body: body.slice(0, 200), link, actor: req.user.name });
     changed(list);
     res.status(201).json({ id, body, created_at: now(), author_id: req.user.id, author_name: req.user.name });
   });

@@ -3,6 +3,7 @@ import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId, keepDelet
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMentions } from '../../components/mentions.jsx';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
 import { listPrintHtml, taskPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
@@ -1705,6 +1706,8 @@ function TaskComments({ task }) {
   const [list, setList] = useState([]);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(null); // { id, body }: your comment being changed
+  const box = useRef(null);
+  const mention = useMentions(box, text, setText); // "@" plus a few letters suggests people to mention
   // (read now: the list stops calling them new)
   const load = useCallback(() => get(`/tasks/tasks/${task.id}/comments`).then((l) => { setList(l); window.dispatchEvent(new CustomEvent('task-comments-seen', { detail: task.id })); }).catch(() => {}), [task.id]);
   const saveEdit = async (e) => {
@@ -1736,13 +1739,17 @@ function TaskComments({ task }) {
                     <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
                   </form>
                   )
-                : <p className="task-comment-body">{c.body}</p>}
+                : <p className="task-comment-body">{c.body.split(/(@[\w.+-]+@[\w.-]+\.[a-z]{2,})/gi).map((part, i) => (part.startsWith('@') ? <span key={i} className="mention">{part}</span> : part))}</p>}
             </li>
           ))}
         </ul>
       )}
       <form className="row" onSubmit={send}>
-        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" maxLength={4000} />
+        <div className="mention-box grow">
+          <input ref={box} style={{ width: '100%' }} value={text} onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }} onKeyDown={(e) => mention.keyDown(e)} onBlur={() => mention.close()}
+            placeholder="Add a comment (@ to mention someone)" aria-label="Add a comment" maxLength={4000} />
+          {mention.list}
+        </div>
         <button className="btn small" disabled={!text.trim()}>Post</button>
       </form>
     </div>
