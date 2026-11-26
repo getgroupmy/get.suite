@@ -182,6 +182,9 @@ q(`CREATE TABLE IF NOT EXISTS task_comments (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)').run();
+// When each person last read a task's comments: others' since then are new to them.
+q(`CREATE TABLE IF NOT EXISTS task_comment_seen (task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, seen_at INTEGER NOT NULL, PRIMARY KEY (task_id, user_id))`).run();
 // When its writer last changed it (none: never).
 if (!q('PRAGMA table_info(task_comments)').all().some((c) => c.name === 'edited_at')) q('ALTER TABLE task_comments ADD COLUMN edited_at INTEGER').run();
 const MAX_COMMENTS = 500;
@@ -282,7 +285,16 @@ export function allListsTable(userId) {
 }
 export const allListsCsv = (userId) => allListsTable(userId).map((r) => r.map(csvCell).join(',')).join('\r\n');
 /** A task as one person sees it: each attachment says whether they can open it. */
-const shapeFor = (userId) => (t) => { const out = shape(t); out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) })); return out; };
+const shapeFor = (userId) => (t) => {
+  const out = shape(t);
+  out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) }));
+  // Others' comments since you last read the task's (opening its details, or writing one): new to you.
+  out.comments_new = t.comments > 0 ? q(`SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND (author_id IS NULL OR author_id != ?)
+    AND created_at > COALESCE((SELECT seen_at FROM task_comment_seen WHERE task_id = ? AND user_id = ?), 0)`).get(t.id, userId, t.id, userId).n : 0;
+  return out;
+};
+const sawComments = (taskId, userId) => q(`INSERT INTO task_comment_seen (task_id, user_id, seen_at) VALUES (?, ?, ?)
+  ON CONFLICT(task_id, user_id) DO UPDATE SET seen_at = MAX(seen_at, excluded.seen_at)`).run(taskId, userId, now());
 
 /**
  * Everyone on a list can view the files attached to its tasks that someone on the list owns
@@ -842,6 +854,7 @@ export default function taskRoutes() {
   });
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
+    sawComments(task.id, req.user.id);
     res.json(q(`SELECT k.id, k.body, k.created_at, k.edited_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
                 WHERE k.task_id = ? ORDER BY k.created_at`).all(task.id));
   });
@@ -851,6 +864,7 @@ export default function taskRoutes() {
     if (q('SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ?').get(task.id).n >= MAX_COMMENTS) throw bad('This task has enough comments');
     const id = uid();
     q('INSERT INTO task_comments (id, task_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)').run(id, task.id, req.user.id, body, now());
+    sawComments(task.id, req.user.id); // (you've read those above yours)
     // Told: who it's for, who made it, and who has commented, if they're still on the list.
     const on = new Set(peopleOn(list));
     const told = new Set([task.assignee_id, task.created_by, ...q('SELECT DISTINCT author_id FROM task_comments WHERE task_id = ?').all(task.id).map((x) => x.author_id)]

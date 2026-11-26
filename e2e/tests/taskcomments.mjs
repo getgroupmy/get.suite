@@ -101,6 +101,17 @@ await step('searching finds a task by its comment, in Tasks and in the top bar, 
   const res = page.getByRole('listbox', { name: 'Search results' });
   await res.getByText(/💬 “Hall, it is cheaper” · Launch/).waitFor();
 });
+await step('a colleague’s comment is new on the task’s row (live) until you open the task', async () => {
+  await page.goto(`${B}/tasks/${listId}`);
+  const row = page.locator('.task', { hasText: 'Book venue' });
+  await row.getByText(/💬 \d/).waitFor();
+  if (await row.locator('.task-comments-new').count()) throw new Error('new before anything new');
+  await api(kim, 'POST', `/tasks/tasks/${taskId}/comments`, { body: 'Hall is booked' });
+  await row.locator('.task-comments-new', { hasText: '1 new' }).waitFor({ timeout: 10000 });
+  await row.locator('.task-main').click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByText('Hall is booked').waitFor();
+  await until(async () => !(await row.locator('.task-comments-new').count()));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

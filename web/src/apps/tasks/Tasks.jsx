@@ -56,6 +56,12 @@ export default function Tasks() {
   const virtual = !!VIRTUAL[listId] || !!tagView;
   const [tagList, setTagList] = useState([]); // tags in use on open tasks, with how many
   const [tasks, setTasks] = useState(null);
+  // A task's comments read in its details: not new any more on its row.
+  useEffect(() => {
+    const seen = (e) => setTasks((l) => (l && l.some((t) => t.id === e.detail && t.comments_new) ? l.map((t) => (t.id === e.detail ? { ...t, comments_new: 0 } : t)) : l));
+    window.addEventListener('task-comments-seen', seen);
+    return () => window.removeEventListener('task-comments-seen', seen);
+  }, []);
   const [title, setTitle] = useState('');
   const [asTyped, setAsTyped] = useState(false); // "Keep as typed": don't read dates and so on out of this one
   const [found, setFound] = useState(null); // { q, list }: search results across your lists
@@ -373,7 +379,11 @@ export default function Tasks() {
             {times[t.id]?.running.length > 0 && <span className="pill timing" title={`Timer running: ${times[t.id].running.map((x) => x.name).join(', ')}`}>● {times[t.id].running.map((x) => x.name.split(' ')[0]).join(', ')}</span>}
             {times[t.id]?.minutes > 0 && <span className="muted small task-time" title="Time spent">⏱ {formatMinutes(times[t.id].minutes)}{t.estimate ? ` of ~${formatMinutes(t.estimate)}` : ''}</span>}
             {t.estimate > 0 && !(times[t.id]?.minutes > 0) && !t.done && <span className="muted small task-estimate" title="Estimate">~{formatMinutes(t.estimate)}</span>}
-            {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
+            {t.comments > 0 && (
+              <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}${t.comments_new > 0 ? `, ${t.comments_new} new` : ''}`}>
+                💬 {t.comments}{t.comments_new > 0 && <strong className="task-comments-new"> · {t.comments_new} new</strong>}
+              </span>
+            )}
             {t.tags?.map((tag) => <span key={tag} className="pill tag">#{tag}</span>)}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}${t.repeat_until ? `, until ${t.repeat_until}` : ''}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
@@ -1687,7 +1697,8 @@ function TaskComments({ task }) {
   const [list, setList] = useState([]);
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(null); // { id, body }: your comment being changed
-  const load = useCallback(() => get(`/tasks/tasks/${task.id}/comments`).then(setList).catch(() => {}), [task.id]);
+  // (read now: the list stops calling them new)
+  const load = useCallback(() => get(`/tasks/tasks/${task.id}/comments`).then((l) => { setList(l); window.dispatchEvent(new CustomEvent('task-comments-seen', { detail: task.id })); }).catch(() => {}), [task.id]);
   const saveEdit = async (e) => {
     e.preventDefault();
     if (!editing.body.trim()) return;
