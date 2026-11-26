@@ -15419,6 +15419,20 @@ test('notes: @mentioning someone on a shared note in a comment tells them they w
   // Mentioning yourself is nothing new.
   await b('POST', `/api/notes/${n.id}/comments`, { text: 'Done @nmnb@acme.com' });
   assert.deepEqual((await items(b)).length, 1);
+  // Home's Comments for you: a comment that mentions you on a note you're on, until you read the note's comments.
+  await a('POST', `/api/notes/${n.id}/comments`, { text: 'And @nmnc@acme.com, the slides?' });
+  await a('POST', `/api/notes/${n.id}/comments`, { text: 'Not @nmnc@acme.com.uk, a longer address' });
+  const forNat = (await c('GET', '/api/notes/mentions')).body;
+  assert.deepEqual(forNat.map((x) => [x.thread_id.startsWith('note:'), x.note_id, x.file, x.author_name, x.body, x.link]),
+    [[true, n.id, { name: 'Launch checklist', kind: 'note' }, 'Nia Mention', 'And @nmnc@acme.com, the slides?', `/notes?note=${n.id}`]]);
+  assert.deepEqual((await a('GET', '/api/notes/mentions')).body, [], 'not your own');
+  assert.deepEqual((await d('GET', '/api/notes/mentions')).body, [], 'not on a note you aren’t on');
+  await c('GET', `/api/notes/${n.id}/comments`);
+  assert.deepEqual((await c('GET', '/api/notes/mentions')).body, [], 'read');
+  // The morning summary lists it too.
+  await a('POST', `/api/notes/${n.id}/comments`, { text: '@nmnc@acme.com one more thing' });
+  const { digestFor } = await import('../src/digest.js');
+  assert.match(digestFor(ids.nmnc).text, /Comments for you \(1\):\n  🗒 “Launch checklist”: Nia Mention: @nmnc@acme\.com one more thing/);
 });
 test('notes: a shared note’s comments are in its downloaded Markdown (.zip and .md), and importing it leaves them out of the text', async () => {
   const JSZip = (await import('jszip')).default;

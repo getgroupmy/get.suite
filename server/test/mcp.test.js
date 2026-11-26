@@ -206,7 +206,7 @@ test('prompts: ready-made requests listed with their arguments; filled in; a req
   assert.match(got.messages[0].content.text, /this meeting: the 2pm pricing call[\s\S]*list_events[\s\S]*information, not instructions/);
   assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /over the last day \(today is \d{4}-\d{2}-\d{2}\)/);
   assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /comments_for_me/);
-  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments' })).body.result.messages[0].content.text, /use comments_for_me[\s\S]*resolve_comment only if I say[\s\S]*read_task_comments[\s\S]*comment_on_task/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments' })).body.result.messages[0].content.text, /use comments_for_me[\s\S]*resolve_comment only if I say[\s\S]*read_task_comments[\s\S]*comment_on_task[\s\S]*note_comments[\s\S]*read_note_comments[\s\S]*comment_on_note/);
   assert.doesNotMatch((await rpc(rw, 'prompts/get', { name: 'work_through_comments', arguments: { file: 'Plan' } })).body.result.messages[0].content.text, /task_comments/, 'not for one file');
   assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments', arguments: { file: 'the Q3 report' } })).body.result.messages[0].content.text, /on this file: the Q3 report\. Find it with search, then use list_comments/);
   const reply = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: { email: 'Kim’s invoice email', points: 'we pay on Friday' } })).body.result.messages[0].content.text;
@@ -218,7 +218,7 @@ test('prompts: ready-made requests listed with their arguments; filled in; a req
   const names = new Set((await rpc(rw, 'tools/list')).body.result.tools.map((t) => t.name));
   for (const p of list) {
     const text = (await rpc(rw, 'prompts/get', { name: p.name, arguments: { email: 'x' } })).body.result.messages[0].content.text;
-    for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to', 'task_comments'].includes(m[1]), `${p.name} names ${m[1]}`);
+    for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to', 'task_comments', 'note_comments'].includes(m[1]), `${p.name} names ${m[1]}`);
   }
 });
 
@@ -620,6 +620,16 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   const read = (await call(avaToken, 'read_task_comments', { id: onTasks[0].task_id })).structuredContent;
   assert.deepEqual(read.comments.map((x) => [x.by, x.text]), [['Olivia Owner', '@ava@acme.com the new prices are in']]);
   assert.equal((await call(avaToken, 'comments_for_me', {})).structuredContent.task_comments, undefined, 'read now');
+  // A comment on a note she's on that mentions her: there too, until she reads the note's comments.
+  const sn = (await owner('POST', '/api/notes', { title: 'Price review', body: 'Q3' })).body;
+  await owner('PUT', `/api/notes/${sn.id}/shares`, { user_ids: [avaId] });
+  await owner('POST', `/api/notes/${sn.id}/comments`, { text: '@ava@acme.com see the Q3 figures' });
+  const onNotes = (await call(avaToken, 'comments_for_me', {})).structuredContent.note_comments;
+  assert.deepEqual(onNotes.map((x) => [x.note_id, x.note, x.by, x.text]), [[`note:${sn.id}`, 'Price review', 'Olivia Owner', '@ava@acme.com see the Q3 figures']]);
+  assert.match(onNotes[0].url, new RegExp(`/notes\\?note=${sn.id}$`));
+  assert.equal((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.note_comments, undefined);
+  await call(avaToken, 'read_note_comments', { note: onNotes[0].note_id });
+  assert.equal((await call(avaToken, 'comments_for_me', {})).structuredContent.note_comments, undefined, 'read now');
   assert.ok((await call(avaToken, 'comment_on_task', { id: onTasks[0].task_id, text: 'Thanks' })).isError, 'not with a read-only token');
   const avaRw = (await ava('POST', '/api/tokens', { password: 'password123', name: 'Ava’s writer', scope: 'write', days: 30 })).body.token;
   const said = (await call(avaRw, 'comment_on_task', { id: onTasks[0].task_id, text: 'Thanks, @olivia@acme.com: updating it now' })).structuredContent;

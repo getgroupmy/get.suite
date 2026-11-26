@@ -298,6 +298,25 @@ function shape(n, me) {
  * (and recordings as recording-1.webm, linked),
  * shown in the Markdown. Used by Download (.zip) and by Download your data.
  */
+/**
+ * Comments on notes someone's on that @mention them and they haven't read yet (newest first, up to 20), for Home's
+ * "Comments for you", the morning summary and assistants (shaped as document comments are).
+ */
+export function noteMentionsFor(user) {
+  const me = user.id, who = String(user.username || '').toLowerCase();
+  if (!who) return [];
+  const at = new RegExp(`(^|[^\\w.+-])@${who.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'i');
+  const rows = q(`SELECT c.id, c.text, c.created_at, n.id AS note_id, n.title, u.name AS author_name
+                  FROM note_comments c JOIN notes n ON n.id = c.note_id LEFT JOIN users u ON u.id = c.user_id
+                  WHERE n.trashed_at IS NULL AND (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?))
+                    AND (c.user_id IS NULL OR c.user_id != ?) AND INSTR(LOWER(c.text), ?) > 0
+                    AND c.created_at > COALESCE((SELECT s.seen_at FROM note_comment_seen s WHERE s.note_id = n.id AND s.user_id = ?), 0)
+                  ORDER BY c.created_at DESC LIMIT 100`).all(me, me, me, `@${who}`, me);
+  return rows.filter((r) => at.test(r.text)).slice(0, 20).map((r) => ({
+    thread_id: `note:${r.id}`, note_id: r.note_id, file: { name: r.title || 'Untitled note', kind: 'note' }, author_name: r.author_name, body: r.text, at: r.created_at,
+    link: `/notes?note=${r.note_id}`,
+  }));
+}
 /** A note's Markdown with its comments (a shared note's) at the end, after a marker line, so Import notes… leaves them out of its text. */
 function withComments(md, noteId) {
   const comments = q(`SELECT c.text, c.created_at, u.name FROM note_comments c LEFT JOIN users u ON u.id = c.user_id
@@ -796,6 +815,8 @@ export default function noteRoutes() {
     res.json({ view, sort });
   });
 
+  // Comments that @mention you, not read yet (noteMentionsFor, for Home's "Comments for you").
+  r.get('/mentions', (req, res) => res.json(noteMentionsFor(req.user)));
   r.get('/labels', (req, res) => {
     const all = new Set();
     for (const n of q('SELECT labels FROM notes WHERE owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)').all(req.user.id, req.user.id)) {

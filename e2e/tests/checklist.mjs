@@ -212,7 +212,7 @@ await step('⋮ → Download (.md) of the shared note carries its comment too', 
   const md = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!/^# Offsite\n\nWhere shall we go\?\n\n<!-- comments: not part of the note -->\n## Comments\n\n- \*\*Olivia[^*]*\*\* \(.+ UTC\): The lake house is free that week\n$/.test(md)) throw new Error(md);
 });
-await step('a comment can @mention someone on the note: suggested as you type, and they are told; someone it isn’t shared with is flagged', async () => {
+await step('a comment can @mention someone on the note: suggested as you type, and they are told (and see it on Home); someone it isn’t shared with is flagged', async () => {
   await page.goto(`${B}/notes`);
   await cardOf(page, 'Offsite').locator('.note-open').click();
   const dlg = page.getByRole('dialog', { name: 'Offsite' });
@@ -234,6 +234,15 @@ await step('a comment can @mention someone on the note: suggested as you type, a
   const kim = await mk('kim');
   await signIn(kim, 'kim@acme.com');
   await until(async () => JSON.stringify((await api(kim, 'GET', '/notifications')).body).includes('Olivia Owner mentioned you on “Offsite”'));
+  // Home: Comments for you has it; it opens the note, and once read it's gone.
+  await kim.goto(`${B}/home`);
+  const item = kim.getByRole('region', { name: 'Comments for you' }).getByRole('link', { name: /Offsite · Olivia Owner: Can you book it @kim@acme\.com today\?/ });
+  await item.click();
+  await kim.getByRole('dialog', { name: 'Offsite' }).getByRole('region', { name: 'Comments' }).locator('.mention', { hasText: '@kim@acme.com' }).waitFor();
+  await kim.goto(`${B}/home`);
+  await kim.getByRole('heading', { level: 1 }).first().waitFor();
+  await kim.waitForLoadState('networkidle');
+  await until(async () => !(await kim.getByRole('link', { name: /Can you book it/ }).count()), 5000);
   await kim.context().close();
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
