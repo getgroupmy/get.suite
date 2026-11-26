@@ -3,6 +3,8 @@
 const API = () => (process.env.GOOGLE_API_URL || 'https://www.googleapis.com').replace(/\/$/, '');
 const PEOPLE = () => (process.env.GOOGLE_PEOPLE_URL || 'https://people.googleapis.com').replace(/\/$/, '');
 
+import { fieldsToLines } from '../contactfields.js';
+
 const esc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, (c) => `\\${c}`);
 /** "2026-12-03T09:00:00+08:00" → "20261203T010000Z"; "2026-12-03" → "20261203". */
 const icsTime = (t) => (t.date ? t.date.replace(/-/g, '') : new Date(t.dateTime).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''));
@@ -45,6 +47,8 @@ export function personToVcard(p) {
   const b = p.birthdays?.find((x) => x.date?.month && x.date?.day)?.date;
   if (b) lines.push(`BDAY:${b.year ? String(b.year).padStart(4, '0') : '--'}${String(b.month).padStart(2, '0')}${String(b.day).padStart(2, '0')}`);
   if (p.biographies?.[0]?.value) lines.push(`NOTE:${esc(p.biographies[0].value)}`);
+  // Related people (spouse, manager…): as iPhones keep them, which Contacts reads.
+  lines.push(...fieldsToLines([], [], (p.relations || []).map((r) => ({ label: r.formattedType || r.type || 'Other', name: r.person }))));
   if (p.resourceName) lines.push(`UID:google-${p.resourceName.replace(/^people\//, '')}`);
   lines.push('END:VCARD');
   return lines.join('\r\n');
@@ -79,7 +83,7 @@ export async function googleCalendars(token, { maxEvents = 20000 } = {}) {
 
 /** The person's Google contacts (People API connections). */
 export async function googleContacts(token, { max = 10000 } = {}) {
-  const fields = 'names,emailAddresses,phoneNumbers,organizations,addresses,birthdays,biographies';
+  const fields = 'names,emailAddresses,phoneNumbers,organizations,addresses,birthdays,biographies,relations';
   const out = [];
   let page = null;
   do {

@@ -34,4 +34,7 @@ test('Google contacts become contacts', () => {
   assert.equal(c.notes, 'COBOL');
   assert.ok(c.more_emails?.length >= 1 || JSON.stringify(c).includes('grace@home.example'));
   assert.equal(personToVcard({ resourceName: 'people/x' }), null, 'nothing to call them');
+  // Related people come with them.
+  const [r] = contactsFromFile(personToVcard({ names: [{ displayName: 'Ada Byron' }], relations: [{ person: 'William King', type: 'spouse', formattedType: 'Spouse' }, { person: 'Mary Somerville', type: 'friend' }] })).contacts;
+  assert.deepEqual(r.related, [{ label: 'Spouse', name: 'William King' }, { label: 'Friend', name: 'Mary Somerville' }]);
 });

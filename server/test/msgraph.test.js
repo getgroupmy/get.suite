@@ -31,6 +31,9 @@ test('Outlook events and contacts become entries', () => {
   assert.equal(graphEventToIcs({ id: 'c', isCancelled: true, start: { dateTime: 'x' }, end: { dateTime: 'y' } }), null);
   const [c] = contactsFromFile(graphContactToVcard({ id: 'c1', displayName: 'Katherine Johnson', givenName: 'Katherine', surname: 'Johnson', emailAddresses: [{ address: 'kj@nasa.gov' }], mobilePhone: '+1 555 0101', companyName: 'NASA', jobTitle: 'Mathematician', birthday: '1918-08-26T00:00:00Z', personalNotes: 'Orbits' })).contacts;
   assert.deepEqual([c.name, c.email, c.company, c.title, c.birthday, c.notes], ['Katherine Johnson', 'kj@nasa.gov', 'NASA', 'Mathematician', '1918-08-26', 'Orbits']);
+  assert.deepEqual(c.related, [], 'none');
+  const [r] = contactsFromFile(graphContactToVcard({ id: 'c2', displayName: 'Dorothy Vaughan', spouseName: 'Howard Vaughan', manager: 'Al Harrison', assistantName: '', children: ['Ann', 'Leonard'] })).contacts;
+  assert.deepEqual(r.related, [{ label: 'Spouse', name: 'Howard Vaughan' }, { label: 'Manager', name: 'Al Harrison' }, { label: 'Child', name: 'Ann' }, { label: 'Child', name: 'Leonard' }]);
 });
 
 test('calendars, contacts and OneDrive from Microsoft Graph', async () => {

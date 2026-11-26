@@ -58,7 +58,7 @@ const ms = http.createServer((req, res) => {
     if (req.url.startsWith('/download/')) { res.end('the plan'); return; }
     if (req.url.startsWith('/v1.0/me/calendars?')) return json({ value: [{ id: 'main', name: 'Calendar', isDefaultCalendar: true }] });
     if (req.url.startsWith('/v1.0/me/calendars/main/events')) return json({ value: [{ id: 'e1', subject: 'Quarterly review', type: 'singleInstance', start: { dateTime: '2026-12-03T09:00:00.0000000' }, end: { dateTime: '2026-12-03T10:00:00.0000000' } }] });
-    if (req.url.startsWith('/v1.0/me/contacts')) return json({ value: [{ id: 'c1', displayName: 'Katherine Johnson', emailAddresses: [{ address: 'kj@nasa.gov' }] }] });
+    if (req.url.startsWith('/v1.0/me/contacts')) return json({ value: [{ id: 'c1', displayName: 'Katherine Johnson', emailAddresses: [{ address: 'kj@nasa.gov' }], spouseName: 'James Johnson', manager: 'Al Harrison' }] });
     if (req.url.startsWith('/v1.0/me/drive/root/children')) return json({ value: [{ id: 'p', name: 'Plan.docx', file: {}, size: 8, '@microsoft.graph.downloadUrl': 'http://127.0.0.1:8191/download/plan' }] });
     json({}, 404);
   });
@@ -78,6 +78,7 @@ await step('Settings → Move here → Microsoft: a code to enter at Microsoft, 
   if (!asked[0].scope.includes('Calendars.Read') || asked[0].scope.includes('IMAP')) throw new Error(asked[0].scope);
   await page.goto(`${B}/contacts`);
   await page.getByText('Katherine Johnson').first().waitFor();
+  await page.locator('tbody tr', { hasText: 'Katherine Johnson' }).getByText('Spouse: James Johnson · Manager: Al Harrison').waitFor(); // related people come too
   await page.goto(`${B}/drive`);
   await page.getByText(/From Microsoft \d{4}/).first().waitFor();
 });

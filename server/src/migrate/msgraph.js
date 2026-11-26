@@ -1,6 +1,7 @@
 // Microsoft 365 / Outlook.com read through Microsoft Graph (with the access a person gives by signing in
 // with a code: msimport.js): calendars and contacts turned into an .ics and vCards for the usual imports,
 // and OneDrive walked folder by folder, each file streamed from its download address.
+import { fieldsToLines } from '../contactfields.js';
 import { Readable } from 'node:stream';
 
 const GRAPH = () => (process.env.MS_GRAPH_URL || 'https://graph.microsoft.com').replace(/\/$/, '');
@@ -60,6 +61,9 @@ export function graphContactToVcard(c) {
   if (c.jobTitle) lines.push(`TITLE:${esc(c.jobTitle)}`);
   if (c.birthday) lines.push(`BDAY:${String(c.birthday).slice(0, 10)}`);
   if (c.personalNotes) lines.push(`NOTE:${esc(c.personalNotes)}`);
+  // Related people Outlook keeps: spouse, manager, assistant, children.
+  lines.push(...fieldsToLines([], [], [['Spouse', c.spouseName], ['Manager', c.manager], ['Assistant', c.assistantName], ...(c.children || []).map((x) => ['Child', x])]
+    .filter(([, name]) => name).map(([label, name]) => ({ label, name }))));
   if (c.id) lines.push(`UID:outlook-${c.id}`);
   lines.push('END:VCARD');
   return lines.join('\r\n');

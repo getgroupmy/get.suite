@@ -62,7 +62,7 @@ const g = http.createServer((req, res) => {
   if (u.pathname === '/calendar/v3/calendars/club/events') return json({ items: [{ id: 'e2', summary: 'Long run', start: { date: '2026-12-06' }, end: { date: '2026-12-07' } }] });
   if (u.pathname === '/drive/v3/files') return json(u.searchParams.get('q').startsWith("'root'") ? { files: [{ id: 'doc', name: 'Roadmap', mimeType: 'application/vnd.google-apps.document' }] } : { files: [] });
   if (u.pathname === '/drive/v3/files/doc/export') { res.end('docx bytes'); return; }
-  if (u.pathname === '/v1/people/me/connections') return json({ connections: [{ resourceName: 'people/1', names: [{ displayName: 'Grace Hopper' }], emailAddresses: [{ value: 'grace@example.com' }] }] });
+  if (u.pathname === '/v1/people/me/connections') return json({ connections: [{ resourceName: 'people/1', names: [{ displayName: 'Grace Hopper' }], emailAddresses: [{ value: 'grace@example.com' }], relations: [{ person: 'Vincent Hopper', type: 'spouse', formattedType: 'Spouse' }] }] });
   res.statusCode = 404; res.end('{}');
 });
 await new Promise((r) => g.listen(8190, '127.0.0.1', r));
@@ -77,6 +77,7 @@ await step('Settings → Move here → Google: calendars, contacts and Drive str
   await page.screenshot({ path: `${SP}/shots/googledata.png` });
   await page.goto(`${B}/contacts`);
   await page.getByText('Grace Hopper').first().waitFor();
+  await page.locator('tbody tr', { hasText: 'Grace Hopper' }).getByText('Spouse: Vincent Hopper').waitFor(); // related people come too
   const cals = (await api(page, 'GET', '/events/calendars')).body;
   if (!JSON.stringify(cals).includes('Running club')) throw new Error('no Running club calendar');
 });
