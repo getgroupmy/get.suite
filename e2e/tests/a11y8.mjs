@@ -116,6 +116,33 @@ await step('a contact’s window with dates, related people and fields; Merge du
   await both('Merge duplicates window');
   await page.keyboard.press('Escape');
 });
+await step('a note’s and a task’s comments with a reaction, a link, a mention and the Share-with-them note', async () => {
+  const kim = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
+  await api(page, 'POST', '/users', { local: 'lee', domain: 'acme.com', name: 'Lee Chan', password: 'password123' });
+  const n = (await api(page, 'POST', '/notes', { title: 'Offsite', body: 'Where?' })).body;
+  await api(page, 'PUT', `/notes/${n.id}/shares`, { user_ids: [kim.id] });
+  const c = (await api(page, 'POST', `/notes/${n.id}/comments`, { text: '@kim@acme.com prices at https://example.com/prices' })).body[0];
+  await api(page, 'POST', `/notes/${n.id}/comments/${c.id}/reactions`, { emoji: '👍' });
+  await page.goto(`${B}/notes?note=${n.id}`);
+  const box = page.getByRole('dialog', { name: 'Offsite' }).getByRole('region', { name: 'Comments' });
+  await box.getByRole('button', { name: '👍 1: Olivia Owner' }).waitFor();
+  await box.getByLabel('Write a comment').fill('@lee@acme.com have a look');
+  await box.getByRole('button', { name: 'Share the note with them' }).waitFor();
+  await both('Note comments with a reaction, a link and Share the note with them');
+  await box.getByLabel('Write a comment').fill('');
+  await page.keyboard.press('Escape');
+  const l = (await api(page, 'POST', '/tasks/lists', { name: 'Launch' })).body;
+  await api(page, 'PUT', `/tasks/lists/${l.id}/members`, { user_ids: [kim.id] });
+  const t = (await api(page, 'POST', `/tasks/lists/${l.id}/tasks`, { title: 'Book venue' })).body;
+  const tc = (await api(page, 'POST', `/tasks/tasks/${t.id}/comments`, { body: '@kim@acme.com see https://example.com/venues' })).body;
+  await api(page, 'POST', `/tasks/tasks/${t.id}/comments/${tc.id}/reactions`, { emoji: '🎉' });
+  await page.goto(`${B}/tasks/${l.id}?task=${t.id}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByRole('button', { name: '🎉 1: Olivia Owner' }).waitFor();
+  await d.getByLabel('Add a comment').fill('@lee@acme.com can you help?');
+  await d.getByRole('button', { name: 'Share the list with them' }).waitFor();
+  await both('Task comments with a reaction, a link and Share the list with them');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -228,7 +228,16 @@ export default function Home() {
                 {data.comments.map((c) => (
                   <li key={c.thread_id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides', task: 'check', note: 'note' }[c.file.kind] || 'file'} size={16} />
                     <Link className="grow home-item" to={c.link} title={c.body}><strong>{c.file.name}</strong> <span className="muted">· {c.author_name || 'Someone'}{c.assigned ? ' assigned you' : ''}: {c.body.length > 80 ? `${c.body.slice(0, 80)}…` : c.body}</span></Link>
-                    <span className="muted small nowrap">{formatDate(c.at)}</span></li>
+                    <span className="muted small nowrap">{formatDate(c.at)}</span>
+                    {/* a task's or note's: read without opening it (a document's thread stays until it's answered or resolved) */}
+                    {(c.task_id || c.note_id) && (
+                      <button type="button" className="icon-btn" aria-label={`Mark as read: ${c.file.name}`} title="Mark as read"
+                        onClick={async () => {
+                          await get(c.task_id ? `/tasks/tasks/${c.task_id}/comments` : `/notes/${c.note_id}/comments`).catch(() => {});
+                          const done = (x) => (c.task_id ? x.task_id === c.task_id : x.note_id === c.note_id); // (reading one reads all of that task's or note's)
+                          setData((d) => ({ ...d, comments: d.comments.filter((x) => !done(x)) }));
+                        }}><Icon name="check" size={16} /></button>
+                    )}</li>
                 ))}
                 {data.commentsMore > 0 && <li className="muted small">and {data.commentsMore} more</li>}
               </ul>

@@ -285,6 +285,22 @@ await step('links in a note comment open: a web address in a new tab, one of Wor
   await box.getByRole('link', { name: `/docs/${doc.id}` }).click();
   await page.waitForURL(`**/docs/${doc.id}`);
 });
+await step('Home: ✓ marks a note comment that mentions you as read, without opening the note', async () => {
+  const off = (await api(page, 'GET', '/notes')).body.find((x) => x.title === 'Offsite');
+  await api(page, 'POST', `/notes/${off.id}/comments`, { text: '@kim@acme.com no rush on this one' });
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/home`);
+  const card = kim.getByRole('region', { name: 'Comments for you' });
+  await card.getByRole('link', { name: /no rush on this one/ }).waitFor();
+  await card.getByRole('button', { name: 'Mark as read: Offsite' }).click();
+  await until(async () => !(await kim.getByRole('link', { name: /no rush on this one/ }).count()));
+  if (!kim.url().endsWith('/home')) throw new Error(`left Home: ${kim.url()}`);
+  await kim.reload();
+  await kim.getByRole('heading', { level: 1 }).first().waitFor();
+  await kim.waitForLoadState('networkidle');
+  if (await kim.getByRole('link', { name: /no rush on this one/ }).count()) throw new Error('back after reloading');
+  await kim.context().close();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
