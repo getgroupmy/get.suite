@@ -5472,6 +5472,9 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.equal(await newTo(a), 0, 'not new to its writer');
   assert.equal(await newTo(b), 1, 'new to Ben');
   assert.equal((await b('GET', '/api/tasks/assigned')).body.find((x) => x.id === t.id).comments_new, 1, 'in Assigned to me too');
+  const listNew = async (who) => (await who('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list).comments_new;
+  assert.equal(await listNew(b), 1, 'the list has a task with comments new to Ben');
+  assert.equal(await listNew(a), 0);
   const bell = async (who) => (await who('GET', '/api/notifications')).body;
   const benBell = await bell(b);
   assert.ok(JSON.stringify(benBell).includes('Talk Ann commented on “Book venue”'), 'the assignee is told');
@@ -5483,6 +5486,7 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.equal(await newTo(b), 0);
   await a('GET', `/api/tasks/tasks/${t.id}/comments`);
   assert.equal(await newTo(a), 0, 'read when the task is open');
+  assert.equal(await listNew(a), 0, 'and the list too');
   assert.deepEqual(list2.map((x) => [x.author_name, x.body]), [['Talk Ann', 'Hotel or hall?'], ['Talk Ben', 'Hall, cheaper']]);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).comments, 2);
   assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/comments`)).status, 404, 'not for people off the list');

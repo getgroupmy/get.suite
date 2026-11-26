@@ -548,11 +548,15 @@ export default function taskRoutes() {
     // Everyone starts with a list of their own.
     if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(me)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), me, 'My tasks', now());
     const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, l.rate, u.name AS owner_name, u.username AS owner_email,
-                       (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open
+                       (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open,
+                       -- tasks with comments new to you (others' since you last read the task's)
+                       (SELECT COUNT(DISTINCT k.task_id) FROM task_comments k JOIN tasks t ON t.id = k.task_id WHERE t.list_id = l.id
+                          AND (k.author_id IS NULL OR k.author_id != ?)
+                          AND k.created_at > COALESCE((SELECT s.seen_at FROM task_comment_seen s WHERE s.task_id = k.task_id AND s.user_id = ?), 0)) AS comments_new
                      FROM task_lists l JOIN users u ON u.id = l.owner_id
                      WHERE l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)
                      ORDER BY (SELECT o.position FROM task_list_order o WHERE o.user_id = ? AND o.list_id = l.id) IS NULL,
-                              (SELECT o.position FROM task_list_order o WHERE o.user_id = ? AND o.list_id = l.id), l.owner_id != ?, l.created_at`).all(me, me, me, me, me);
+                              (SELECT o.position FROM task_list_order o WHERE o.user_id = ? AND o.list_id = l.id), l.owner_id != ?, l.created_at`).all(me, me, me, me, me, me, me);
     const members = q(`SELECT m.list_id, u.id, u.name, u.username FROM task_list_members m JOIN users u ON u.id = m.user_id
                        WHERE m.list_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(lists.map((l) => l.id)));
     const assigned = q('SELECT COUNT(*) AS n FROM tasks WHERE assignee_id = ? AND done_at IS NULL').get(me).n;

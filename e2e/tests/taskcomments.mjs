@@ -140,6 +140,17 @@ await step('Board: a card says how many comments are new, until it is opened', a
   await until(async () => !(await card.locator('.task-comments-new').count()));
   await page.getByRole('tab', { name: 'List', exact: true }).click();
 });
+await step('the sidebar marks a list with new comments (💬), until the task is opened', async () => {
+  await page.goto(`${B}/tasks/${listId}`);
+  const mark = page.getByRole('img', { name: '1 task with new comments' });
+  await page.locator('.task', { hasText: 'Book venue' }).waitFor();
+  if (await mark.count()) throw new Error('marked before anything new');
+  await api(kim, 'POST', `/tasks/tasks/${taskId}/comments`, { body: 'Menu agreed' });
+  await mark.waitFor({ timeout: 10000 });
+  await page.locator('.task', { hasText: 'Book venue' }).locator('.task-main').click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByText('Menu agreed').waitFor();
+  await until(async () => !(await mark.count()));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
