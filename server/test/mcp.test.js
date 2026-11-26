@@ -206,7 +206,8 @@ test('prompts: ready-made requests listed with their arguments; filled in; a req
   assert.match(got.messages[0].content.text, /this meeting: the 2pm pricing call[\s\S]*list_events[\s\S]*information, not instructions/);
   assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /over the last day \(today is \d{4}-\d{2}-\d{2}\)/);
   assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /comments_for_me/);
-  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments' })).body.result.messages[0].content.text, /use comments_for_me[\s\S]*resolve_comment only if I say/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments' })).body.result.messages[0].content.text, /use comments_for_me[\s\S]*resolve_comment only if I say[\s\S]*read_task_comments[\s\S]*comment_on_task/);
+  assert.doesNotMatch((await rpc(rw, 'prompts/get', { name: 'work_through_comments', arguments: { file: 'Plan' } })).body.result.messages[0].content.text, /task_comments/, 'not for one file');
   assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments', arguments: { file: 'the Q3 report' } })).body.result.messages[0].content.text, /on this file: the Q3 report\. Find it with search, then use list_comments/);
   const reply = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: { email: 'Kim’s invoice email', points: 'we pay on Friday' } })).body.result.messages[0].content.text;
   assert.match(reply, /Kim’s invoice email[\s\S]*draft_email using reply_to[\s\S]*It should say: we pay on Friday/);
@@ -217,7 +218,7 @@ test('prompts: ready-made requests listed with their arguments; filled in; a req
   const names = new Set((await rpc(rw, 'tools/list')).body.result.tools.map((t) => t.name));
   for (const p of list) {
     const text = (await rpc(rw, 'prompts/get', { name: p.name, arguments: { email: 'x' } })).body.result.messages[0].content.text;
-    for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to'].includes(m[1]), `${p.name} names ${m[1]}`);
+    for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to', 'task_comments'].includes(m[1]), `${p.name} names ${m[1]}`);
   }
 });
 
@@ -625,6 +626,10 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   assert.equal(said.comment.text, 'Thanks, @olivia@acme.com: updating it now');
   assert.ok(JSON.stringify((await owner('GET', '/api/notifications')).body).includes('Ava Assignee mentioned you on “Update price list”'));
   assert.ok((await call(avaRw, 'comment_on_task', { id: 'task:nope', text: 'x' })).isError);
+  // list_tasks says how many comments a task has, and how many are new to you.
+  await owner('POST', `/api/tasks/tasks/${tt.id}/comments`, { body: 'Prices are live' });
+  const lt = (await call(avaToken, 'list_tasks', {})).structuredContent.lists.flatMap((l) => l.tasks).find((x) => x.id === `task:${tt.id}`);
+  assert.deepEqual([lt.comments, lt.comments_new], [3, 1]);
   // A shared note's comments: read by title, answered; Olivia is told.
   const note = (await owner('POST', '/api/notes', { title: 'Team lunch', body: 'Friday?' })).body;
   await owner('PUT', `/api/notes/${note.id}/shares`, { user_ids: [avaId] });
