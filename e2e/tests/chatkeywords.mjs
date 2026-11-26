@@ -75,6 +75,14 @@ await step('a channel message with one shows under Mentions, live, with the word
   await page.locator('.subnav-item.active', { hasText: 'ops' }).waitFor();
   await until(async () => (await btn().locator('.badge').count()) === 0);
 });
+await step('a message changed to have one shows under Mentions too (live)', async () => {
+  await page.goto(`${B}/chat/${gen}`);
+  await btn().click();
+  const m = (await api(kim, 'POST', `/chat/channels/${ch}/messages`, { body: 'Kick-off notes are up' })).body;
+  await api(kim, 'PATCH', `/chat/messages/${m.id}`, { body: 'Kick-off notes for Project Falcon are up' });
+  await list().getByText('Kick-off notes for Project Falcon are up').waitFor();
+  await until(async () => (await api(page, 'GET', '/notifications')).body.items.some((n) => n.title === '“project falcon” in #ops: Kim Park'));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

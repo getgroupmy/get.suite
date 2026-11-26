@@ -1864,7 +1864,11 @@ export default function chatRoutes() {
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     addPreview(c, msg); // the link (if any) as it is now
-    notifyMentions(c, req.user, { id: m.id, body, parent_id: m.parent_id }, { onlyNew: true }); // someone it now mentions is told
+    // Someone it now mentions, or whose keyword it now has, is told; whoever it told before isn't told again.
+    const toldBefore = q('SELECT user_id FROM chat_mentions WHERE message_id = ?').all(m.id).map((x) => x.user_id);
+    const edited = { id: m.id, body, parent_id: m.parent_id };
+    const nowMentioned = notifyMentions(c, req.user, edited, { onlyNew: true });
+    notifyKeywords(c, req.user, edited, [...toldBefore, ...nowMentioned]);
     res.json(msg);
   });
 

@@ -1766,7 +1766,7 @@ test('activity log: sign-ins, account changes and sharing, for each company\'s a
   assert.ok((await g('GET', `/api/audit?org_id=${(await owner('GET', '/api/orgs/current')).body.id}`)).body.entries.every((e) => e.target !== 'auditee@acme.com'), 'and cannot ask for it');
 });
 
-test('chat: changing your message to mention someone tells them, once; those it mentioned already aren’t told again', async () => {
+test('chat: changing your message to mention someone (or with their keyword) tells them, once; those it told already aren’t told again', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['cema', 'Edit Ann'], ['cemb', 'Edit Ben'], ['cemc', 'Edit Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
   await login(a, 'cema@acme.com'); await login(b, 'cemb@acme.com'); await login(c, 'cemc@acme.com');
@@ -1778,6 +1778,16 @@ test('chat: changing your message to mention someone tells them, once; those it 
   assert.deepEqual([await told(b), await told(c)], [1, 1], 'Cat is told now; Ben not again');
   await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Stand-up moved to 10:30, @cemb@acme.com and @cemc@acme.com' });
   assert.deepEqual([await told(b), await told(c)], [1, 1], 'nor on another change');
+  // Keyword alerts too: Dan's keyword in the changed message alerts him, once.
+  const d = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cemd', domain: 'acme.com', name: 'Edit Dan', password: 'password123' })).status, 201);
+  await login(d, 'cemd@acme.com');
+  await d('PUT', '/api/chat/keywords', { keywords: 'invoice' });
+  const alerted = async () => (await d('GET', '/api/notifications')).body.items.filter((x) => x.title === '“invoice” in #edit-mentions: Edit Ann').length;
+  await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Stand-up moved to 10:30, @cemb@acme.com and @cemc@acme.com; bring the invoice' });
+  assert.equal(await alerted(), 1);
+  await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Stand-up at 10:30, @cemb@acme.com and @cemc@acme.com; bring the invoice' });
+  assert.equal(await alerted(), 1, 'not again');
 });
 test('chat threads: replies beside a message, counted on it; unread only for people in the thread', async () => {
   const a = client(), b = client(), c = client();
