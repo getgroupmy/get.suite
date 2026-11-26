@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listPrintHtml, dueText, linkIcon } from './listprint.js';
+import { listPrintHtml, taskPrintHtml, dueText, linkIcon } from './listprint.js';
 
 test('a printed list: open tasks with what matters, then done ones, all escaped', () => {
   const html = listPrintHtml('Launch <1>', [
@@ -63,4 +63,19 @@ test('the picture beside a task’s link says where it goes', () => {
   assert.equal(linkIcon('https://ws.test/forms/1?tab=responses'), '📋');
   assert.deepEqual(['/chat/1', '/docs/1', '/sheets/1', '/slides/1', '/drive?preview=1', '/drive/folder/1', '/calendar?event=1', '/contacts?q=Dana', '/forms/1?tab=responses', '/notes?note=1', '/mail?open=1', null].map(linkIcon),
     ['💬', '📄', '📊', '🖼', '📁', '📁', '📅', '👤', '📋', '📝', '✉', '✉']);
+});
+
+test('printing one task: title, list, due, who, tags, notes, steps and comments (edited marked), all escaped', () => {
+  const html = taskPrintHtml({ title: 'Book <venue>', list_name: 'Launch', due: '2026-12-01', assignee_name: 'Kim', priority: 'high', important: 1, tags: ['events'],
+    notes: 'Ask about\nparking', steps: [{ title: 'Call', done: true }, { title: 'Pay' }] },
+  [{ author_name: 'Olivia', created_at: Date.UTC(2026, 10, 26, 9), body: 'Hall & garden?', edited_at: 5 }, { body: 'ok', created_at: 1 }], { locale: 'en-GB', printedOn: new Date(2026, 10, 26) });
+  assert.match(html, /<title>Book &lt;venue&gt;<\/title>/);
+  assert.match(html, /<h1>★ Book &lt;venue&gt;<\/h1>/);
+  assert.match(html, /<div class="meta">Launch · Due [^·]+ · For Kim · high priority · #events<\/div>/);
+  assert.match(html, /<h2>Notes<\/h2><p>Ask about<br>parking<\/p>/);
+  assert.match(html, /<li>☑ Call<\/li><li>☐ Pay<\/li>/);
+  assert.match(html, /<li><b>Olivia<\/b> <span class="when">[^<]+ \(edited\)<\/span><br>Hall &amp; garden\?<\/li><li><b>Someone<\/b> <span class="when">[^<(]+<\/span><br>ok<\/li>/);
+  const plain = taskPrintHtml({ title: 'Plain', done_at: 1 });
+  assert.match(plain, /<body class="done"><h1>☑ Plain<\/h1>/);
+  assert.doesNotMatch(plain, /<h2>/);
 });

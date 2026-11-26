@@ -81,6 +81,16 @@ await step('edit your own comment: Escape keeps it and the details open; Save ch
   await d.getByRole('list', { name: 'Comments' }).getByText(/\(edited\)/).waitFor();
   await kim.getByRole('complementary', { name: 'Task details' }).getByText('Hotel, or the town hall?').waitFor({ timeout: 10000 });
 });
+await step('Print in the details: the task with its comments, (edited) marked', async () => {
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByRole('button', { name: 'Print', exact: true }).click();
+  const frame = page.frameLocator('iframe.print-frame').last();
+  await frame.getByRole('heading', { name: 'Book venue' }).waitFor({ state: 'attached' });
+  const text = await page.locator('iframe.print-frame').last().evaluate((f) => f.contentDocument.body.innerText);
+  if (!/Launch/.test(text) || !/COMMENTS|Comments/.test(text)) throw new Error(text);
+  if (!/Olivia Owner .*\(edited\)\s*Hotel, or the town hall\?/s.test(text)) throw new Error(text);
+  if (!/Kim Park .*\s*Hall, it is cheaper/s.test(text)) throw new Error(text);
+});
 await step('searching finds a task by its comment, in Tasks and in the top bar, saying which comment', async () => {
   await page.getByLabel('Search tasks').fill('cheaper');
   await page.getByLabel('Search tasks').press('Enter');

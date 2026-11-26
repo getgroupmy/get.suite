@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
-import { listPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
+import { listPrintHtml, taskPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -1486,6 +1486,10 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         <button type="button" className="btn" onClick={async () => {
           try { await post(`/tasks/tasks/${task.id}/duplicate`); toast('Duplicated: the copy is just below'); } catch (e) { toast(e.message, 'error'); }
         }}><Icon name="copy" size={16} /> Duplicate</button>
+        <button type="button" className="btn" title="This task, with its notes, steps and comments" onClick={async () => {
+          const comments = task.comments > 0 ? await get(`/tasks/tasks/${task.id}/comments`).catch(() => []) : [];
+          printHtml(taskPrintHtml(task, comments));
+        }}><Icon name="print" size={16} /> Print</button>
         <select aria-label="Copy this task to" value="" onChange={async (e) => {
           const to = e.target.value;
           if (to === '__new__') { setToNew('copy'); return; }
