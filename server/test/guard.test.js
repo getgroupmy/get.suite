@@ -97,7 +97,15 @@ test('web sign-in is protected by the same guard (real client IP via the reverse
   await fetch(`${base}/api/auth/setup`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' },
     body: JSON.stringify({ org_name: 'Acme', domain: 'acme.com', name: 'Olivia', local: 'olivia', password: 'password123' }) });
   const ip = '203.0.114.50';
-  for (let i = 0; i < 10; i++) assert.equal((await call({ username: 'olivia@acme.com', password: `guess${i}` }, ip)).status, 401);
+  // Guesses count by a short fingerprint of the password (as Dovecot's policy requests do), so two of ten can now and then
+  // share one and count once: guess until the address is blocked (by the tenth different one), not exactly ten times.
+  let tries = 0;
+  for (; tries < 15; tries++) {
+    const s = (await call({ username: 'olivia@acme.com', password: `guess${tries}` }, ip)).status;
+    if (s === 429) break;
+    assert.equal(s, 401);
+  }
+  assert.ok(tries >= 10 && tries < 15, `blocked after ${tries} wrong guesses`);
   const blocked = await call({ username: 'olivia@acme.com', password: 'password123' }, ip);
   assert.equal(blocked.status, 429, 'blocked even with the right password');
   assert.equal((await call({ username: 'olivia@acme.com', password: 'password123' }, '203.0.114.51')).status, 200, 'other addresses unaffected');
