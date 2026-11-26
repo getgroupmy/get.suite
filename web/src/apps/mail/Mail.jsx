@@ -1399,6 +1399,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
 /** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
 /** The rest of the conversation (same subject without Re:/Fwd:, someone in common), earlier and later, from any folder. */
 function Conversation({ folder, uid, date, onOpen, onCompose }) {
+  const toast = useToast();
+  const navigate = useNavigate();
   const [list, setList] = useState(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { get(`/mail/messages/${uid}/conversation?folder=${enc(folder)}`).then(setList).catch(() => setList([])); }, [folder, uid]);
@@ -1412,6 +1414,13 @@ function Conversation({ folder, uid, date, onOpen, onCompose }) {
     const got = [];
     for (const [f, u] of all) { try { got.push({ ...(await get(`/mail/messages/${u}?folder=${enc(f)}&peek=1${mailboxParam()}`)), at: [f, u] }); } catch { /* gone since */ } }
     return got;
+  };
+  // Save all to Drive: one PDF of the whole conversation, in Saved emails.
+  const saveAll = async () => {
+    try {
+      const r = await post(`/mail/messages/save-conversation-pdf${mailboxParam().replace(/^&/, '?')}`, { items: [...list.map((x) => ({ folder: x.folder, uid: x.uid })), { folder, uid }], time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { duration: 12000, actions: [{ label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) }] });
+    } catch (e) { toast(e.message, 'error'); }
   };
   // Print all: one after another.
   const printAll = async () => { const got = await fetchAll(); if (got.length) printHtml(printDocuments(got, { conversation: true })); };
@@ -1434,6 +1443,7 @@ function Conversation({ folder, uid, date, onOpen, onCompose }) {
         <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
         <button type="button" className="link-btn small" title="Print every message in this conversation, oldest first (or save it as a PDF)" onClick={printAll}>Print all</button>
         {onCompose && <button type="button" className="link-btn small" title="A new email with every message in this conversation, oldest first (without their attachments)" onClick={forwardAll}>Forward all</button>}
+        <button type="button" className="link-btn small" title="One PDF of the whole conversation, oldest first, in Drive: Saved emails" onClick={saveAll}>Save all to Drive</button>
       </div>
       {open && (
         <ol className="conversation-list" aria-label="Conversation">

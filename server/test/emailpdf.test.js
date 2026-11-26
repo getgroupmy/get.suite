@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { simpleParser } from 'mailparser';
 import { PDFDocument } from 'pdf-lib';
-import { pdfFromEmail } from '../src/mail/emailpdf.js';
+import { pdfFromEmail, pdfFromConversation } from '../src/mail/emailpdf.js';
 
 const raw = [
   'From: Kim Park <kim@client.example>', 'To: Olivia Owner <olivia@acme.com>', 'Cc: lee@acme.com', 'Subject: Invoice 42 / March: paid',
@@ -76,4 +76,20 @@ test('as a note: the subject its title; who and when, what it says without the q
   const long = emailNote({ subject: 'Long', text: 'word '.repeat(NOTE_TEXT) });
   assert.ok(long.body.length < 20000 && long.body.endsWith('…'));
   assert.deepEqual(emailNote({}), { title: '(no subject)', body: '' });
+});
+
+test('a conversation as one PDF: each email in turn, oldest first as given; named after its subject without Re:', async () => {
+  const mail = (subject, date, text) => simpleParser(['From: Kim Park <kim@client.example>', 'To: olivia@acme.com', `Subject: ${subject}`, `Date: ${date}`, 'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8', '', text, ''].join('\r\n'));
+  const list = [await mail('Quote for chairs', 'Mon, 16 Nov 2026 09:00:00 +0000', 'Twenty chairs, please.'), await mail('Re: Quote for chairs', 'Tue, 17 Nov 2026 10:00:00 +0000', 'Can you do 10% off?'),
+    await mail('RE: Re: Quote for chairs', 'Wed, 18 Nov 2026 11:00:00 +0000', 'Yes, 10% off.')];
+  const { buf, name } = await pdfFromConversation(list);
+  assert.equal(name, 'Quote for chairs (conversation of 3, 2026-11-16).pdf');
+  assert.equal((await PDFDocument.load(buf)).getTitle(), 'Quote for chairs');
+  const { execFileSync } = await import('node:child_process');
+  let text;
+  try { text = execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { return; }
+  const at = (t) => text.indexOf(t);
+  assert.ok(at('Twenty chairs') >= 0 && at('Twenty chairs') < at('Can you do 10% off?') && at('Can you do 10% off?') < at('Yes, 10% off.'), text);
+  assert.equal((text.match(/From: Kim Park/g) || []).length, 3);
 });

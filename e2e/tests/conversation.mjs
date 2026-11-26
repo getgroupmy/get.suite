@@ -110,6 +110,13 @@ await step('Forward all starts an email with the whole conversation, oldest firs
   const draft = page.getByRole('dialog', { name: /Fwd: Quote for chairs|New message/ }).first();
   await draft.getByRole('button', { name: 'Close' }).first().click();
 });
+await step('Save all to Drive keeps the whole conversation as one PDF in Saved emails', async () => {
+  await page.getByRole('button', { name: 'Save all to Drive' }).click();
+  const toast = page.locator('.toast', { hasText: /Saved to Drive: Saved emails \/ Quote for chairs \(conversation of 3, \d{4}-\d\d-\d\d\)\.pdf/ });
+  await toast.waitFor();
+  await toast.getByRole('button', { name: 'Show' }).click();
+  await page.getByText(/Quote for chairs \(conversation of 3/).first().waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

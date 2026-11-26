@@ -43,6 +43,20 @@ export async function pdfFromEmail(parsed, { timeZone = 'UTC' } = {}) {
   return { buf, name: `${name}.pdf` };
 }
 
+/**
+ * A conversation's emails (mailparser's, oldest first) as one PDF: each as Save to Drive as PDF lays it out, one after
+ * another with a line between them, named after the conversation's subject (without Re:/Fwd:) and its first day.
+ */
+export async function pdfFromConversation(list, { timeZone = 'UTC' } = {}) {
+  const docs = list.map((p) => emailDoc(p, { timeZone }));
+  const content = docs.flatMap((d, i) => (i ? [{ type: 'horizontalRule' }, { type: 'horizontalRule' }, ...d.doc.content] : d.doc.content));
+  const subject = (docs[0]?.subject || '(no subject)').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '') || '(no subject)';
+  const day = docs[0]?.name.match(/\((\d{4}-\d\d-\d\d)\)$/)?.[1] || '';
+  const buf = await pdfFromDoc({ type: 'doc', content }, subject, { setup: { size: 'a4', margin: 'normal' } });
+  const base = subject.replace(/[\\/:*?"<>|\r\n\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Conversation';
+  return { buf, name: `${base} (conversation of ${list.length}${day ? `, ${day}` : ''}).pdf` };
+}
+
 export const NOTE_TEXT = 15000; // (a note holds 20,000 characters: room for the lines around it)
 /**
  * An email as a note (Mail → Save to Notes): its subject as the title; who it's from and when, then what it says

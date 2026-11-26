@@ -69,7 +69,7 @@ import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
-import { pdfFromEmail, emailDoc, emailNote } from '../mail/emailpdf.js';
+import { pdfFromEmail, pdfFromConversation, emailDoc, emailNote } from '../mail/emailpdf.js';
 import { tablesIn, sheetFromTables, sheetFromRows } from '../office/tablesheet.js';
 import { docFromHtml } from '../office/word.js';
 
@@ -1913,6 +1913,26 @@ export default function webmailRoutes() {
     for (const uid of uids) files.push(await saveEmailPdf(req.user, String(req.body?.folder || 'INBOX'), uid, zoneOf(req.body?.time_zone), folderId));
     sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
     res.status(201).json({ folder_id: folderId, files });
+  });
+
+  // A whole conversation (its messages from any of your folders: [{ folder, uid }]) as one PDF in Saved emails, oldest first.
+  r.post('/messages/save-conversation-pdf', async (req, res) => {
+    const items = Array.isArray(req.body?.items) ? req.body.items.map((x) => ({ folder: String(x?.folder || ''), uid: Number(x?.uid) }))
+      .filter((x) => x.folder && Number.isInteger(x.uid) && x.uid > 0) : [];
+    const seen = new Set(), unique = items.filter((x) => !seen.has(`${x.folder}:${x.uid}`) && seen.add(`${x.folder}:${x.uid}`));
+    if (!unique.length) throw bad('Say which emails');
+    if (unique.length > 50) throw bad('Save up to 50 emails at a time');
+    const parsed = [];
+    for (const x of unique) parsed.push((await loadMessage(req.user, x.folder, x.uid, false)).parsed);
+    parsed.sort((a, b) => (a.date?.valueOf?.() || 0) - (b.date?.valueOf?.() || 0));
+    const { buf, name } = await pdfFromConversation(parsed, { timeZone: zoneOf(req.body?.time_zone) });
+    checkQuota(req.user.org_id, buf.length, req.user.id);
+    const folderId = savedEmailsFolder(req.user);
+    const storage = newId();
+    fs.writeFileSync(path.join(FILES_DIR, storage), buf);
+    const id = insertFile({ owner: req.user.id, parentId: folderId, name: cleanName(name), kind: 'file', mime: 'application/pdf', size: buf.length, storage });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id) });
   });
 
   r.post('/messages/:uid/attachments/save', async (req, res) => {
