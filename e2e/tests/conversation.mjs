@@ -99,6 +99,17 @@ await step('Print all prints the whole conversation, oldest first, on one page',
   if (!(at('Can you do 10% off?') > 0 && at('Can you do 10% off?') < at('Yes, 10% off.'))) throw new Error(text);
   if ((text.match(/Subject|Quote for chairs/g) || []).length < 3) throw new Error('not every message');
 });
+await step('Forward all starts an email with the whole conversation, oldest first', async () => {
+  await page.getByRole('button', { name: 'Forward all' }).click();
+  await until(async () => (await page.getByLabel('Subject').inputValue().catch(() => '')) === 'Fwd: Quote for chairs');
+  const body = page.getByRole('textbox', { name: 'Message' });
+  await until(async () => /Yes, 10% off/.test(await body.innerText()));
+  const text = await body.innerText();
+  if ((text.match(/Forwarded message/g) || []).length !== 3) throw new Error(text);
+  if (!(text.indexOf('Can you do 10% off?') < text.indexOf('Yes, 10% off.'))) throw new Error(text);
+  const draft = page.getByRole('dialog', { name: /Fwd: Quote for chairs|New message/ }).first();
+  await draft.getByRole('button', { name: 'Close' }).first().click();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -1308,7 +1308,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}
-      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} />
+      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} onCompose={shared ? null : onCompose} />
       {readingMail && <ReadAloudBar key={`${uid}-${readingMail}`} label="Read aloud" showText sentences={mailSentences({ subject: m.subject, from: m.from, text: m.trimmed?.text ?? m.text })} onClose={() => setReadingMail(null)} />}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
@@ -1398,7 +1398,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
 
 /** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
 /** The rest of the conversation (same subject without Re:/Fwd:, someone in common), earlier and later, from any folder. */
-function Conversation({ folder, uid, date, onOpen }) {
+function Conversation({ folder, uid, date, onOpen, onCompose }) {
   const [list, setList] = useState(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { get(`/mail/messages/${uid}/conversation?folder=${enc(folder)}`).then(setList).catch(() => setList([])); }, [folder, uid]);
@@ -1406,18 +1406,34 @@ function Conversation({ folder, uid, date, onOpen }) {
   const earlier = list.filter((x) => (x.date || 0) <= (date || 0)).length;
   const later = list.length - earlier;
   const summary = [earlier && `${earlier} earlier`, later && `${later} later`].filter(Boolean).join(', ');
-  // Print all: this message and the rest of the conversation, oldest first, one after another.
-  const printAll = async () => {
+  // This message and the rest of the conversation, oldest first (each with where it is).
+  const fetchAll = async () => {
     const all = [...list.map((x) => [x.folder, x.uid, x.date]), [folder, uid, date]].sort((a, b) => (a[2] || 0) - (b[2] || 0));
     const got = [];
-    for (const [f, u] of all) { try { got.push(await get(`/mail/messages/${u}?folder=${enc(f)}&peek=1${mailboxParam()}`)); } catch { /* gone since */ } }
-    if (got.length) printHtml(printDocuments(got, { conversation: true }));
+    for (const [f, u] of all) { try { got.push({ ...(await get(`/mail/messages/${u}?folder=${enc(f)}&peek=1${mailboxParam()}`)), at: [f, u] }); } catch { /* gone since */ } }
+    return got;
+  };
+  // Print all: one after another.
+  const printAll = async () => { const got = await fetchAll(); if (got.length) printHtml(printDocuments(got, { conversation: true })); };
+  // Forward all: a new email with each message under its own "Forwarded message" lines (not their attachments).
+  const forwardAll = async () => {
+    const got = await fetchAll();
+    if (!got.length) return;
+    const parts = [];
+    for (const m of got) {
+      const body = (m.html && await get(`/mail/messages/${m.at[1]}/quote?folder=${enc(m.at[0])}${mailboxParam()}`).then((r) => r.html).catch(() => null)) || textToHtml(m.text || '');
+      const names = (l) => (l || []).map((a) => (a?.name ? `${a.name} <${a.address}>` : a?.address || '')).join(', ');
+      parts.push(`<p>---------- Forwarded message ----------<br>From: ${escapeHtml(names([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject || '')}<br>To: ${escapeHtml(names(m.to))}</p>${body}`);
+    }
+    const subject = String(got[0].subject || '').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '');
+    onCompose({ subject: `Fwd: ${subject}`, html: `<p></p>${parts.join('<p></p>')}` });
   };
   return (
     <div className="conversation">
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
         <button type="button" className="link-btn small" title="Print every message in this conversation, oldest first (or save it as a PDF)" onClick={printAll}>Print all</button>
+        {onCompose && <button type="button" className="link-btn small" title="A new email with every message in this conversation, oldest first (without their attachments)" onClick={forwardAll}>Forward all</button>}
       </div>
       {open && (
         <ol className="conversation-list" aria-label="Conversation">
