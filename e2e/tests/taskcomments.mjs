@@ -225,6 +225,23 @@ await step('a link in a task comment opens (here, one of Workspace’s own)', as
   await d.getByRole('list', { name: 'Comments' }).getByRole('link', { name: `/tasks/${listId}?task=${other}` }).click();
   await until(async () => (await page.getByRole('complementary', { name: 'Task details' }).getByLabel('Task', { exact: true }).inputValue()) === 'Print badges');
 });
+await step('changing your comment to mention someone on the list tells them', async () => {
+  const lee = await mk('lee'); await signIn(lee, 'lee@acme.com');
+  const count = async () => (await api(lee, 'GET', '/notifications')).body.items.filter((x) => x.kind === 'mention' && x.title === 'Olivia Owner mentioned you on “Book venue”').length;
+  const before = await count();
+  await page.goto(`${B}/tasks/${listId}?task=${taskId}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByLabel('Add a comment').fill('Lunch for the crew?');
+  await d.getByRole('button', { name: 'Post' }).click();
+  const item = d.getByRole('list', { name: 'Comments' }).getByRole('listitem').filter({ hasText: 'Lunch for the crew?' });
+  await item.getByRole('button', { name: 'Edit comment' }).click();
+  const box = d.getByLabel('Change your comment');
+  await box.fill('Lunch for the crew? @lee@acme.com');
+  await box.locator('xpath=..').getByRole('button', { name: 'Save' }).click();
+  await d.getByRole('list', { name: 'Comments' }).locator('.mention', { hasText: '@lee@acme.com' }).last().waitFor();
+  await until(async () => (await count()) === before + 1);
+  await lee.context().close();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -5,7 +5,7 @@ import { nextRemind, REPEATS } from '../noterepeat.js';
 import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
 import { q, tx, fold } from '../db.js';
-import { byAddress } from '../byaddress.js';
+import { byAddress, newlyMentioned } from '../byaddress.js';
 import { ensureReactionTables, reactionsOn, reactionsText, toggleReaction } from '../commentreactions.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
@@ -1160,6 +1160,9 @@ export default function noteRoutes() {
     const text = str(req.body?.text, { required: true, name: 'Comment', max: 2000 }).trim();
     if (!text) throw bad('Write a comment');
     if (text !== c.text) q('UPDATE note_comments SET text = ?, edited_at = ? WHERE id = ?').run(text, now(), c.id);
+    // Someone on the note it now mentions (and didn't): told they were mentioned; no one else is told again.
+    const on = team(n), named = newlyMentioned(c.text, text).filter((u) => u !== req.user.id && on.includes(u));
+    if (named.length) bell(named, { kind: 'mention', title: `${req.user.name} mentioned you on “${n.title || 'a note'}”`, body: text.slice(0, 200), link: `/notes?note=${n.id}`, actor: req.user.name });
     tell(n);
     res.json(commentsOf(n.id));
   });

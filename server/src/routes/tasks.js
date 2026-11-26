@@ -16,7 +16,7 @@ import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktra
 import express, { Router } from 'express';
 import { splitByList, tasksFromCsv } from '../taskimport.js';
 import { q, tx, fold } from '../db.js';
-import { byAddress } from '../byaddress.js';
+import { byAddress, newlyMentioned } from '../byaddress.js';
 import { ensureReactionTables, reactionsOn, toggleReaction } from '../commentreactions.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
@@ -930,7 +930,11 @@ export default function taskRoutes() {
     const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
     if (!body.trim()) throw bad('Write a comment');
     if (body !== c.body) q('UPDATE task_comments SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), c.id);
-    changed(loadList(task.list_id, req.user));
+    const list = loadList(task.list_id, req.user);
+    // Someone on the list it now mentions (and didn't): told they were mentioned; no one else is told again.
+    const on = new Set(peopleOn(list)), named = newlyMentioned(c.body, body).filter((u) => u !== req.user.id && on.has(u));
+    if (named.length) bell(named, { kind: 'mention', title: `${req.user.name || req.user.username} mentioned you on “${task.title}”`, body: body.slice(0, 200), link: `/tasks/${task.list_id}?task=${task.id}`, actor: req.user.name });
+    changed(list);
     const row = q('SELECT body, edited_at FROM task_comments WHERE id = ?').get(c.id);
     res.json({ id: c.id, body: row.body, created_at: c.created_at, edited_at: row.edited_at, author_id: c.author_id, author_name: req.user.name });
   });

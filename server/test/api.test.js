@@ -15440,6 +15440,15 @@ test('notes: @mentioning someone on a shared note in a comment tells them they w
   assert.equal(added.status, 200);
   assert.deepEqual(added.body.shared.map((x) => x.name), ['Nat Mention', 'Ned Mention', 'Noa Outside'], 'added; nobody dropped');
   assert.ok((await d('GET', '/api/notifications')).body.items.some((x) => x.title === 'Nia Mention shared a note with you'));
+  // Changing your comment to mention someone tells them (once); those it already mentioned aren't told again.
+  const mine = (await b('POST', `/api/notes/${n.id}/comments`, { text: 'Who has the keys?' })).body.at(-1);
+  const mentionsOf = async (who) => (await who('GET', '/api/notifications')).body.items.filter((x) => x.kind === 'mention' && /Ned Mention mentioned you on “Launch checklist”/.test(x.title)).length;
+  const [natBefore, noaBefore] = [await mentionsOf(c), await mentionsOf(d)];
+  await b('PATCH', `/api/notes/${n.id}/comments/${mine.id}`, { text: 'Who has the keys? @nmnc@acme.com' });
+  assert.equal(await mentionsOf(c), natBefore + 1, 'told when an edit mentions them');
+  await b('PATCH', `/api/notes/${n.id}/comments/${mine.id}`, { text: 'Who has the keys, @nmnc@acme.com? And @nmnd@acme.com' });
+  assert.equal(await mentionsOf(c), natBefore + 1, 'not again');
+  assert.equal(await mentionsOf(d), noaBefore + 1);
 });
 test('tasks: { add: [addresses] } adds people to a list (as when a comment mentions someone not on it), keeping those on it', async () => {
   const a = client(), b = client();
@@ -15495,6 +15504,12 @@ test('reactions on note and task comments: one of each emoji per person, the sam
   assert.deepEqual(tr.body.map((x) => [x.body, x.reactions]), [['Sourdough?', [{ emoji: '❤️', users: [{ id: ids.rxb, name: 'Rob React' }] }]]]);
   assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/comments`)).body[0].reactions.map((x) => [x.emoji, x.users.length]), [['❤️', 1]]);
   assert.notEqual((await c('POST', `/api/tasks/tasks/${t.id}/comments/${tc.id}/reactions`, { emoji: '❤️' })).status, 200, 'not someone off the list');
+  // Changing a task comment to mention someone on the list tells them; someone off it isn't.
+  const ed = (await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Rye?' })).body;
+  await a('PATCH', `/api/tasks/tasks/${t.id}/comments/${ed.id}`, { body: 'Rye? @rxb@acme.com @rxc@acme.com' });
+  assert.ok((await b('GET', '/api/notifications')).body.items.some((x) => x.kind === 'mention' && x.title === 'Rae React mentioned you on “Buy bread”'));
+  assert.ok(!(await c('GET', '/api/notifications')).body.items.some((x) => /mentioned you on “Buy bread”/.test(x.title)), 'not someone off the list');
+  await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${ed.id}`);
   // Deleting a comment takes its reactions with it.
   await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${tc.id}`);
   assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/comments`)).body, []);
