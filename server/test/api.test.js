@@ -7026,6 +7026,8 @@ test('notes: comments on a shared note — everyone on it writes, the others are
   assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/${two[0].id}`, { text: ' ' })).status, 400);
   assert.equal((await b('PATCH', `/api/notes/${n.id}/comments/nope`, { text: 'x' })).status, 404);
   assert.equal((await b('GET', `/api/notes/${n.id}/comments`)).body[0].text, 'The lake house is free');
+  // Filter → 💬 Comments: only notes with some, for everyone on the note.
+  for (const who of [a, b]) assert.deepEqual((await who('GET', '/api/notes?type=comment')).body.map((x) => x.id), [n.id]);
   // Searching notes finds words in their comments too (saying which comment), with the note's own words; not for someone else.
   const byComment = (await b('GET', '/api/notes?q=lake%20HOUSE')).body;
   assert.deepEqual(byComment.map((x) => [x.id, x.comment_match]), [[n.id, 'The lake house is free']]);

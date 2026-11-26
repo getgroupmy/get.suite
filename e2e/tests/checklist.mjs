@@ -141,6 +141,18 @@ await step('searching finds a note by its comment, here and in the top bar, sayi
   await page.getByRole('dialog', { name: 'Offsite' }).waitFor();
   await page.getByRole('dialog', { name: 'Offsite' }).getByRole('button', { name: 'Close' }).last().click();
 });
+await step('Filter → 💬 Comments: only the notes with comments', async () => {
+  await page.goto(`${B}/notes`);
+  await cardOf(page, 'Offsite').waitFor();
+  if (await page.locator('article.note-card').count() < 2) throw new Error('expected other notes too');
+  await page.getByRole('button', { name: 'Filter' }).click();
+  await page.getByRole('button', { name: '💬 Comments' }).click();
+  await until(async () => (await page.locator('article.note-card').count()) === 1);
+  await cardOf(page, 'Offsite').waitFor();
+  await page.getByRole('button', { name: '💬 Comments' }).click();
+  await until(async () => (await page.locator('article.note-card').count()) > 1);
+  await page.keyboard.press('Escape');
+});
 await step('Download (.zip) of the shared note: its comment is in the Markdown, after a marker', async () => {
   await cardOf(page, 'Offsite').hover();
   await page.getByRole('button', { name: 'Select note: Offsite' }).click();

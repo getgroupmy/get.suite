@@ -13,6 +13,9 @@ test('kinds of note', () => {
   assert.equal(noteFits(note({ body: 'see https://example.com' }), { type: 'link' }), true);
   assert.equal(noteFits(note({ items: [{ text: 'http://a.io/x' }] }), { type: 'link' }), true, 'in a checklist');
   assert.equal(noteFits(note({ body: 'https:// nothing' }), { type: 'link' }), false);
+  assert.equal(noteFits(note({ comments: 2 }), { type: 'comment' }), true);
+  assert.equal(noteFits(note({ comments: 0 }), { type: 'comment' }), false);
+  assert.equal(noteFits(note({}), { type: 'comment' }), false);
   assert.equal(noteFits(note({}), {}), true);
 });
 

@@ -29,7 +29,7 @@ import { useBatches } from '../../components/useBatches.jsx';
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
 /** Kinds of note to filter by (Filter, beside Search notes). */
-const NOTE_KINDS = [['list', '☑ Lists'], ['picture', '🖼 Pictures'], ['voice', '🎙 Voice'], ['link', '🔗 Links'], ['reminder', '🔔 Reminders'], ['daily', '📅 Daily notes']];
+const NOTE_KINDS = [['list', '☑ Lists'], ['picture', '🖼 Pictures'], ['voice', '🎙 Voice'], ['link', '🔗 Links'], ['reminder', '🔔 Reminders'], ['daily', '📅 Daily notes'], ['comment', '💬 Comments']];
 /** Put a picture on a note (PNG, JPEG, GIF or WebP, up to 10 MB). */
 async function addPicture(noteId, file) {
   const res = await fetch(`/api/notes/${noteId}/pictures`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
