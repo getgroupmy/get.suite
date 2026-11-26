@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -614,6 +614,17 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   assert.deepEqual(onTasks.map((x) => [x.task, x.by, x.text]), [['Update price list', 'Olivia Owner', '@ava@acme.com the new prices are in']]);
   assert.match(onTasks[0].url, new RegExp(`/tasks/${tl}\\?task=${tt.id}$`));
   assert.equal((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.task_comments, undefined);
+  // Read the task's comments (which reads them), and answer with her write token; a read-only one can't.
+  assert.equal(onTasks[0].task_id, `task:${tt.id}`);
+  const read = (await call(avaToken, 'read_task_comments', { id: onTasks[0].task_id })).structuredContent;
+  assert.deepEqual(read.comments.map((x) => [x.by, x.text]), [['Olivia Owner', '@ava@acme.com the new prices are in']]);
+  assert.equal((await call(avaToken, 'comments_for_me', {})).structuredContent.task_comments, undefined, 'read now');
+  assert.ok((await call(avaToken, 'comment_on_task', { id: onTasks[0].task_id, text: 'Thanks' })).isError, 'not with a read-only token');
+  const avaRw = (await ava('POST', '/api/tokens', { password: 'password123', name: 'Ava’s writer', scope: 'write', days: 30 })).body.token;
+  const said = (await call(avaRw, 'comment_on_task', { id: onTasks[0].task_id, text: 'Thanks, @olivia@acme.com: updating it now' })).structuredContent;
+  assert.equal(said.comment.text, 'Thanks, @olivia@acme.com: updating it now');
+  assert.ok(JSON.stringify((await owner('GET', '/api/notifications')).body).includes('Ava Assignee mentioned you on “Update price list”'));
+  assert.ok((await call(avaRw, 'comment_on_task', { id: 'task:nope', text: 'x' })).isError);
   await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
   assert.ok((await avasTask()).done_at, 'ticked off when resolved');
   assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads, [], 'resolved: no longer waiting');

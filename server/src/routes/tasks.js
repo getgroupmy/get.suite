@@ -300,7 +300,7 @@ export function taskMentionsFor(user) {
                     AND k.created_at > COALESCE((SELECT s.seen_at FROM task_comment_seen s WHERE s.task_id = t.id AND s.user_id = ?), 0)
                   ORDER BY k.created_at DESC LIMIT 100`).all(me, me, me, `@${who}`, me);
   return rows.filter((r) => at.test(r.body)).slice(0, 20).map((r) => ({
-    thread_id: `task:${r.id}`, file: { name: r.title, kind: 'task' }, author_name: r.author_name, body: r.body, at: r.created_at,
+    thread_id: `task:${r.id}`, task_id: r.task_id, file: { name: r.title, kind: 'task' }, author_name: r.author_name, body: r.body, at: r.created_at,
     link: `/tasks/${r.list_id}?task=${r.task_id}`,
   }));
 }
