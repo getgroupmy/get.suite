@@ -110,17 +110,25 @@ await step('a shared note: a comment written in it, listed, and counted on its c
   await dlg.getByRole('button', { name: 'Close' }).last().click();
   await cardOf(page, 'Offsite').getByLabel('1 comment').waitFor();
 });
-await step('someone it is shared with sees the comment as new on its card, until they open the note', async () => {
+await step('someone it is shared with sees the comment as new on its card and on Home, until they open the note', async () => {
   const kim = await mk('kim');
   await signIn(kim, 'kim@acme.com');
   await kim.goto(`${B}/notes`);
   const card = cardOf(kim, 'Offsite');
   await card.getByLabel('1 comment, 1 new').waitFor();
-  await card.locator('.note-open').click();
+  // Home: a New note comments card, and from it the note opens.
+  await kim.goto(`${B}/home`);
+  const home = kim.getByRole('region', { name: 'New note comments' });
+  await home.getByRole('listitem').filter({ hasText: 'Offsite' }).getByText('1 new').waitFor();
+  await home.getByRole('link', { name: 'Offsite' }).click();
   const dlg = kim.getByRole('dialog', { name: 'Offsite' });
   await dlg.getByRole('region', { name: 'Comments' }).getByText('The lake house is free').waitFor();
   await dlg.getByRole('button', { name: 'Close' }).last().click();
   await card.getByLabel('1 comment', { exact: true }).waitFor();
+  await kim.goto(`${B}/home`);
+  await kim.getByRole('heading', { level: 1 }).first().waitFor();
+  await kim.waitForLoadState('networkidle');
+  await until(async () => !(await kim.getByRole('region', { name: 'New note comments' }).count()), 5000).catch(() => { throw new Error('the Home card stayed'); });
   if (await card.locator('.note-comments-new').count()) throw new Error('still new');
   // The writer's own comment was never new to them.
   await page.reload();

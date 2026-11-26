@@ -1,6 +1,7 @@
 import { linkIcon } from '../tasks/listprint.js';
 // Home: the day at a glance. Today's events, tasks due (and overdue), unread mail and chat, files you
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
+import { newNoteComments } from './notecomments.js';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { get, post, put, patch, del, onLive, formatDate } from '../../api.js';
@@ -37,7 +38,7 @@ const formatHours = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m %
 export const lateOk = (e, now) => !e.all_day && e.my_status !== 'no' && now >= e.start - 30 * 60e3 && now <= e.end
   && ((e.guests?.length || 0) > 0 || e.my_status != null); // guests on yours, or you're a guest
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', suggestions: 'Suggestions to review', accessrequests: 'Access requests', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week', kudos: 'Thanks', daily: 'Today’s note' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', suggestions: 'Suggestions to review', accessrequests: 'Access requests', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', notecomments: 'New note comments', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week', kudos: 'Thanks', daily: 'Today’s note' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -117,6 +118,8 @@ export default function Home() {
       accessRequests: accessRequests.slice(0, 6), accessRequestsMore: Math.max(0, accessRequests.length - 6),
       saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
       reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
+      // Notes with comments new to you (others' since you last opened the note), the most new first.
+      noteComments: newNoteComments(notes).items, noteCommentsMore: newNoteComments(notes).more,
       noteReminders: noteReminders.filter((n) => n.remind_at).slice(0, 5), noteRemindersMore: Math.max(0, noteReminders.length - 5),
       // Video meetings used in the last week (yours, and ones you've been in), newest first.
       sharedNew: Array.isArray(sharedNew) ? sharedNew : [],
@@ -397,6 +400,23 @@ export default function Home() {
               </ul>
               {meetOpen?.what === 'people' && <Attendance meeting={meetOpen.m} onClose={() => setMeetOpen(null)} />}
               {meetOpen?.what === 'chat' && <KeptChat meeting={meetOpen.m} onClose={() => setMeetOpen(null)} onDeleted={() => load()} />}
+            </section>
+          )}
+          {data.noteComments.length > 0 && (
+            <section className="card home-card" aria-label="New note comments" {...cardProps('notecomments')}>
+              <h2><Link to="/notes"><span aria-hidden="true">💬</span> New note comments</Link></h2>
+              <ul className="home-list">
+                {data.noteComments.map((n) => {
+                  const text = n.title || (n.body || '').split('\n')[0] || (n.items?.[0]?.text) || 'A note';
+                  return (
+                    <li key={n.id}>
+                      <Link className="grow ellipsis" to={`/notes?note=${n.id}`} title={text}>{text}</Link>
+                      <span className="muted small nowrap">{n.comments_new} new</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {data.noteCommentsMore > 0 && <Link className="small" to="/notes">and {data.noteCommentsMore} more</Link>}
             </section>
           )}
           {data.noteReminders.length > 0 && (
