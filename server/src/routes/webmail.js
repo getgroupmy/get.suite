@@ -578,7 +578,7 @@ export default function webmailRoutes() {
   // on it instead of their own mailbox (reading, moving, flags, folders, drafts and sending as it). Things
   // kept per person (filters, labels, signatures, snoozing, scheduled sending…) stay with their own mail.
   const SHARED_OK = [
-    ['GET', /^\/(unread|folders|messages|find|messages-eml\.zip)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview|\/zip)?))?$/],
+    ['GET', /^\/(unread|folders|messages|find|messages-eml\.zip|messages-conversation\.zip)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview|\/zip)?))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
     ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/shared-report$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
@@ -1732,6 +1732,43 @@ export default function webmailRoutes() {
     const name = `${safeName(folder.split(/[./]/).pop(), 'Mail')} (${found.length} ${found.length === 1 ? 'message' : 'messages'}).zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="messages.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(buf);
+  });
+  // A conversation's messages (from several folders: ?items=INBOX:12,Sent:4) as one .zip of .eml files, oldest first.
+  r.get('/messages-conversation.zip', async (req, res) => {
+    const items = String(req.query.items || '').split(',').map((x) => /^(.+):(\d+)$/.exec(x.trim())).filter(Boolean).map((m) => ({ folder: m[1], uid: Number(m[2]) }));
+    if (!items.length) throw bad('Say which emails');
+    if (items.length > 100) throw bad('Up to 100 messages at a time');
+    const byFolder = new Map();
+    for (const x of items) byFolder.set(x.folder, [...new Set([...(byFolder.get(x.folder) || []), x.uid])]);
+    const found = [];
+    let size = 0;
+    for (const [folder, uids] of byFolder) {
+      await withFolder(req.user, folder, async (client) => {
+        for await (const m of client.fetch(uids.join(','), { source: true, envelope: true, internalDate: true }, { uid: true })) {
+          size += m.source?.length || 0;
+          if (size > 200 * 1024 * 1024) throw bad('Those messages come to more than 200 MB');
+          found.push(m);
+        }
+      });
+    }
+    if (!found.length) throw notFound('Message not found');
+    const when = (m) => new Date(m.envelope?.date || m.internalDate || 0).valueOf() || 0;
+    found.sort((x, y) => when(x) - when(y));
+    const day = (m) => (when(m) ? new Date(when(m)).toISOString().slice(0, 10) : '');
+    const used = new Set();
+    const files = found.map((m, i) => {
+      let base = [day(m), safeName(m.envelope?.subject, 'message').slice(0, 100)].filter(Boolean).join(' ');
+      if (used.has(base)) base = `${base} (${i + 1})`;
+      used.add(base);
+      return { filename: `${base}.eml`, content: m.source };
+    });
+    const buf = await attachmentsZip(files);
+    const subject = String(found[0].envelope?.subject || '').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '');
+    const name = `${safeName(subject, 'Conversation')} (conversation of ${found.length}).zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="conversation.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(buf);
   });

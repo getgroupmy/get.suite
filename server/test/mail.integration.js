@@ -2447,6 +2447,15 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.deepEqual(conv.messages.map((m) => [m.subject, m.text]), [[topic, 'The pelican numbers are in.'], [`Re: ${topic}`, 'And the heron count too.']]);
   assert.match(conv.messages[0].from, /bob@acme\.com/);
   assert.ok((await inbox(olivia, topic)).every((m) => !m.seen), 'still unread');
+  // The conversation as a .zip of .eml files (Mail's "Download all"), oldest first, named after it; nothing asked for: refused.
+  const both = (await inbox(olivia, topic)).map((m) => `INBOX:${m.uid}`).join(',');
+  const zr = await olivia('GET', `/api/mail/messages-conversation.zip?items=${encodeURIComponent(both)}`, undefined, { binary: true });
+  assert.equal(zr.status, 200);
+  assert.match(decodeURIComponent(zr.headers.get('content-disposition')), new RegExp(`${topic} \\(conversation of 2\\)\\.zip`));
+  const { default: JSZip } = await import('jszip');
+  const zfiles = await JSZip.loadAsync(zr.body);
+  assert.equal(Object.keys(zfiles.files).length, 2);
+  assert.equal((await olivia('GET', '/api/mail/messages-conversation.zip?items=')).status, 400);
   // update_email with whole_conversation: the change reaches every message of it, from one email's id.
   const marked = await call('update_email', { ids: [first.id], read: true, whole_conversation: true });
   assert.equal(marked.changed, 2);

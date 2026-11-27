@@ -137,6 +137,16 @@ await step('Forward all starts an email with the whole conversation, oldest firs
   const draft = page.getByRole('dialog', { name: /Fwd: Quote for chairs|New message/ }).first();
   await draft.getByRole('button', { name: 'Close' }).first().click();
 });
+await step('Download all (.zip) gives every message of the conversation as an .eml, oldest first', async () => {
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Download all (.zip)' }).click()]);
+  if (!/^Quote for chairs \(conversation of 3\)\.zip$/.test(dl.suggestedFilename())) throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const zip = await JSZip.loadAsync((await import('node:fs')).readFileSync(await dl.path()));
+  const names = Object.keys(zip.files).sort();
+  if (names.length !== 3 || !names.every((n) => n.endsWith('.eml'))) throw new Error(names.join(', '));
+  const texts = await Promise.all(names.map((n) => zip.file(n).async('string')));
+  if (!texts.some((t) => /Yes, 10% off\./.test(t)) || !texts.some((t) => /Can you do 10% off\?/.test(t))) throw new Error('messages missing');
+});
 await step('Save all to Drive keeps the whole conversation as one PDF in Saved emails', async () => {
   await page.getByRole('button', { name: 'Save all to Drive' }).click();
   const toast = page.locator('.toast', { hasText: /Saved to Drive: Saved emails \/ Quote for chairs \(conversation of 3, \d{4}-\d\d-\d\d\)\.pdf/ });
