@@ -187,3 +187,19 @@ test('a public link to an email (.eml) or a zip: shown as Drive shows them, behi
   assert.equal((await pub(`/api/public/links/${el.token}/zip-contents`)).status, 400);
   assert.equal((await pub(`/api/public/links/${zl.token}/eml`, key)).status, 400);
 });
+
+test('Drive search can be narrowed to code and data files, emails, or calendars and contacts; a TSV counts as a spreadsheet', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const up = async (name, text) => (await ann('POST', `/api/files/upload?name=${encodeURIComponent(name)}`, null, Buffer.from(text))).body;
+  await up('zq-main.go', 'package main'); await up('zq-settings.yaml', 'a: 1'); await up('zq-notes.txt', 'hi');
+  await up('zq-quote.eml', 'Subject: x\r\n\r\nhi'); await up('zq-team.vcf', 'BEGIN:VCARD\r\nFN:A\r\nEND:VCARD'); await up('zq-days.ics', 'BEGIN:VCALENDAR\r\nEND:VCALENDAR');
+  await up('zq-rota.tsv', 'a\tb');
+  const find = async (type) => (await ann('GET', `/api/files?view=search&q=zq&type=${type}`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await find('code'), ['zq-main.go', 'zq-settings.yaml']);
+  assert.deepEqual(await find('email'), ['zq-quote.eml']);
+  assert.deepEqual(await find('cards'), ['zq-days.ics', 'zq-team.vcf']);
+  assert.ok((await find('sheet')).includes('zq-rota.tsv'));
+  assert.ok(!(await find('code')).includes('zq-rota.tsv'));
+  assert.equal((await ann('GET', '/api/files?view=search&q=zq&type=nonsense')).status, 400);
+});

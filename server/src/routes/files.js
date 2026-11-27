@@ -50,7 +50,7 @@ import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
 import { importCalendar, splitCalendar } from '../calimport.js';
 import { parseIcsEvent, zoneOrUtc } from '../ics.js';
-import { TEXT_EXT_RE } from '../textexts.js';
+import { TEXT_EXT_RE, TEXT_EXTS } from '../textexts.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -613,13 +613,18 @@ function hashFile(file) {
 const SEARCH_TYPES = {
   folder: "f.kind = 'folder'",
   doc: "f.kind = 'doc' OR (f.kind = 'file' AND (f.name LIKE '%.docx' OR f.name LIKE '%.doc' OR f.name LIKE '%.odt' OR f.name LIKE '%.rtf' OR f.name LIKE '%.txt' OR f.name LIKE '%.md'))",
-  sheet: "f.kind = 'sheet' OR (f.kind = 'file' AND (f.name LIKE '%.xlsx' OR f.name LIKE '%.xls' OR f.name LIKE '%.ods' OR f.name LIKE '%.csv'))",
+  sheet: "f.kind = 'sheet' OR (f.kind = 'file' AND (f.name LIKE '%.xlsx' OR f.name LIKE '%.xls' OR f.name LIKE '%.ods' OR f.name LIKE '%.csv' OR f.name LIKE '%.tsv'))",
   slides: "f.kind = 'slides' OR (f.kind = 'file' AND (f.name LIKE '%.pptx' OR f.name LIKE '%.ppt' OR f.name LIKE '%.odp'))",
   pdf: "f.kind = 'file' AND (f.mime = 'application/pdf' OR f.name LIKE '%.pdf')",
   image: "f.kind = 'file' AND f.mime LIKE 'image/%'",
   video: "f.kind = 'file' AND f.mime LIKE 'video/%'",
   audio: "f.kind = 'file' AND f.mime LIKE 'audio/%'",
   archive: "f.kind = 'file' AND (f.name LIKE '%.zip' OR f.name LIKE '%.7z' OR f.name LIKE '%.rar' OR f.name LIKE '%.tar' OR f.name LIKE '%.gz')",
+  // Code and data files (those the viewer shows as text; .csv and .tsv are spreadsheets), emails kept as files, and
+  // calendar files and contact cards. (The extensions are a fixed list of letters and digits, so safe in SQL.)
+  code: `f.kind = 'file' AND (${TEXT_EXTS.filter((e) => !['csv', 'tsv'].includes(e)).map((e) => `f.name LIKE '%.${e}'`).join(' OR ')})`,
+  email: "f.kind = 'file' AND (f.name LIKE '%.eml' OR f.name LIKE '%.msg' OR f.name LIKE '%.mbox')",
+  cards: "f.kind = 'file' AND (f.name LIKE '%.ics' OR f.name LIKE '%.vcf' OR f.name LIKE '%.vcs')",
 };
 
 let convertOfficeFile = null;

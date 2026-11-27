@@ -128,6 +128,20 @@ await step('an uploaded email and e-book are kept as what they are (message/rfc8
   const type = (n) => files.find((f) => f.name === n)?.mime;
   if (type('delivery.eml') !== 'message/rfc822' || type('Harvest.epub') !== 'application/epub+zip') throw new Error(JSON.stringify(files.map((f) => [f.name, f.mime])));
 });
+await step('the Type filter has Code and data, Emails (.eml), and Calendars and contacts', async () => {
+  await page.evaluate(async () => fetch('/api/files/upload?name=stock-team.vcf', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'BEGIN:VCARD\r\nFN:Stock team\r\nEND:VCARD' }));
+  await page.goto(`${B}/drive/search?q=`);
+  const names = () => page.locator('.files tbody tr .name-text, .files tbody tr td.name').allInnerTexts().then((a) => a.map((x) => x.trim()));
+  await page.getByLabel('Type').selectOption({ label: 'Code and data' });
+  await page.locator('.files tbody tr').filter({ hasText: 'stock.go' }).waitFor({ timeout: 10000 });
+  if ((await names()).some((n) => /\.(eml|epub|vcf)/.test(n))) throw new Error(`code: ${(await names()).join(', ')}`);
+  await page.getByLabel('Type').selectOption({ label: 'Emails (.eml)' });
+  await page.locator('.files tbody tr').filter({ hasText: 'delivery.eml' }).waitFor({ timeout: 10000 });
+  if ((await names()).some((n) => /stock\.go/.test(n))) throw new Error(`email: ${(await names()).join(', ')}`);
+  await page.getByLabel('Type').selectOption({ label: 'Calendars and contacts' });
+  await page.locator('.files tbody tr').filter({ hasText: 'stock-team.vcf' }).waitFor({ timeout: 10000 });
+  if (!/type=cards/.test(page.url())) throw new Error(page.url());
+});
 await step('Chinese: a word inside a sentence (no spaces between words) is found, and marked as written', async () => {
   await api(page, 'POST', '/files/new', { kind: 'doc', name: '季度总结', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '第三季度销售报告已经完成。' }] }] } });
   await page.waitForTimeout(2500); // the index catches up
