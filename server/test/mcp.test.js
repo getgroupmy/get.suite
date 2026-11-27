@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'find_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -92,6 +92,18 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   assert.deepEqual(inside, ['Atlas budget', 'Notes']);
   assert.deepEqual((await call(rw, 'list_files', { folder: sub.id })).structuredContent.files.map((f) => f.name), ['Kickoff']);
   assert.deepEqual((await call(rw, 'list_files', { folder: sub.id })).structuredContent.files.map((f) => f.your_access), ['owner (can edit and share)']);
+  // find_files: by kind, owner and how recently changed, with or without words.
+  const sheets = (await call(ro, 'find_files', { type: 'sheet' })).structuredContent.files;
+  assert.ok(sheets.some((f) => f.name === 'Atlas budget' && f.kind === 'sheet'), JSON.stringify(sheets));
+  assert.ok(!sheets.some((f) => f.kind === 'doc'));
+  const mine = (await call(ro, 'find_files', { query: 'kickoff', owner: 'me', modified_within_days: 1 })).structuredContent.files;
+  assert.deepEqual(mine.map((f) => f.name), ['Kickoff']);
+  assert.equal((await call(ro, 'find_files', { query: 'kickoff', owner: 'others' })).structuredContent.files.length, 0);
+  assert.match((await call(ro, 'find_files', {})).content[0].text, /Say what to look for/);
+  await new Promise((r) => setTimeout(r, 1500)); // the words index catches up
+  const byWords = (await call(ro, 'find_files', { query: 'hello', type: 'doc' })).structuredContent.files;
+  const k = byWords.find((f) => f.name === 'Kickoff');
+  assert.ok(k && /Hello/.test(k.matched || '') && !/[\u0001\u0002]/.test(k.matched), JSON.stringify(byWords));
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));

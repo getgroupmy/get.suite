@@ -142,6 +142,17 @@ await step('the Type filter has Code and data, Emails (.eml), and Calendars and 
   await page.locator('.files tbody tr').filter({ hasText: 'stock-team.vcf' }).waitFor({ timeout: 10000 });
   if (!/type=cards/.test(page.url())) throw new Error(page.url());
 });
+await step('an AI assistant (MCP find_files) narrows the same way: code and data files with a word in them, and where it matched', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Files helper', scope: 'read', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const r = await call('find_files', { query: 'tamarindLimit', type: 'code' });
+  const f = r?.structuredContent?.files || [];
+  if (f.length !== 1 || f[0].name !== 'stock.go' || !/tamarindLimit/.test(f[0].matched || '')) throw new Error(JSON.stringify(r));
+  const emails = (await call('find_files', { type: 'email' }))?.structuredContent?.files || [];
+  if (!emails.some((x) => x.name === 'delivery.eml') || emails.some((x) => !/\.(eml|msg|mbox)$/.test(x.name))) throw new Error(JSON.stringify(emails));
+});
 await step('Chinese: a word inside a sentence (no spaces between words) is found, and marked as written', async () => {
   await api(page, 'POST', '/files/new', { kind: 'doc', name: '季度总结', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '第三季度销售报告已经完成。' }] }] } });
   await page.waitForTimeout(2500); // the index catches up

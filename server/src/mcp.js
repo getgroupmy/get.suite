@@ -1359,6 +1359,27 @@ export const TOOLS = [
     },
   },
   {
+    name: 'find_files', title: 'Find Drive files', readOnly: true,
+    description: 'Find files in Drive by kind, owner and when they changed, with or without words to look for (in names and inside): e.g. the PDFs changed this week, spreadsheets someone else owns that mention "budget", code and data files, emails kept as files, calendars and contacts. Each comes with where its words matched. Pass an id to fetch to read one.',
+    inputSchema: { type: 'object', properties: {
+      query: { type: 'string', description: 'Words to look for (optional)' },
+      type: { type: 'string', enum: ['doc', 'sheet', 'slides', 'pdf', 'image', 'video', 'audio', 'archive', 'code', 'email', 'cards', 'folder'], description: 'doc (documents, Word…), sheet (spreadsheets, Excel, CSV…), slides, pdf, image, video, audio, archive (.zip…), code (code and data files), email (.eml), cards (calendars and contacts), folder' },
+      owner: { type: 'string', enum: ['me', 'others'], description: 'Files the person owns, or others own' },
+      modified_within_days: { type: 'integer', minimum: 1, maximum: 3650, description: 'Changed in the last this many days' },
+    } },
+    async run(api, a) {
+      if (!String(a.query || '').trim() && !a.type && !a.owner && !a.modified_within_days) throw new ToolError('Say what to look for: words, a type, an owner or how recently it changed');
+      const p = new URLSearchParams({ view: 'search', q: String(a.query || '').slice(0, 200) });
+      if (a.type) p.set('type', String(a.type));
+      if (a.owner) p.set('owner', String(a.owner));
+      if (a.modified_within_days) p.set('modified', String(Math.round(Number(a.modified_within_days))));
+      const rows = await api('GET', `/files?${p}`);
+      const list = Array.isArray(rows) ? rows : rows.files || [];
+      return { files: list.slice(0, 50).map((f) => ({ id: `file:${f.id}`, name: f.name, kind: f.kind, size: f.size ?? null, updated_at: iso(f.updated_at), owner: f.owner_name || null,
+        ...(f.parent_name && { folder: f.parent_name }), ...(f.match && { matched: words(String(typeof f.match === 'string' ? f.match : f.match.text || f.match.snippet || '').replace(/[\u0001\u0002]/g, ''), 200) }), url: fileUrl(f) })), ...(list.length > 50 && { more: list.length - 50 }) };
+    },
+  },
+  {
     name: 'list_chat_conversations', title: 'Chat conversations', readOnly: true,
     description: 'The person’s Chat channels and direct messages, with how many messages are unread.',
     inputSchema: { type: 'object', properties: {} },
