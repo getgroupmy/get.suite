@@ -2435,6 +2435,18 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.match(JSON.stringify(await bad.json()), /reply_to is an email’s id/);
   const bad2 = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_email', arguments: { ids: ['mail:INBOX:1'] } } }) });
   assert.match(JSON.stringify(await bad2.json()), /Say what to do: read, starred or move_to/);
+  // The whole conversation of an email (read_email_conversation): Bob's reply joins it; oldest first, each with its text; not marked read.
+  const topic = `Herons ${Date.now()}`;
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: topic, text: 'The pelican numbers are in.' })).status, 200);
+  await eventually(async () => (await inbox(olivia, topic))[0], 30000);
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: `Re: ${topic}`, text: 'And the heron count too.' })).status, 200);
+  await eventually(async () => (await inbox(olivia, `Re: ${topic}`))[0], 30000);
+  const first = (await call('list_mail', { query: topic })).messages.find((m) => m.subject === topic);
+  const conv = await call('read_email_conversation', { id: first.id });
+  assert.equal(conv.subject, topic);
+  assert.deepEqual(conv.messages.map((m) => [m.subject, m.text]), [[topic, 'The pelican numbers are in.'], [`Re: ${topic}`, 'And the heron count too.']]);
+  assert.match(conv.messages[0].from, /bob@acme\.com/);
+  assert.ok((await inbox(olivia, topic)).every((m) => !m.seen), 'still unread');
 });
 
 test('risky attachments: marked in the message, and handed over only once confirmed', async () => {
