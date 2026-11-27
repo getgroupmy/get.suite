@@ -1479,7 +1479,11 @@ export function officeAs(f) {
   return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, txt: { what: 'document', icon: 'doc' }, rtf: { what: 'document', icon: 'doc' }, html: { what: 'document', icon: 'doc' }, htm: { what: 'document', icon: 'doc' }, csv: { what: 'spreadsheet', icon: 'sheet' }, tsv: { what: 'spreadsheet', icon: 'sheet' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, ods: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' }, odp: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
-function Preview({ file, onClose, onOpenAs, comment = null, edit = false }) {
+function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false }) {
+  // A text file being edited with changes not saved: closing asks first.
+  const unsaved = useRef(false);
+  const [askDiscard, setAskDiscard] = useState(false);
+  const onClose = () => (unsaved.current ? setAskDiscard(true) : close());
   const src = `/api/files/${file.id}/raw`;
   const m = file.mime || '';
   // Comments: on the whole file, or (pictures) on a spot, shown as a numbered pin.
@@ -1523,7 +1527,7 @@ function Preview({ file, onClose, onOpenAs, comment = null, edit = false }) {
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
-  else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit}
+  else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit} onDirty={(v) => { unsaved.current = v; }}
     onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
   else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown|txt|log)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
@@ -1532,30 +1536,35 @@ function Preview({ file, onClose, onOpenAs, comment = null, edit = false }) {
   else if (/\.eml$/i.test(file.name)) body = <EmlContents url={`/files/${file.id}/eml`} />;
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
-    <Modal wide title={file.name} onClose={onClose} footer={<>
-      <TasksAbout url={`/drive?preview=${file.id}`} className="btn" />
-      <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}<NewCount n={fresh.length} /></button>
-      {isZip && !viewOnly(file) && <button type="button" className="btn primary" disabled={unpacking} title="Unpack it into a folder of the same name next to it" onClick={extract}><Icon name="folder" size={18} /> {unpacking ? 'Unpacking…' : 'Extract here'}</button>}
-      {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
-      {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) || isZip ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
-    </>}>
-      <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
-        <div className="preview">{body}</div>
-        {panel && (
-          <div className="preview-comments stack-tight">
-            {canComment && !pending && (
-              <div className="row wrap">
-                <button type="button" className="btn small" onClick={() => newComment({}, 'the whole file')}>Comment on the file</button>
-                {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
-              </div>
-            )}
-            <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
-              onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
-          </div>
-        )}
-      </div>
-      <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
-    </Modal>
+    <>
+      <Modal wide title={file.name} onClose={onClose} footer={<>
+        <TasksAbout url={`/drive?preview=${file.id}`} className="btn" />
+        <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}<NewCount n={fresh.length} /></button>
+        {isZip && !viewOnly(file) && <button type="button" className="btn primary" disabled={unpacking} title="Unpack it into a folder of the same name next to it" onClick={extract}><Icon name="folder" size={18} /> {unpacking ? 'Unpacking…' : 'Extract here'}</button>}
+        {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
+        {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) || isZip ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
+      </>}>
+        <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
+          <div className="preview">{body}</div>
+          {panel && (
+            <div className="preview-comments stack-tight">
+              {canComment && !pending && (
+                <div className="row wrap">
+                  <button type="button" className="btn small" onClick={() => newComment({}, 'the whole file')}>Comment on the file</button>
+                  {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
+                </div>
+              )}
+              <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
+                onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
+            </div>
+          )}
+        </div>
+        <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
+      </Modal>
+      {askDiscard && <ConfirmModal title="Discard your changes?" confirm="Discard" cancel="Keep editing" onClose={() => setAskDiscard(false)}
+        onConfirm={() => { unsaved.current = false; close(); }}
+        message={`What you changed in ${file.name} hasn't been saved. Keep editing to save it, or discard it.`} />}
+    </>
   );
 }
 

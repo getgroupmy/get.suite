@@ -310,6 +310,42 @@ await step('Find and replace while editing: counts, Match case, Replace all, the
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('closing with unsaved changes asks first: Keep editing keeps them, Discard drops them; leaving the page warns', async () => {
+  await page.keyboard.press('Escape');
+  const f = await page.evaluate(async () => (await fetch('/api/files/new-text', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'todo.txt', text: 'one\n' }) })).json());
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  await page.getByLabel('Text of todo.txt').waitFor({ timeout: 15000 });
+  // No changes: closes without asking.
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Edit todo.txt').waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'todo.txt' }).waitFor({ state: 'detached' });
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click({ timeout: 15000 });
+  const box = page.getByLabel('Edit todo.txt');
+  await box.fill('one\ntwo\n');
+  await page.keyboard.press('Escape');
+  const ask = page.getByRole('dialog', { name: 'Discard your changes?' });
+  await ask.waitFor();
+  await ask.getByRole('button', { name: 'Keep editing' }).click();
+  if (await box.inputValue() !== 'one\ntwo\n') throw new Error('changes lost after Keep editing');
+  // Leaving the page warns (the browser's own question), and staying keeps them.
+  let warned = false;
+  page.once('dialog', async (dlg) => { warned = dlg.type() === 'beforeunload'; await dlg.dismiss(); });
+  await page.reload().catch(() => {});
+  await page.waitForTimeout(500);
+  if (!warned) throw new Error('no warning on leaving the page');
+  if (await box.inputValue() !== 'one\ntwo\n') throw new Error('changes lost after staying on the page');
+  await page.getByRole('dialog', { name: 'todo.txt' }).getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('dialog', { name: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click();
+  await page.getByRole('dialog', { name: 'todo.txt' }).waitFor({ state: 'detached' });
+  if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== 'one\n') throw new Error('discarded text was saved');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

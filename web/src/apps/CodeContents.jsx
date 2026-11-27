@@ -24,7 +24,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -51,6 +51,16 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     return () => { live = false; };
   }, [name, reload]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (d && startEditing && onSave && !started.current) { started.current = true; setDraft(d.text); } }, [d, startEditing, onSave]);
+  // Unsaved changes: the window holding this is told (so closing it asks first), and leaving the page warns.
+  const dirty = draft !== null && d && draft !== d.text;
+  useEffect(() => {
+    onDirty?.(!!dirty);
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirty?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
   const pretty = d ? readable(name, d.text) : '';
   const text = d ? (laid ? pretty : d.text) : '';
   const lines = useMemo(() => { const l = text.split('\n'); if (l.length > 1 && l[l.length - 1] === '') l.pop(); return l; }, [text]);

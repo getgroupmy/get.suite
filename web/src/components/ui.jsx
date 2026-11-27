@@ -65,7 +65,7 @@ export function PromptModal({ title, label, initial = '', confirm = 'Save', onSu
   );
 }
 
-export function ConfirmModal({ title, message, confirm = 'Delete', danger = true, onConfirm, onClose, children }) {
+export function ConfirmModal({ title, message, confirm = 'Delete', cancel = 'Cancel', danger = true, onConfirm, onClose, children }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
@@ -74,7 +74,7 @@ export function ConfirmModal({ title, message, confirm = 'Delete', danger = true
       {children}
       {error && <p className="error">{error}</p>}
       <div className="row end">
-        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn" onClick={onClose}>{cancel}</button>
         <button className={`btn ${danger ? 'danger' : 'primary'}`} disabled={busy} autoFocus onClick={async () => {
           setBusy(true);
           try { await onConfirm(); onClose(); } catch (e) { setError(e.message); setBusy(false); }
