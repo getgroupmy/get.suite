@@ -89,6 +89,15 @@ await step('inside a linked folder, a JavaScript file opens as text too', async 
   await pre.waitFor({ timeout: 15000 });
   if (!(await pre.innerText()).includes('console.log("open");')) throw new Error(await pre.innerText());
 });
+await step('a link to a Markdown file shows it formatted (a heading and a list), not its # and - marks', async () => {
+  const md = await upload('Opening.md', '# Opening hours\n\n- Monday to Friday, 9 to 5\n- Saturday, 10 to 2\n');
+  const l = (await api(page, 'POST', '/links', { file_id: md.id })).body;
+  await visitor.goto(`${B}/s/${l.token}`);
+  await visitor.getByRole('heading', { name: 'Opening hours' }).waitFor({ timeout: 15000 });
+  await visitor.getByRole('listitem').filter({ hasText: 'Saturday, 10 to 2' }).waitFor();
+  if (await visitor.getByText('# Opening hours').count()) throw new Error('raw Markdown shown');
+  await visitor.screenshot({ path: `${SP}/shots/link-md.png` });
+}, visitor);
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

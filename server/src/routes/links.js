@@ -18,6 +18,7 @@ import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { receiveUpload, insertFile, cleanName, picturesIn, sourceTextOf, cardsOfFile } from './files.js';
 import { withoutSuggestions } from '../office/suggestions.js';
+import { docFromMarkdown } from '../office/markdown.js';
 import { publishedBook } from '../office/sheetvalues.js';
 import { saveNow, CO_EDITED } from '../collab.js';
 import { wordFromDoc } from '../office/word.js';
@@ -404,6 +405,14 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     return itemIn(l, req.query.item);
   };
   r.get('/links/:token/source-text', (req, res) => res.json(sourceTextOf(linkedFile(req))));
+  // A Markdown file shown formatted, as the link's documents are (pictures in it come as their descriptions; nothing
+  // outside is loaded, and only web and mail links are kept).
+  r.get('/links/:token/markdown', (req, res) => {
+    const f = linkedFile(req);
+    if (f.kind !== 'file' || !/\.(md|markdown)$/i.test(f.name)) throw bad('Not a Markdown file');
+    if (f.size > 2 * 1024 * 1024) throw bad('This file is too large to show here: download it instead');
+    res.json({ ...shown(f), kind: 'doc', content: docFromMarkdown(fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8')) });
+  });
   r.get('/links/:token/cards', (req, res) => res.json(cardsOfFile(linkedFile(req), String(req.query.tz || 'UTC'))));
 
   // A file request: send one file into the linked folder (?name=, &from= who's sending it). The file

@@ -109,6 +109,7 @@ function FileView({ file, src, download, read }) {
   if (/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m)) preview = <img src={src} alt={file.name} className="preview-media" />;
   else if (/^video\/(mp4|webm)$/.test(m)) preview = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) preview = <audio src={src} controls />;
+  else if (/\.(md|markdown)$/i.test(file.name)) preview = <LinkMarkdown read={read} />;
   else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} />;
@@ -248,4 +249,18 @@ function LinkCards({ read, canDownload }) {
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
   return <CardsList d={d}>{canDownload && <p className="muted small">Download it to add {d.kind === 'calendar' ? 'these events to your calendar' : 'these people to your contacts'}.</p>}</CardsList>;
+}
+
+/** A Markdown file shown formatted, as a linked document is. */
+function LinkMarkdown({ read }) {
+  const [got, setGot] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    read('markdown').then((x) => live && setGot(x)).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (error) return <p className="muted" role="alert">{error}</p>;
+  if (!got) return <p className="muted">Loading…</p>;
+  return <div className="link-md"><Suspense fallback={<p className="muted">Loading…</p>}><LinkedItem item={got} base="" /></Suspense></div>;
 }

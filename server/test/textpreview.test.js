@@ -111,3 +111,21 @@ test('a Markdown file’s preview is it formatted (headings, lists, bold), in Dr
   assert.equal(c.status, 200, JSON.stringify(c.body));
   assert.match(JSON.stringify(c.body.content), /"Shop setup"/);
 });
+
+test('a public link to a Markdown file: shown formatted; outside pictures and unsafe links don’t come through', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const md = (await ann('POST', '/api/files/upload?name=Guide.md', null, Buffer.from('# Opening hours\n\n![tracker](https://evil.example/t.png)\n\n[map](https://maps.example/shop) [bad](javascript:alert(1))\n'))).body;
+  const link = (await ann('POST', '/api/links', { file_id: md.id })).body;
+  const r = await fetch(`${base}/api/public/links/${link.token}/markdown`, { headers: { 'x-requested-with': 'nas-workspace' } });
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.kind, 'doc');
+  const json = JSON.stringify(body.content);
+  assert.match(json, /"type":"heading".*"Opening hours"/);
+  assert.doesNotMatch(json, /evil\.example|javascript:/);
+  assert.match(json, /https:\/\/maps\.example\/shop/);
+  const yaml = (await ann('POST', '/api/files/upload?name=x.yaml', null, Buffer.from('a: 1'))).body;
+  const yl = (await ann('POST', '/api/links', { file_id: yaml.id })).body;
+  assert.equal((await fetch(`${base}/api/public/links/${yl.token}/markdown`, { headers: { 'x-requested-with': 'nas-workspace' } })).status, 400);
+});
