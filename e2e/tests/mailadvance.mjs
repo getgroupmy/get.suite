@@ -60,14 +60,14 @@ await step('older: archiving the open message opens the one below it', async () 
   await page.goto(`${B}/mail`);
   await row('Bravo note').click();
   await reader().getByText('About Bravo note').waitFor();
-  await reader().getByRole('button', { name: 'Archive' }).click();
+  await reader().getByRole('button', { name: 'Archive', exact: true }).click();
   await reader().getByText('About Alpha note').waitFor();
 });
 await step('newer: deleting the open message opens the one above it', async () => {
   await api(page, 'PUT', '/users/me/mail-advance', { advance: 'newer' });
   await page.reload();
   await reader().getByText('About Alpha note').waitFor();
-  await reader().getByRole('button', { name: 'Delete' }).click();
+  await reader().getByRole('button', { name: 'Delete', exact: true }).click();
   await reader().getByText('About Charlie note').waitFor();
 });
 await step('back to the list (the default), chosen in Settings', async () => {
@@ -79,7 +79,7 @@ await step('back to the list (the default), chosen in Settings', async () => {
   await page.goto(`${B}/mail`);
   await row('Charlie note').click();
   await reader().getByText('About Charlie note').waitFor();
-  await reader().getByRole('button', { name: 'Archive' }).click();
+  await reader().getByRole('button', { name: 'Archive', exact: true }).click();
   await page.getByText('No message selected').waitFor();
 });
 await step('default reply: everyone first, and R replies to everyone', async () => {
