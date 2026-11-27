@@ -219,6 +219,34 @@ await step('an AI assistant (MCP write_text_file) writes a file, then changes it
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('code is coloured (keywords, strings, numbers, comments), readable in light and dark, and the text is unchanged', async () => {
+  await page.keyboard.press('Escape');
+  const src = 'import os\n\ndef stock(n):  # how many are left\n    return "Lamps: " + str(n * 12)\n';
+  await page.evaluate(async (t) => fetch('/api/files/upload?name=stock.py', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: t }), src);
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'stock.py' }).getByText('stock.py').dblclick();
+  const pre = page.getByLabel('Text of stock.py');
+  await pre.waitFor({ timeout: 15000 });
+  const toks = await pre.evaluate((el) => Object.fromEntries(['keyword', 'string', 'number', 'comment'].map((k) => [k, [...el.querySelectorAll(`.tok-${k}`)].map((x) => x.textContent)])));
+  if (toks.keyword.join(',') !== 'import,def,return' || toks.string[0] !== '"Lamps: "' || toks.number[0] !== '12' || toks.comment[0] !== '# how many are left') throw new Error(JSON.stringify(toks));
+  const text = await pre.evaluate((el) => [...el.querySelectorAll('.code-line')].map((l) => l.textContent.replace(/^\d+/, '')).join(''));
+  if (text !== src) throw new Error(JSON.stringify(text));
+  await page.screenshot({ path: `${SP}/shots/code-colour.png` });
+  await page.evaluate(AXE);
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('.code-view'), { resultTypes: ['violations'], runOnly: { type: 'rule', values: ['color-contrast'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
+    if (v.length) throw new Error(`${scheme}: ${v.join(' | ')}`);
+  }
+  await page.screenshot({ path: `${SP}/shots/code-colour-dark.png` });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

@@ -5,6 +5,7 @@
 // file as it was as an earlier version. `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf } from './codefind.js';
+import { languageOf, colourLines } from './codecolour.js';
 
 export const TEXT_MAX = 512 * 1024;
 /** Read a file's text from an address (an attachment, a chat file), the first 512 KB of it. */
@@ -47,6 +48,7 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const text = d ? (laid ? pretty : d.text) : '';
   const lines = useMemo(() => { const l = text.split('\n'); if (l.length > 1 && l[l.length - 1] === '') l.pop(); return l; }, [text]);
   const matches = useMemo(() => findInLines(lines, find), [lines, find]);
+  const colours = useMemo(() => (lines.length <= 20000 ? colourLines(lines, languageOf(name)) : null), [lines, name]); // (very long files stay plain)
   const current = matches.length ? Math.min(at, matches.length - 1) : -1;
   // The current match scrolled into view (within the text box, not the page).
   useEffect(() => {
@@ -110,7 +112,8 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
           const hits = byLine.get(i);
           return (
             <span key={i} className="code-line"><span className="code-num" aria-hidden="true">{i + 1}</span>
-              {hits ? piecesOf(l, hits.list, hits.first).map((p, k) => (p.hit < 0 ? p.text : <mark key={k} className={p.hit === current ? 'current' : undefined}>{p.text}</mark>)) : l}{'\n'}</span>
+              {hits ? piecesOf(l, hits.list, hits.first).map((p, k) => (p.hit < 0 ? p.text : <mark key={k} className={p.hit === current ? 'current' : undefined}>{p.text}</mark>))
+                : colours ? colours[i].map((p, k) => (p.k ? <span key={k} className={`tok-${p.k}`}>{p.text}</span> : p.text)) : l}{'\n'}</span>
           );
         })}
       </pre>
