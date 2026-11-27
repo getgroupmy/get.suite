@@ -4,6 +4,8 @@ import { formatBytes, formatDate } from '../api.js';
 import Icon, { fileIcon } from '../components/Icon.jsx';
 import CodeContents from './CodeContents.jsx';
 import TableContents from './TableContents.jsx';
+import EmlContents from './EmlContents.jsx';
+import ZipContents from './ZipContents.jsx';
 const OfficePreview = lazy(() => import('./OfficePreview.jsx'));
 import { CardsList } from './CardFileContents.jsx';
 import { previewKind } from '../components/viewkind.js';
@@ -111,6 +113,8 @@ function FileView({ file, src, download, read, picturesAt }) {
   else if (/^video\/(mp4|webm)$/.test(m)) preview = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) preview = <audio src={src} controls />;
   else if (/\.(md|markdown)$/i.test(file.name)) preview = <LinkMarkdown read={read} />;
+  else if (/\.eml$/i.test(file.name)) preview = <div className="link-md"><EmlContents load={() => read('eml')} /></div>;
+  else if (/\.zip$/i.test(file.name)) preview = <div className="link-md"><ZipContents load={() => read('zip-contents')} /></div>;
   else if (/\.(docx|odt|xlsx|ods|pptx|odp)$/i.test(file.name)) preview = <div className="link-md"><Suspense fallback={<p className="muted">Getting the preview ready…</p>}><OfficePreview load={() => read('office')} picturesAt={(t) => picturesAt(`office/${t}`)} /></Suspense></div>;
   else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;

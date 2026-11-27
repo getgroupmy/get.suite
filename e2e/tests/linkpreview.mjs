@@ -120,6 +120,23 @@ await step('links to an uploaded Word file (with its picture) and Excel file sho
   await visitor.goto(`${B}/s/${l2.token}`);
   await visitor.getByRole('cell', { name: 'Lamps' }).waitFor({ timeout: 20000 });
 }, visitor);
+await step('links to an email (.eml) and a zip show the email and what’s inside the zip', async () => {
+  const raw = ['From: Bob <bob@sender.example>', 'To: olivia@acme.com', 'Subject: Roof quote', 'Date: Tue, 10 Nov 2026 09:00:00 +0000', 'Content-Type: text/plain; charset=utf-8', '', 'The roof costs 4,000.'].join('\r\n');
+  const e = await upload('Roof.eml', raw);
+  const l = (await api(page, 'POST', '/links', { file_id: e.id })).body;
+  await visitor.goto(`${B}/s/${l.token}`);
+  await visitor.getByRole('article', { name: 'Email: Roof quote' }).getByText('The roof costs 4,000.').waitFor({ timeout: 15000 });
+  const { default: JSZip } = await import(new URL('../../server/node_modules/jszip/lib/index.js', import.meta.url).href);
+  const z = new JSZip(); z.file('plans/floor.txt', 'first floor'); z.file('readme.txt', 'hi');
+  const bytes = await z.generateAsync({ type: 'nodebuffer' });
+  const zf = await page.evaluate(async (b) => (await fetch('/api/files/upload?name=Plans.zip', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: new Uint8Array(b) })).json(), Array.from(bytes));
+  const zl = (await api(page, 'POST', '/links', { file_id: zf.id })).body;
+  await visitor.goto(`${B}/s/${zl.token}`);
+  const list = visitor.getByRole('list', { name: 'Inside the zip' });
+  await list.getByText('floor.txt').waitFor({ timeout: 15000 });
+  await list.getByText('readme.txt').waitFor();
+  await visitor.screenshot({ path: `${SP}/shots/link-zip.png` });
+}, visitor);
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react';
 import { get, formatBytes } from '../api.js';
 import Icon from '../components/Icon.jsx';
 
-export default function ZipContents({ url }) {
+export default function ZipContents({ url, load = null }) {
   const [z, setZ] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let live = true;
     setZ(null); setError('');
-    get(url).then((d) => live && setZ(d)).catch((e) => live && setError(e.message));
+    (load ? load() : get(url)).then((d) => live && setZ(d)).catch((e) => live && setError(e.message));
     return () => { live = false; };
   }, [url]);
   if (error) return <p className="muted" role="alert">{error}</p>;

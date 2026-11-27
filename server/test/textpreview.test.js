@@ -164,3 +164,26 @@ test('a public link to an uploaded Word file: previewed read-only with its pictu
   // Not for other kinds of file.
   assert.equal((await pub(`/api/public/links/${other.token}/office`)).status, 400);
 });
+
+test('a public link to an email (.eml) or a zip: shown as Drive shows them, behind the link’s password', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const pub = (u, key) => fetch(base + u, { headers: { 'x-requested-with': 'nas-workspace', ...(key && { 'x-link-key': key }) } });
+  const eml = ['From: Bob <bob@sender.example>', 'To: ann@acme.com', 'Subject: Roof quote', 'Date: Tue, 10 Nov 2026 09:00:00 +0000', 'Content-Type: text/plain; charset=utf-8', '', 'The roof costs 4,000.'].join('\r\n');
+  const e = (await ann('POST', '/api/files/upload?name=Roof.eml', null, Buffer.from(eml))).body;
+  const el = (await ann('POST', '/api/links', { file_id: e.id })).body;
+  const ev = await (await pub(`/api/public/links/${el.token}/eml`)).json();
+  assert.equal(ev.subject, 'Roof quote');
+  assert.match(ev.text, /4,000/);
+  const { default: JSZip } = await import('jszip');
+  const z = new JSZip(); z.file('plans/floor.txt', 'first floor'); z.file('readme.txt', 'hi');
+  const zf = (await ann('POST', '/api/files/upload?name=Plans.zip', null, await z.generateAsync({ type: 'nodebuffer' }))).body;
+  const zl = (await ann('POST', '/api/links', { file_id: zf.id, password: 'pass-1234' })).body;
+  assert.equal((await pub(`/api/public/links/${zl.token}/zip-contents`)).status, 401);
+  const key = (await (await fetch(`${base}/api/public/links/${zl.token}/unlock`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ password: 'pass-1234' }) })).json()).key;
+  const zv = await (await pub(`/api/public/links/${zl.token}/zip-contents`, key)).json();
+  assert.equal(zv.files, 2);
+  assert.ok(zv.entries.some((x) => x.path === 'plans/floor.txt'));
+  assert.equal((await pub(`/api/public/links/${el.token}/zip-contents`)).status, 400);
+  assert.equal((await pub(`/api/public/links/${zl.token}/eml`, key)).status, 400);
+});

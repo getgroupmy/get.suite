@@ -6,13 +6,13 @@ import Icon from '../components/Icon.jsx';
 
 const who = (p) => (p ? (p.name ? `${p.name} <${p.address}>` : p.address) : '');
 
-export default function EmlContents({ url }) {
+export default function EmlContents({ url, load = null }) {
   const [m, setM] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let live = true;
     setM(null); setError('');
-    get(url).then((d) => live && setM(d)).catch((e) => live && setError(e.message));
+    (load ? load() : get(url)).then((d) => live && setM(d)).catch((e) => live && setError(e.message));
     return () => { live = false; };
   }, [url]);
   if (error) return <p className="muted" role="alert">{error}</p>;

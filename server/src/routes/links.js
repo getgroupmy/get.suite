@@ -20,6 +20,8 @@ import { receiveUpload, insertFile, cleanName, picturesIn, sourceTextOf, cardsOf
 import { withoutSuggestions } from '../office/suggestions.js';
 import { docFromMarkdown } from '../office/markdown.js';
 import { officeKind, officePreview, sendPreviewPicture } from '../office/preview.js';
+import { emlView } from '../mail/emlview.js';
+import { zipEntries } from '../zipfiles.js';
 import { publishedBook } from '../office/sheetvalues.js';
 import { saveNow, CO_EDITED } from '../collab.js';
 import { wordFromDoc } from '../office/word.js';
@@ -415,6 +417,18 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     res.json(await officePreview(fs.readFileSync(path.join(FILES_DIR, f.storage)), f.name, `link:${liveLink(req.params.token).id}`));
   });
   r.get('/links/:token/office/:preview/pictures/:pic', (req, res) => sendPreviewPicture(res, req.params.preview, `link:${liveLink(req.params.token).id}`, req.params.pic));
+  // An email kept as a file (.eml) shown as text (who, when, subject, its text, what's attached), and what's inside a
+  // .zip: as Drive shows them. Looking only, so allowed with downloading off.
+  r.get('/links/:token/eml', async (req, res) => {
+    const f = linkedFile(req);
+    if (f.kind !== 'file' || !/\.eml$/i.test(f.name)) throw bad('Not an email');
+    res.json(await emlView(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
+  r.get('/links/:token/zip-contents', async (req, res) => {
+    const f = linkedFile(req);
+    if (f.kind !== 'file' || !/\.zip$/i.test(f.name)) throw bad('Not a zip file');
+    res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
   // A Markdown file shown formatted, as the link's documents are (pictures in it come as their descriptions; nothing
   // outside is loaded, and only web and mail links are kept).
   r.get('/links/:token/markdown', (req, res) => {
