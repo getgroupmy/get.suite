@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf, countIn, replaceAllIn } from './codefind.js';
 import { languageOf, colourLines } from './codecolour.js';
 import { checkText } from './textcheck.js';
+import { readDraft, keepDraft, dropDraft } from './textdrafts.js';
 
 export const TEXT_MAX = 512 * 1024;
 /** Read a file's text from an address (an attachment, a chat file), the first 512 KB of it. */
@@ -24,7 +25,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null, draftId = null }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -61,6 +62,15 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => onDirty?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The draft kept in this browser as it's typed (draftId: the file's id), and one left from before, offered back.
+  useEffect(() => {
+    if (!draftId || !onSave || draft === null || !d) return undefined;
+    const t = setTimeout(() => (draft !== d.text ? keepDraft(draftId, draft, base ?? d.version) : dropDraft(draftId)), 400);
+    return () => clearTimeout(t);
+  }, [draft, draftId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [leftover, setLeftover] = useState(null);
+  const [base, setBase] = useState(null); // a restored draft's version: saving it over a newer file is refused
+  useEffect(() => { if (d && onSave && draftId && draft === null) { const v = readDraft(draftId); setLeftover(v && v.text !== d.text ? v : null); } }, [d, draftId]); // eslint-disable-line react-hooks/exhaustive-deps
   const pretty = d ? readable(name, d.text) : '';
   const text = d ? (laid ? pretty : d.text) : '';
   const lines = useMemo(() => { const l = text.split('\n'); if (l.length > 1 && l[l.length - 1] === '') l.pop(); return l; }, [text]);
@@ -87,14 +97,14 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     }
     setProblem(null);
     setSaving(true); setSaveError('');
-    try { await onSave(draft, d.version); setDraft(null); setReload((r) => r + 1); } catch (e) { setSaveError(e.message); }
+    try { await onSave(draft, base ?? d.version); dropDraft(draftId); setBase(null); setDraft(null); setReload((r) => r + 1); } catch (e) { setSaveError(e.message); }
     setSaving(false);
   };
   if (draft !== null) return (
     <div className="code-contents stack-tight">
       <div className="row wrap">
         <span className="muted small grow">Editing: saving keeps what was there as an earlier version</span>
-        <button type="button" className="btn small" disabled={saving} onClick={() => { setDraft(null); setSaveError(''); setProblem(null); }}>Cancel</button>
+        <button type="button" className="btn small" disabled={saving} onClick={() => { dropDraft(draftId); setDraft(null); setBase(null); setSaveError(''); setProblem(null); }}>Cancel</button>
         <button type="button" className="btn small primary" disabled={saving || draft === d.text} onClick={() => save()}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       <div className="row wrap code-replace" role="group" aria-label="Find and replace">
@@ -130,6 +140,13 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   matches.forEach((m, k) => { if (!byLine.has(m.line)) byLine.set(m.line, { first: k, list: [] }); byLine.get(m.line).list.push(m); });
   return (
     <div className="code-contents stack-tight">
+      {leftover && (
+        <div className="row wrap notice-warn" role="status">
+          <span className="grow small">You have changes from {new Date(leftover.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })} that weren’t saved{leftover.version !== d.version ? ' (the file has been saved since, so copy them in rather than saving over it)' : ''}.</span>
+          <button type="button" className="btn small" onClick={() => { dropDraft(draftId); setLeftover(null); }}>Throw away</button>
+          <button type="button" className="btn small primary" onClick={() => { setDraft(leftover.text); setBase(leftover.version); setLeftover(null); }}>Restore and edit</button>
+        </div>
+      )}
       <div className="row wrap">
         <span className="muted small grow">{lines.length.toLocaleString()} line{lines.length === 1 ? '' : 's'}{d.truncated ? ' · only the start is shown: download it for the rest' : ''}</span>
         {pretty !== d.text && <button type="button" className="btn small" aria-pressed={laid} onClick={() => setLaid(!laid)}>{laid ? 'Show as written' : 'Lay out'}</button>}

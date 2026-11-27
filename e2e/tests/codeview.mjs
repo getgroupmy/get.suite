@@ -9,7 +9,7 @@ const mk = async (who) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${who}: ${e.message}`));
-  p.on('console', (m) => m.type() === 'error' && !/40[0-4]|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
+  p.on('console', (m) => m.type() === 'error' && !/40[0-49]|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
   return p;
 };
 const page = await mk('olivia');
@@ -340,6 +340,54 @@ await step('closing with unsaved changes asks first: Keep editing keeps them, Di
   await page.getByRole('dialog', { name: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click();
   await page.getByRole('dialog', { name: 'todo.txt' }).waitFor({ state: 'detached' });
   if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== 'one\n') throw new Error('discarded text was saved');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
+await step('unsaved changes survive a closed tab: reopening offers Restore and edit; saving over a newer file is refused; Cancel clears it', async () => {
+  await page.keyboard.press('Escape');
+  const f = await page.evaluate(async () => (await fetch('/api/files/new-text', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'plan.txt', text: 'step 1\n' }) })).json());
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click({ timeout: 15000 });
+  await page.getByLabel('Edit plan.txt').fill('step 1\nstep 2\n');
+  await page.waitForTimeout(800); // kept as typed
+  // As if the tab had crashed: the same file opened in another tab.
+  const p2 = await page.context().newPage();
+  p2.on('pageerror', (e) => errors.push(`tab2: ${e.message}`));
+  await p2.goto(`${B}/drive?preview=${f.id}`);
+  const note = p2.getByRole('status').filter({ hasText: 'that weren’t saved' });
+  await note.waitFor({ timeout: 15000 });
+  await note.getByRole('button', { name: 'Restore and edit' }).click();
+  if (await p2.getByLabel('Edit plan.txt').inputValue() !== 'step 1\nstep 2\n') throw new Error('not restored');
+  await p2.getByRole('button', { name: 'Save' }).click();
+  await p2.getByLabel('Text of plan.txt').getByText('step 2').waitFor({ timeout: 10000 });
+  if ((await api(p2, 'GET', `/files/${f.id}/source-text`)).body.text !== 'step 1\nstep 2\n') throw new Error('restored draft not saved');
+  // Saved: nothing offered any more.
+  await p2.goto(`${B}/drive?preview=${f.id}`); // (the address loses ?preview= once it's open)
+  await p2.getByLabel('Text of plan.txt').waitFor({ timeout: 15000 });
+  if (await p2.getByRole('status').filter({ hasText: 'that weren’t saved' }).count()) throw new Error('still offered after saving');
+  // A draft from before someone else saved: said so, and saving it is refused.
+  await p2.getByRole('button', { name: 'Edit', exact: true }).click();
+  await p2.getByLabel('Edit plan.txt').fill('mine\n');
+  await p2.waitForTimeout(800);
+  const cur = (await api(p2, 'GET', `/files/${f.id}/source-text`)).body;
+  await api(p2, 'PUT', `/files/${f.id}/source-text`, { text: 'theirs\n', version: cur.version });
+  const p3 = await page.context().newPage();
+  await p3.goto(`${B}/drive?preview=${f.id}`);
+  const n3 = p3.getByRole('status').filter({ hasText: 'the file has been saved since' });
+  await n3.waitFor({ timeout: 15000 });
+  await n3.getByRole('button', { name: 'Restore and edit' }).click();
+  await p3.getByRole('button', { name: 'Save' }).click();
+  await p3.getByRole('alert').filter({ hasText: 'Someone saved this file since you opened it' }).waitFor();
+  if ((await api(p3, 'GET', `/files/${f.id}/source-text`)).body.text !== 'theirs\n') throw new Error('saved over a newer file');
+  await p3.getByRole('button', { name: 'Cancel' }).click(); // drops the draft
+  await p3.goto(`${B}/drive?preview=${f.id}`);
+  await p3.getByLabel('Text of plan.txt').waitFor({ timeout: 15000 });
+  if (await p3.getByRole('status').filter({ hasText: 'that weren’t saved' }).count()) throw new Error('still offered after Cancel');
+  for (const x of [p2, p3]) await x.close({ runBeforeUnload: false });
+  await page.getByRole('button', { name: 'Cancel' }).click(); // the first tab lets go of its edit
   await page.goto(`${B}/drive`);
   await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
   await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });

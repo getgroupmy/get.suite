@@ -25,6 +25,7 @@ import ZipContents from '../ZipContents.jsx';
 import EmlContents from '../EmlContents.jsx';
 import CardFileContents from '../CardFileContents.jsx';
 import CodeContents from '../CodeContents.jsx';
+import { dropDraft } from '../textdrafts.js';
 import TableContents from '../TableContents.jsx';
 import { previewKind } from '../../components/viewkind.js';
 import ScanDialog from './ScanDialog.jsx';
@@ -1527,7 +1528,7 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
-  else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit} onDirty={(v) => { unsaved.current = v; }}
+  else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit} onDirty={(v) => { unsaved.current = v; }} draftId={file.id}
     onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
   else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown|txt|log)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
@@ -1562,7 +1563,7 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
         <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
       </Modal>
       {askDiscard && <ConfirmModal title="Discard your changes?" confirm="Discard" cancel="Keep editing" onClose={() => setAskDiscard(false)}
-        onConfirm={() => { unsaved.current = false; close(); }}
+        onConfirm={() => { unsaved.current = false; dropDraft(file.id); close(); }}
         message={`What you changed in ${file.name} hasn't been saved. Keep editing to save it, or discard it.`} />}
     </>
   );
