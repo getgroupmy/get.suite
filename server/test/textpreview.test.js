@@ -219,6 +219,15 @@ test('an earlier version of a code file compared with the file now, line by line
   assert.equal(d.status, 200, JSON.stringify(d.body));
   assert.deepEqual(d.body.lines.map((l) => `${l.op}${l.text}`), ['=port: 80', '-name: shop', '+name: store', '=mode: dev', '+cache: on']);
   assert.deepEqual([d.body.added, d.body.removed, d.body.version.id], [2, 1, v.id]);
+  // Two earlier versions compared with each other (older first, whichever way they're given).
+  assert.equal((await ann('POST', `/api/files/${f.id}/versions`, null, Buffer.from('port: 8080\nname: store\nmode: dev\ncache: on\n'))).status, 200);
+  const [newer, older] = (await ann('GET', `/api/files/${f.id}/versions`)).body;
+  for (const [x, y] of [[older, newer], [newer, older]]) {
+    const two = (await ann('GET', `/api/files/${f.id}/versions/${x.id}/diff?with=${y.id}`)).body;
+    assert.deepEqual(two.lines.filter((l) => l.op !== '=').map((l) => `${l.op}${l.text}`), ['-name: shop', '+name: store', '+cache: on']);
+    assert.deepEqual([two.version.id, two.with.id], [older.id, newer.id]);
+  }
+  assert.equal((await ann('GET', `/api/files/${f.id}/versions/${older.id}/diff?with=nope`)).status, 404);
   // A viewer of a file with downloading off can't see old versions' text.
   const benId = (await ann('GET', '/api/users')).body.find((u) => u.username === 'ben@acme.com').id;
   const ben = client(); await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' });

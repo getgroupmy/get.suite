@@ -2098,7 +2098,7 @@ function VersionsDialog({ file, onClose, onChanged }) {
   const binary = file.kind === 'file';
   if (comparing) return (
     <Modal wide title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
-      <VersionDiff fileId={file.id} version={comparing} when={when} onBack={() => setComparing(null)} />
+      <VersionDiff fileId={file.id} version={comparing} versions={list || []} when={when} onBack={() => setComparing(null)} />
     </Modal>
   );
   return (

@@ -117,6 +117,13 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   assert.match(ch.changes, /BEGIN|file/i, 'marked as the file\'s text');
   assert.equal((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: vers[0].id })).structuredContent.added, 1);
   assert.match((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: 'nope' })).content[0].text, /No such version/);
+  await fetch(`${base}/api/files/${cfg.id}/versions`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', authorization: `Bearer ${rw}` }, body: 'port: 8080\nname: store\n' });
+  const [v2, v1] = (await call(ro, 'compare_file_versions', { file: `file:${cfg.id}` })).structuredContent.versions;
+  const between = (await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: v1.id, compare_with: v2.id })).structuredContent;
+  assert.match(between.changes, /- 1: port: 80\n\+ 1: port: 8080/);
+  assert.doesNotMatch(between.changes, /store/, 'the two earlier versions, not now');
+  assert.deepEqual([between.from.id, between.to.id], [v1.id, v2.id]);
+  assert.equal((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: 'previous' })).structuredContent.to, 'the file now');
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));

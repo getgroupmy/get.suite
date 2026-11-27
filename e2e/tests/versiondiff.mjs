@@ -74,14 +74,36 @@ await step('Version history → Compare shows an earlier version against now: th
   await dlg.getByRole('button', { name: '← All versions' }).click();
   await dlg.getByRole('list', { name: 'Versions' }).waitFor();
 });
+await step('Compare with picks another earlier version instead of now', async () => {
+  await put(`/api/files/${f.id}/versions`, NEW.replace('mode: dev', 'mode: live'));
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for shop.yaml' }).click();
+  await page.getByRole('menuitem', { name: 'Version history' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Version history: shop.yaml' });
+  await dlg.getByRole('button', { name: /^Compare the version from/ }).last().click(); // the oldest
+  const view = dlg.getByRole('region', { name: 'Differences, line by line' });
+  await view.waitFor({ timeout: 15000 });
+  if (!(await view.locator('.diff-line.add .diff-text').allTextContents()).includes('Added: mode: live')) throw new Error('against now: mode: live expected');
+  const pick = dlg.getByLabel('Compare with');
+  const opts = await pick.locator('option').allTextContents();
+  if (opts.length !== 2 || opts[0] !== 'the file now') throw new Error(opts.join('|'));
+  await pick.selectOption({ index: 1 });
+  await dlg.getByText('2 lines added').waitFor();
+  const add = await view.locator('.diff-line.add .diff-text').allTextContents();
+  if (add.join('|') !== 'Added: name: store|Added: cache: on') throw new Error(add.join('|'));
+  await pick.selectOption({ label: 'the file now' });
+  await view.locator('.diff-line.add .diff-text', { hasText: 'mode: live' }).waitFor();
+  await page.keyboard.press('Escape');
+});
 await step('an AI assistant (MCP compare_file_versions) lists the versions and says what changed since the previous one', async () => {
   await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
   const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Files helper', scope: 'read', days: 30 })).body.token;
   const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
   const list = (await call('compare_file_versions', { file: `file:${f.id}` }))?.structuredContent?.versions || [];
-  if (list.length !== 1) throw new Error(JSON.stringify(list));
-  const ch = (await call('compare_file_versions', { file: `file:${f.id}`, version: 'previous' }))?.structuredContent;
+  if (list.length !== 2) throw new Error(JSON.stringify(list));
+  const ch = (await call('compare_file_versions', { file: `file:${f.id}`, version: list[1].id, compare_with: list[0].id }))?.structuredContent;
   if (ch?.added !== 2 || ch?.removed !== 1 || !/- 2: name: shop\n\+ 2: name: store/.test(ch.changes) || !/\+ 24: cache: on/.test(ch.changes)) throw new Error(JSON.stringify(ch));
 });
 await step('no Compare for a picture, nor for someone who may only view a file with downloading off', async () => {

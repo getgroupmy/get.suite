@@ -2886,7 +2886,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(v.name)}`);
     res.sendFile(path.join(FILES_DIR, v.storage), { headers: { 'Cache-Control': 'private, max-age=0' } });
   });
-  // How an earlier version of an uploaded text, code or data file differs from the file now, line by line (as the
+  // How an earlier version of an uploaded text, code or data file differs from the file now (or ?with= another earlier
+  // version), line by line (as the
   // version's download, only for those who may take the file away). Up to 1 MB of each.
   r.get('/:id/versions/:vid/diff', (req, res) => {
     const f = loadFile(req.params.id, req.user);
@@ -2900,7 +2901,12 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (buf.includes(0)) throw bad('This file isn’t text');
       return buf.toString('utf8');
     };
-    res.json({ ...diffLines(read(v.storage), read(f.storage)), version: { id: v.id, saved_at: v.saved_at, name: v.name, label: v.label || null } });
+    // ?with=<another version>: compared with that one instead of the file now (from the older to the newer).
+    const w = req.query.with ? versionOf(f, String(req.query.with)) : null;
+    if (w && !w.storage) throw bad('Not a binary file');
+    const shownV = (x) => ({ id: x.id, saved_at: x.saved_at, name: x.name, label: x.label || null });
+    if (w && w.saved_at < v.saved_at) return res.json({ ...diffLines(read(w.storage), read(v.storage)), version: shownV(w), with: shownV(v) });
+    res.json({ ...diffLines(read(v.storage), read(w ? w.storage : f.storage)), version: shownV(v), ...(w && { with: shownV(w) }) });
   });
   r.get('/:id/versions/:vid/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
