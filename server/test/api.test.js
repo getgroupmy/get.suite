@@ -1459,6 +1459,19 @@ test('search finds files by the words inside them, and only files you can open',
   await owner('POST', '/api/files/upload?name=delivery.eml', Buffer.from(eml), { raw: true });
   while (await indexPending()) { /* indexed */ }
   for (const words of ['durian tuesday', 'rambutan', 'kim park', 'manifest-88']) assert.equal((await find(owner, words))[0]?.name, 'delivery.eml', words);
+  // An e-book (.epub) by the words of its pages; a calendar (.ics) and a contact card (.vcf) by theirs.
+  const { default: JSZip } = await import('jszip');
+  const book = new JSZip();
+  book.file('mimetype', 'application/epub+zip');
+  book.file('OEBPS/chapter1.xhtml', '<html><body><h1>Chapter one</h1><p>The mangosteen orchard &amp; its keeper.</p><script>nothing()</script></body></html>');
+  await owner('POST', '/api/files/upload?name=Orchard.epub', await book.generateAsync({ type: 'nodebuffer' }), { raw: true });
+  await owner('POST', '/api/files/upload?name=retreat.ics', Buffer.from('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Langkawi retreat\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'), { raw: true });
+  await owner('POST', '/api/files/upload?name=card.vcf', Buffer.from('BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Wan Azizah Tremaine\r\nEND:VCARD\r\n'), { raw: true });
+  while (await indexPending()) { /* indexed */ }
+  assert.equal((await find(owner, 'mangosteen keeper'))[0]?.name, 'Orchard.epub');
+  assert.equal((await find(owner, 'nothing')).filter((f) => f.name === 'Orchard.epub').length, 0, 'not its scripts');
+  assert.equal((await find(owner, 'langkawi'))[0]?.name, 'retreat.ics');
+  assert.equal((await find(owner, 'tremaine'))[0]?.name, 'card.vcf');
   assert.equal((await find(owner, 'minutes'))[0].id, doc.id, 'names still match');
   assert.equal((await find(owner, 'minutes'))[0].match, undefined);
   // The words of a name in any order, with other words between them.

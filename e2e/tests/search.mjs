@@ -93,6 +93,21 @@ await step('an email kept in Drive (.eml) is found by the words in it, with them
   await row.waitFor({ timeout: 10000 });
   await row.locator('mark', { hasText: 'Kuching' }).waitFor();
 });
+await step('an e-book (.epub) is found by the words of its pages, with them marked', async () => {
+  const { default: JSZip } = await import(new URL('../../server/node_modules/jszip/lib/index.js', import.meta.url).href);
+  const book = new JSZip();
+  book.file('mimetype', 'application/epub+zip');
+  book.file('OEBPS/ch1.xhtml', '<html><body><p>The cempedak harvest in Tawau.</p></body></html>');
+  const bytes = await book.generateAsync({ type: 'nodebuffer' });
+  await page.evaluate(async (b) => fetch('/api/files/upload?name=Harvest.epub', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, body: new Uint8Array(b) }), Array.from(bytes));
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('cempedak tawau');
+  await page.getByLabel('Search everything').press('Enter');
+  const row = page.locator('.files tbody tr').filter({ hasText: 'Harvest.epub' });
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('mark', { hasText: 'cempedak' }).waitFor();
+});
 await step('Chinese: a word inside a sentence (no spaces between words) is found, and marked as written', async () => {
   await api(page, 'POST', '/files/new', { kind: 'doc', name: '季度总结', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '第三季度销售报告已经完成。' }] }] } });
   await page.waitForTimeout(2500); // the index catches up

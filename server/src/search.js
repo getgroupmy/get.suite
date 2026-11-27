@@ -16,6 +16,7 @@ import { sheetFromOds } from './office/ods.js';
 import { deckFromOdp } from './office/odp.js';
 import { docFromRtf } from './office/rtf.js';
 import { simpleParser } from 'mailparser';
+import JSZip from 'jszip';
 import { chipText, dateText, eventLines } from './office/chiptext.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
@@ -31,7 +32,7 @@ redoOnce('pdf-odf-text', "kind = 'file' AND (mime = 'application/pdf' OR name LI
 const MAX_TEXT = 200_000; // characters kept per file
 const MAX_READ = 20 * 1024 * 1024; // larger uploads aren't read
 const TEXT_TYPES = /^(text\/|application\/(json|xml|csv|x-yaml|yaml|javascript|x-sh|sql)\b)/;
-const TEXT_NAMES = /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|log|ini|conf|html?|css|js|ts|py|sql|sh)$/i;
+const TEXT_NAMES = /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|log|ini|conf|html?|css|js|ts|py|sql|sh|ics|vcf|vcs)$/i; // (a calendar's or contact card's words too)
 
 /** The text of a Docs document (TipTap JSON), one block per line. */
 export function docText(doc) {
@@ -104,6 +105,14 @@ export async function textOf(f) {
     if (/\.ods$/i.test(name)) return sheetText(await sheetFromOds(fs.readFileSync(file)));
     if (/\.odp$/i.test(name)) return slidesText(await deckFromOdp(fs.readFileSync(file), { savePicture: async () => null }));
     if (/\.rtf$/i.test(name)) return docSearchText(docFromRtf(fs.readFileSync(file)));
+    // An e-book (.epub): the words of its pages (XHTML inside a zip), in the order of their names.
+    if (/\.epub$/i.test(name) || f.mime === 'application/epub+zip') {
+      const zip = await JSZip.loadAsync(fs.readFileSync(file));
+      const pages = Object.keys(zip.files).filter((n) => /\.x?html?$/i.test(n) && !zip.files[n].dir).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const out = [];
+      for (const n of pages.slice(0, 500)) out.push((await zip.file(n).async('string')).replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }[e])));
+      return out.join('\n');
+    }
     // An email kept as a file (.eml): its subject, who it's from and to, its text and its attachments' names.
     if (/\.eml$/i.test(name) || f.mime === 'message/rfc822') {
       const m = await simpleParser(fs.readFileSync(file), { skipImageLinks: true, skipTextToHtml: true });
