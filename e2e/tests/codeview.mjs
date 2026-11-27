@@ -59,6 +59,53 @@ await step('a JSON file in Drive shows as its text, laid out, with line numbers;
   if (!(await pre.innerText()).includes('{"chair":40,"desk":{"oak":120,"pine":80}}')) throw new Error('not as written');
   await page.getByRole('button', { name: 'Lay out' }).waitFor();
 });
+await step('Find in this file marks every match, counts them, and Enter / ↓ / Shift+Enter move between them, keeping the one you’re on in view', async () => {
+  const rows = Array.from({ length: 400 }, (_, i) => (i % 130 === 120 ? `INSERT INTO stock VALUES (${i}, 'mangosteen');` : `INSERT INTO stock VALUES (${i}, 'pear');`)).join('\n');
+  await page.evaluate(async (t) => fetch('/api/files/upload?name=stock.sql', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: t }), rows);
+  await page.goto(`${B}/drive`);
+  await page.getByText('stock.sql').dblclick();
+  const v = page.getByRole('dialog', { name: 'stock.sql' });
+  const pre = v.getByLabel('Text of stock.sql');
+  await pre.waitFor({ timeout: 15000 });
+  const box = v.getByLabel('Find in this file');
+  await box.fill('MANGOSTEEN');
+  await v.getByText('1 of 3').waitFor();
+  if (await pre.locator('mark').count() !== 3) throw new Error(`${await pre.locator('mark').count()} marks`);
+  const inView = () => pre.evaluate((el) => { const m = el.querySelector('mark.current'); const a = el.getBoundingClientRect(), b = m.getBoundingClientRect(); return b.top >= a.top && b.bottom <= a.bottom; });
+  if (!(await inView())) throw new Error('first match not scrolled into view');
+  await box.press('Enter');
+  await v.getByText('2 of 3').waitFor();
+  if (!(await inView())) throw new Error('second match not scrolled into view');
+  if (await pre.locator('mark.current').evaluate((m) => m.closest('.code-line').querySelector('.code-num').textContent) !== '251') throw new Error('not on line 251');
+  await v.getByRole('button', { name: 'Next match' }).click();
+  await v.getByText('3 of 3').waitFor();
+  await box.press('Enter');
+  await v.getByText('1 of 3').waitFor(); // round again
+  await box.press('Shift+Enter');
+  await v.getByText('3 of 3').waitFor();
+  await box.fill('durian');
+  await v.getByText('Not found').waitFor();
+  await page.screenshot({ path: `${SP}/shots/code-find.png` });
+  await page.keyboard.press('Escape');
+});
+await step('Wrap lines keeps a long line in view instead of scrolling sideways', async () => {
+  await page.evaluate(async (t) => fetch('/api/files/upload?name=long.json', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: t }), `{\n"note": "${'lorem ipsum '.repeat(60)}"\n}`);
+  await page.goto(`${B}/drive`);
+  await page.getByText('long.json').dblclick();
+  const pre = page.getByLabel('Text of long.json');
+  await pre.waitFor({ timeout: 15000 });
+  const sideways = () => pre.evaluate((el) => el.scrollWidth > el.clientWidth + 2);
+  if (!(await sideways())) throw new Error('expected a long line to scroll first');
+  await page.getByRole('button', { name: 'Wrap lines' }).click();
+  if (await sideways()) throw new Error('still scrolls sideways when wrapped');
+  if (await page.getByRole('button', { name: 'Wrap lines' }).getAttribute('aria-pressed') !== 'true') throw new Error('not shown as on');
+  await page.screenshot({ path: `${SP}/shots/code-wrap.png` });
+  await page.keyboard.press('Escape');
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
