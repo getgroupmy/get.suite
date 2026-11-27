@@ -247,6 +247,38 @@ await step('code is coloured (keywords, strings, numbers, comments), readable in
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('saving JSON that doesn’t parse says where (line, column) and puts the cursor there; Keep editing, or Save anyway', async () => {
+  await page.keyboard.press('Escape');
+  const f = await page.evaluate(async () => (await fetch('/api/files/new-text', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'settings.json', text: '{"a": 1}\n' }) })).json());
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  await page.getByLabel('Text of settings.json').waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const box = page.getByLabel('Edit settings.json');
+  await box.fill('{\n  "a": 1,\n  "b": 2,\n}\n');
+  await box.press('Control+s');
+  const warn = page.getByRole('alert').filter({ hasText: 'This isn’t valid JSON (line 4, column 1)' });
+  await warn.waitFor();
+  const sel = await box.evaluate((el) => [el.selectionStart, el.value[el.selectionStart]]);
+  if (sel[1] !== '}') throw new Error(JSON.stringify(sel));
+  if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== '{"a": 1}\n') throw new Error('saved although not valid');
+  await page.getByRole('button', { name: 'Keep editing' }).click();
+  await box.fill('{\n  "a": 1,\n  "b": 2\n}\n');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByLabel('Text of settings.json').waitFor({ timeout: 10000 });
+  if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== '{\n  "a": 1,\n  "b": 2\n}\n') throw new Error('fixed text not saved');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Edit settings.json').fill('{ draft');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save anyway' }).click();
+  await page.getByLabel('Text of settings.json').waitFor({ timeout: 10000 });
+  if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== '{ draft') throw new Error('Save anyway did not save');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

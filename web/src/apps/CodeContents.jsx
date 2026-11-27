@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf } from './codefind.js';
 import { languageOf, colourLines } from './codecolour.js';
+import { checkText } from './textcheck.js';
 
 export const TEXT_MAX = 512 * 1024;
 /** Read a file's text from an address (an attachment, a chat file), the first 512 KB of it. */
@@ -35,6 +36,8 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const [draft, setDraft] = useState(null); // the text being edited (onSave: those who may edit it)
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [problem, setProblem] = useState(null); // a .json that doesn't parse, found on Save
+  const editBox = useRef(null);
   const [reload, setReload] = useState(0);
   const started = useRef(false); // startEditing: open in the editor, the first time it's read (a file just made)
   useEffect(() => {
@@ -60,7 +63,15 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   }, [current, find, wrap]);
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
-  const save = async () => {
+  const save = async (anyway = false) => {
+    const bad = anyway ? null : checkText(name, draft);
+    if (bad) {
+      setProblem(bad);
+      const box = editBox.current;
+      if (box) { box.focus(); box.setSelectionRange(bad.at, Math.min(bad.at + 1, draft.length)); }
+      return;
+    }
+    setProblem(null);
     setSaving(true); setSaveError('');
     try { await onSave(draft, d.version); setDraft(null); setReload((r) => r + 1); } catch (e) { setSaveError(e.message); }
     setSaving(false);
@@ -69,12 +80,19 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     <div className="code-contents stack-tight">
       <div className="row wrap">
         <span className="muted small grow">Editing: saving keeps what was there as an earlier version</span>
-        <button type="button" className="btn small" disabled={saving} onClick={() => { setDraft(null); setSaveError(''); }}>Cancel</button>
-        <button type="button" className="btn small primary" disabled={saving || draft === d.text} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn small" disabled={saving} onClick={() => { setDraft(null); setSaveError(''); setProblem(null); }}>Cancel</button>
+        <button type="button" className="btn small primary" disabled={saving || draft === d.text} onClick={() => save()}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       {saveError && <p className="error small" role="alert">{saveError}</p>}
-      <textarea className="code-edit" aria-label={`Edit ${name}`} spellCheck={false} value={draft} autoFocus
-        onChange={(e) => setDraft(e.target.value)}
+      {problem && (
+        <div className="row wrap notice-warn" role="alert">
+          <span className="grow small">{problem.message}</span>
+          <button type="button" className="btn small" onClick={() => { setProblem(null); editBox.current?.focus(); }}>Keep editing</button>
+          <button type="button" className="btn small" onClick={() => save(true)}>Save anyway</button>
+        </div>
+      )}
+      <textarea ref={editBox} className="code-edit" aria-label={`Edit ${name}`} spellCheck={false} value={draft} autoFocus
+        onChange={(e) => { setDraft(e.target.value); setProblem(null); }}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (draft !== d.text && !saving) save(); }
           if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target, a = t.selectionStart; setDraft(draft.slice(0, a) + '\t' + draft.slice(t.selectionEnd)); requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = a + 1; }); }
