@@ -208,3 +208,28 @@ test('Drive search can be narrowed to code and data files, emails, or calendars 
   assert.ok(!(await find('code')).includes('zq-rota.tsv'));
   assert.equal((await ann('GET', '/api/files?view=search&q=zq&type=nonsense')).status, 400);
 });
+
+test('an earlier version of a code file compared with the file now, line by line; not for others or for binary files', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const f = (await ann('POST', '/api/files/upload?name=shop.yaml', null, Buffer.from('port: 80\nname: shop\nmode: dev\n'))).body;
+  assert.equal((await ann('POST', `/api/files/${f.id}/versions`, null, Buffer.from('port: 80\nname: store\nmode: dev\ncache: on\n'))).status, 200);
+  const v = (await ann('GET', `/api/files/${f.id}/versions`)).body[0];
+  const d = await ann('GET', `/api/files/${f.id}/versions/${v.id}/diff`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.deepEqual(d.body.lines.map((l) => `${l.op}${l.text}`), ['=port: 80', '-name: shop', '+name: store', '=mode: dev', '+cache: on']);
+  assert.deepEqual([d.body.added, d.body.removed, d.body.version.id], [2, 1, v.id]);
+  // A viewer of a file with downloading off can't see old versions' text.
+  const benId = (await ann('GET', '/api/users')).body.find((u) => u.username === 'ben@acme.com').id;
+  const ben = client(); await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' });
+  assert.equal((await ben('GET', `/api/files/${f.id}/versions/${v.id}/diff`)).status, 404);
+  await ann('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: benId, role: 'viewer' }] });
+  assert.equal((await ben('GET', `/api/files/${f.id}/versions/${v.id}/diff`)).status, 200);
+  await ann('PATCH', `/api/files/${f.id}`, { no_download: true });
+  assert.equal((await ben('GET', `/api/files/${f.id}/versions/${v.id}/diff`)).status, 403);
+  // Not for pictures or other binary files.
+  const pic = (await ann('POST', '/api/files/upload?name=logo.png', null, PNG)).body;
+  await ann('POST', `/api/files/${pic.id}/versions`, null, PNG);
+  const pv = (await ann('GET', `/api/files/${pic.id}/versions`)).body[0];
+  assert.equal((await ann('GET', `/api/files/${pic.id}/versions/${pv.id}/diff`)).status, 400);
+});

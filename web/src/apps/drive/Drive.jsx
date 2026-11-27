@@ -38,6 +38,7 @@ import { linkEmail } from './linkemail.js';
 import { addToTasksWithToast } from '../tasks/addtask.js';
 import TasksAbout from '../../components/TasksAbout.jsx';
 import MyLinks from './MyLinks.jsx';
+import VersionDiff from './VersionDiff.jsx';
 import { sortFiles, isPicture, sharers } from './drivesort.js';
 
 function useDriveRoute() {
@@ -2066,6 +2067,8 @@ function VersionsDialog({ file, onClose, onChanged }) {
   const [current, setCurrent] = useState(file);
   const [confirm, setConfirm] = useState(null);
   const canEdit = file.role === 'owner' || file.role === 'editor';
+  const [comparing, setComparing] = useState(null); // a version compared with now
+  const comparable = file.kind === 'file' && !viewOnly(file) && (previewKind(file.name) === 'code' || previewKind(file.name) === 'table' || /\.(txt|md|markdown|log)$/i.test(file.name));
   const load = useCallback(() => {
     get(`/files/${file.id}/versions`).then(setList).catch((e) => toast(e.message, 'error'));
     get(`/files/${file.id}`).then(setCurrent).catch(() => {});
@@ -2093,6 +2096,11 @@ function VersionsDialog({ file, onClose, onChanged }) {
           message={`The version from ${when(v.saved_at)} is deleted for good${v.size ? `, freeing ${formatBytes(v.size)}` : ''}.`} />;
   }
   const binary = file.kind === 'file';
+  if (comparing) return (
+    <Modal wide title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <VersionDiff fileId={file.id} version={comparing} when={when} onBack={() => setComparing(null)} />
+    </Modal>
+  );
   return (
     <Modal title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
       <p className="muted small">{binary ? 'Each time someone uploads a new version, the previous one is kept here.'
@@ -2108,6 +2116,7 @@ function VersionsDialog({ file, onClose, onChanged }) {
             <div className="grow"><strong>{v.label ? `${v.label} · ` : ''}{when(v.saved_at)}</strong>
               <span className="muted small">{v.saved_by_name || 'Someone'}{binary ? ` · ${formatBytes(v.size)}` : ''}{v.name !== current.name ? ` · named “${v.name}”` : ''}</span></div>
             {binary && <a className="icon-btn" href={`/api/files/${file.id}/versions/${v.id}/raw?download`} aria-label={`Download the version from ${when(v.saved_at)}`} title="Download"><Icon name="download" size={18} /></a>}
+            {comparable && <button type="button" className="btn small" onClick={() => setComparing(v)} aria-label={`Compare the version from ${when(v.saved_at)} with now`}>Compare</button>}
             {canEdit && <button type="button" className="btn small" onClick={() => setConfirm({ kind: 'restore', version: v })} aria-label={`Restore the version from ${when(v.saved_at)}`}>Restore</button>}
             {file.role === 'owner' && <button type="button" className="icon-btn" onClick={() => setConfirm({ kind: 'delete', version: v })} aria-label={`Delete the version from ${when(v.saved_at)}`} title="Delete"><Icon name="trash" size={18} /></button>}
           </li>

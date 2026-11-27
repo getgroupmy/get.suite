@@ -51,6 +51,7 @@ import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } fr
 import { importCalendar, splitCalendar } from '../calimport.js';
 import { parseIcsEvent, zoneOrUtc } from '../ics.js';
 import { TEXT_EXT_RE, TEXT_EXTS, TEXT_NAMES } from '../textexts.js';
+import { diffLines } from '../textdiff.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -2884,6 +2885,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (v.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(v.name)}`);
     res.sendFile(path.join(FILES_DIR, v.storage), { headers: { 'Cache-Control': 'private, max-age=0' } });
+  });
+  // How an earlier version of an uploaded text, code or data file differs from the file now, line by line (as the
+  // version's download, only for those who may take the file away). Up to 1 MB of each.
+  r.get('/:id/versions/:vid/diff', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'file' || !(TEXT_EXT_RE.test(f.name) || /\.(txt|md|markdown|log|csv|tsv)$/i.test(f.name))) throw bad('Only text, code and data files can be compared');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    const v = versionOf(f, req.params.vid);
+    if (!v.storage) throw bad('Not a binary file');
+    const read = (storage) => {
+      const buf = fs.readFileSync(path.join(FILES_DIR, storage));
+      if (buf.length > 1024 * 1024) throw bad('This file is too large to compare here (1 MB at most): download both versions instead');
+      if (buf.includes(0)) throw bad('This file isn’t text');
+      return buf.toString('utf8');
+    };
+    res.json({ ...diffLines(read(v.storage), read(f.storage)), version: { id: v.id, saved_at: v.saved_at, name: v.name, label: v.label || null } });
   });
   r.get('/:id/versions/:vid/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
