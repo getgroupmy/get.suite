@@ -18,11 +18,13 @@ for (const tool of ['bash', 'awk', 'grep', 'tr', 'dirname', 'env']) {
 const stub = (name, body) => fs.writeFileSync(path.join(bin, name), `#!${path.join(bin, 'bash')}\n${body}\n`, { mode: 0o755 });
 stub('uname', '[[ $1 == -s ]] && echo "${FAKE_OS:-Darwin}" || echo "${FAKE_HW:-arm64}"');
 stub('docker', `case "$1" in
-  info) [[ -n \${FAKE_DOWN:-} ]] && exit 1; exit 0 ;;
+  info) [[ -n \${FAKE_DOWN:-} ]] && exit 1; [[ \${2:-} == --format ]] && echo "\${FAKE_MEM:-8589934592}"; exit 0 ;;
   compose) [[ $2 == version ]] && exit 0; exit 0 ;;
   inspect) for n in \${FAKE_RUNNING:-}; do [[ \${@: -1} == "$n" ]] && { echo true; exit 0; }; done; echo false ;;
   exec) echo "\${FAKE_ARCH:-arm64}" ;;
-esac`);
+  stats) [[ -n \${FAKE_STATS:-} ]] && printf '%b' "$FAKE_STATS" ;;
+esac
+exit 0`);
 stub('lsof', 'for p in ${FAKE_TAKEN:-}; do [[ "$*" == *"-iTCP:$p "* ]] && { printf "COMMAND PID\\nmaster 12\\n"; exit 0; }; done; exit 1');
 stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/disk3 1 1 ${FAKE_FREE_KB:-104857600} 1%% /\\n"');
 stub('curl', '[[ "$*" == *https://* ]] && { [[ -n ${FAKE_HTTPS:-} ]]; exit; }; [[ -n ${FAKE_HEALTHY:-} ]]');
@@ -107,4 +109,16 @@ test('setup check: with --https, ports 80 and 443 too, and Caddy once it runs', 
   assert.match(r.out, /✓ https:\/\/office\.acme\.com answers, with a valid certificate/);
   r = run({ FAKE_RUNNING: `${all} nas-workspace-caddy`, FAKE_HEALTHY: '1' }, [file]);
   assert.match(r.out, /! https:\/\/office\.acme\.com doesn't answer yet: its DNS must point here/);
+});
+
+test('setup check: the memory Docker has before the start, and each container’s use against its limit once running', () => {
+  assert.match(run().out, /✓ Docker has 8 GB of memory/);
+  const low = run({ FAKE_MEM: String(768 * 1024 * 1024) });
+  assert.equal(low.code, 1);
+  assert.match(low.out, /✗ Docker has only 768 MB of memory: give it at least 1 GB/);
+  assert.match(run({ FAKE_MEM: String(1536 * 1024 * 1024) }).out, /! Docker has 1536 MB of memory: enough to run, but 2 GB or more/);
+  const up = run({ FAKE_RUNNING: 'nas-workspace nas-workspace-mail', FAKE_HEALTHY: '1', FAKE_STATS: 'nas-workspace 210.5MiB / 1GiB 20.56%\nnas-workspace-mail 470MiB / 512MiB 91.80%\n' });
+  assert.match(up.out, /✓ The app uses 210\.5MiB of 1GiB of memory \(20\.56% of its limit\)/);
+  assert.match(up.out, /! The mail server uses 470MiB of 512MiB of memory \(91\.80% of its limit\): raise mem_limit in docker-compose\.mac\.yml/);
+  assert.equal(up.code, 0, 'a warning, not a failure');
 });

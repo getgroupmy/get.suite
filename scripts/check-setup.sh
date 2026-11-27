@@ -62,6 +62,14 @@ if ! running nas-workspace; then
     if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then fail "Port $p is taken by another program: $(lsof -nP -iTCP:"$p" -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $1}')"
     else ok "Port $p is free"; fi
   done
+  # The memory Docker has (OrbStack and Docker Desktop can be set to less than the Mac has): both containers use about
+  # 300 to 450 MB, with up to 1.5 GB allowed for busy moments.
+  mem_mb=$(docker info --format '{{.MemTotal}}' 2>/dev/null | awk '/^[0-9]+$/{print int($1/1048576)}')
+  if [[ -n ${mem_mb:-} ]]; then
+    if (( mem_mb < 1024 )); then fail "Docker has only ${mem_mb} MB of memory: give it at least 1 GB (2 GB or more is better) in OrbStack's or Docker Desktop's settings"
+    elif (( mem_mb < 2048 )); then warn "Docker has ${mem_mb} MB of memory: enough to run, but 2 GB or more leaves room for busy moments"
+    else ok "Docker has $(( mem_mb / 1024 )) GB of memory"; fi
+  fi
   free_gb=$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')
   if [[ -n ${free_gb:-} ]]; then
     if (( free_gb < 10 )); then warn "Only ${free_gb} GB free on the disk: files and mail need room to grow"; else ok "${free_gb} GB free on the disk"; fi
@@ -80,6 +88,14 @@ else
   else fail "It doesn't answer at http://localhost:8080: see  docker logs nas-workspace"; fi
   if running nas-workspace-mail; then ok "The mail server's container is running"
   else fail "The mail server's container isn't running: see  docker logs nas-workspace-mail"; fi
+  # How much memory each uses, against its limit (mem_limit in the compose file).
+  while IFS=$'\t' read -r name used perc; do
+    [[ -z ${name:-} ]] && continue
+    label=$([[ $name == nas-workspace-mail ]] && echo "The mail server" || echo "The app")
+    p=${perc%%.*}; p=${p%%%}
+    if [[ $p =~ ^[0-9]+$ ]] && (( p >= 85 )); then warn "$label uses $used of memory ($perc of its limit): raise mem_limit in $file"
+    else ok "$label uses $used of memory ($perc of its limit)"; fi
+  done < <(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.MemPerc}}' nas-workspace nas-workspace-mail 2>/dev/null | awk 'BEGIN{OFS="\t"} {print $1, $2 " of " $4, $5}')
   # HTTPS from Caddy, when it's in use (or asked for).
   web=$(awk '/^x-web-hostname:/{print $3}' "$file" 2>/dev/null)
   if running nas-workspace-caddy; then
