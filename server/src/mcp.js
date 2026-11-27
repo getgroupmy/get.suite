@@ -497,12 +497,13 @@ export const TOOLS = [
   },
   {
     name: 'update_email', title: 'Tidy email', readOnly: false,
-    description: 'Mark emails read or unread, star or unstar them, or move them: to archive, inbox, junk, trash, or a folder by name. Give their ids (mail:…) from list_mail or search. Nothing is deleted for good (trash can be emptied later in Mail). Moved emails get new ids.',
+    description: 'Mark emails read or unread, star or unstar them, or move them: to archive, inbox, junk, trash, or a folder by name. Give their ids (mail:…) from list_mail or search. Nothing is deleted for good (trash can be emptied later in Mail). Moved emails get new ids. With whole_conversation, the rest of each email’s conversation too (archive a whole thread).',
     inputSchema: {
       type: 'object', required: ['ids'],
       properties: {
         ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 200 }, read: { type: 'boolean' }, starred: { type: 'boolean' },
         move_to: { type: 'string', description: 'archive, inbox, junk, trash, or a folder’s name' },
+        whole_conversation: { type: 'boolean', description: 'Also the rest of each email’s conversation (as read_email_conversation finds it); when moving, only those in the same folder as the email given' },
       },
     },
     async run(api, a) {
@@ -510,10 +511,15 @@ export const TOOLS = [
       if (!ids.length) throw new ToolError('Give the emails’ ids (mail:…)');
       if (a.read === undefined && a.starred === undefined && !a.move_to) throw new ToolError('Say what to do: read, starred or move_to');
       const byFolder = new Map();
+      const add = (folder, uid) => { const l = byFolder.get(folder) || []; if (!l.includes(uid)) l.push(uid); byFolder.set(folder, l); };
       for (const id of ids) {
         const m = /^mail:(.+):(\d+)$/.exec(id);
         if (!m) throw new ToolError(`${id} isn’t an email’s id (like mail:INBOX:42)`);
-        byFolder.set(m[1], [...(byFolder.get(m[1]) || []), Number(m[2])]);
+        add(m[1], Number(m[2]));
+        if (a.whole_conversation) {
+          // (moving: only those beside it, so a reply of yours stays in Sent; marking: all of them)
+          for (const x of await api('GET', `/mail/messages/${m[2]}/conversation?folder=${encodeURIComponent(m[1])}`)) if (!a.move_to || x.folder === m[1]) add(x.folder, x.uid);
+        }
       }
       const special = { archive: 'archive', inbox: 'inbox', junk: 'junk', spam: 'junk', trash: 'trash', bin: 'trash' }[String(a.move_to || '').toLowerCase()];
       let moved = 0;
@@ -523,7 +529,7 @@ export const TOOLS = [
         }
         if (a.move_to) { await api('POST', '/mail/messages/move', { folder, uids, to: special || String(a.move_to) }); moved += uids.length; }
       }
-      return { changed: ids.length, ...(a.read !== undefined && { read: !!a.read }), ...(a.starred !== undefined && { starred: !!a.starred }), ...(a.move_to && { moved_to: special || String(a.move_to), moved, note: 'Moved emails have new ids: list_mail in that folder finds them.' }) };
+      return { changed: [...byFolder.values()].reduce((n, l) => n + l.length, 0), ...(a.read !== undefined && { read: !!a.read }), ...(a.starred !== undefined && { starred: !!a.starred }), ...(a.move_to && { moved_to: special || String(a.move_to), moved, note: 'Moved emails have new ids: list_mail in that folder finds them.' }) };
     },
   },
   {

@@ -2447,6 +2447,12 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.deepEqual(conv.messages.map((m) => [m.subject, m.text]), [[topic, 'The pelican numbers are in.'], [`Re: ${topic}`, 'And the heron count too.']]);
   assert.match(conv.messages[0].from, /bob@acme\.com/);
   assert.ok((await inbox(olivia, topic)).every((m) => !m.seen), 'still unread');
+  // update_email with whole_conversation: the change reaches every message of it, from one email's id.
+  const marked = await call('update_email', { ids: [first.id], read: true, whole_conversation: true });
+  assert.equal(marked.changed, 2);
+  assert.ok((await inbox(olivia, topic)).every((m) => m.seen), 'all read');
+  await call('update_email', { ids: [first.id], move_to: 'archive', whole_conversation: true });
+  assert.deepEqual(await inbox(olivia, topic), [], 'the whole conversation archived');
 });
 
 test('risky attachments: marked in the message, and handed over only once confirmed', async () => {
