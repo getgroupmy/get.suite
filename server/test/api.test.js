@@ -1453,6 +1453,12 @@ test('search finds files by the words inside them, and only files you can open',
   assert.equal((await find(owner, 'SUM')).filter((f) => f.id === sheet.id).length, 0, 'formulas are not searched');
   assert.equal((await find(owner, 'cafe deja'))[0].name, 'notes.txt', 'accents do not matter');
   assert.equal((await find(owner, 'kumquat'))[0].name, 'forecast.docx');
+  // An email kept as a file (.eml): by its subject, who it's from, its text and its attachments' names.
+  const eml = ['From: Kim Park <kim@client.example>', 'To: owner@acme.com', 'Subject: Rambutan delivery', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b"', '',
+    '--b', 'Content-Type: text/plain; charset=utf-8', '', 'The durian crates arrive Tuesday.', '--b', 'Content-Type: application/pdf; name="manifest-88.pdf"', 'Content-Disposition: attachment; filename="manifest-88.pdf"', '', 'x', '--b--', ''].join('\r\n');
+  await owner('POST', '/api/files/upload?name=delivery.eml', Buffer.from(eml), { raw: true });
+  while (await indexPending()) { /* indexed */ }
+  for (const words of ['durian tuesday', 'rambutan', 'kim park', 'manifest-88']) assert.equal((await find(owner, words))[0]?.name, 'delivery.eml', words);
   assert.equal((await find(owner, 'minutes'))[0].id, doc.id, 'names still match');
   assert.equal((await find(owner, 'minutes'))[0].match, undefined);
   // The words of a name in any order, with other words between them.

@@ -15,6 +15,7 @@ import { docFromOdt } from './office/odt.js';
 import { sheetFromOds } from './office/ods.js';
 import { deckFromOdp } from './office/odp.js';
 import { docFromRtf } from './office/rtf.js';
+import { simpleParser } from 'mailparser';
 import { chipText, dateText, eventLines } from './office/chiptext.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
@@ -103,6 +104,11 @@ export async function textOf(f) {
     if (/\.ods$/i.test(name)) return sheetText(await sheetFromOds(fs.readFileSync(file)));
     if (/\.odp$/i.test(name)) return slidesText(await deckFromOdp(fs.readFileSync(file), { savePicture: async () => null }));
     if (/\.rtf$/i.test(name)) return docSearchText(docFromRtf(fs.readFileSync(file)));
+    // An email kept as a file (.eml): its subject, who it's from and to, its text and its attachments' names.
+    if (/\.eml$/i.test(name) || f.mime === 'message/rfc822') {
+      const m = await simpleParser(fs.readFileSync(file), { skipImageLinks: true, skipTextToHtml: true });
+      return [m.subject, m.from?.text, m.to?.text, m.cc?.text, m.text || String(m.html || '').replace(/<[^>]+>/g, ' '), ...(m.attachments || []).map((a) => a.filename)].filter(Boolean).join('\n');
+    }
   } catch { /* unreadable: nothing to index */ }
   return '';
 }

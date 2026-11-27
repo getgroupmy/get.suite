@@ -82,6 +82,17 @@ await step('an uploaded PDF is found by the words inside it, with them marked', 
   await row.waitFor({ timeout: 10000 });
   await row.locator('mark', { hasText: 'Sibu' }).waitFor();
 });
+await step('an email kept in Drive (.eml) is found by the words in it, with them marked', async () => {
+  const eml = ['From: Kim Park <kim@client.example>', 'To: olivia@acme.com', 'Subject: Rambutan delivery', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', 'The durian crates arrive at the Kuching yard on Tuesday.', ''].join('\r\n');
+  await page.evaluate(async (b) => fetch('/api/files/upload?name=delivery.eml', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, body: b }), eml);
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('kuching yard');
+  await page.getByLabel('Search everything').press('Enter');
+  const row = page.locator('.files tbody tr').filter({ hasText: 'delivery.eml' });
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('mark', { hasText: 'Kuching' }).waitFor();
+});
 await step('Chinese: a word inside a sentence (no spaces between words) is found, and marked as written', async () => {
   await api(page, 'POST', '/files/new', { kind: 'doc', name: '季度总结', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '第三季度销售报告已经完成。' }] }] } });
   await page.waitForTimeout(2500); // the index catches up
