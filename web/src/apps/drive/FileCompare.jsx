@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { get } from '../../api.js';
 import { Modal } from '../../components/ui.jsx';
-import { DiffBody } from './VersionDiff.jsx';
+import { DiffBody, DownloadDiff } from './VersionDiff.jsx';
 import { previewKind } from '../../components/viewkind.js';
 import { viewOnly } from './viewonly.js';
 
@@ -26,6 +26,7 @@ export default function FileCompare({ files, onClose }) {
         <div className="row wrap">
           <span className="muted small grow">From <strong>{pair[0].name}</strong> to <strong>{pair[1].name}</strong>{d ? <>: <span className="diff-count-add">{d.added} line{d.added === 1 ? '' : 's'} added</span>, <span className="diff-count-del">{d.removed} removed</span>{d.rough ? ' (too different to match line by line: shown as replaced)' : ''}</> : ''}</span>
           <button type="button" className="btn small" onClick={() => setPair([pair[1], pair[0]])}>Swap</button>
+          {d && (d.added > 0 || d.removed > 0) && <DownloadDiff lines={d.lines} from={`a/${pair[0].name}`} to={`b/${pair[1].name}`} file={`${pair[0].name} vs ${pair[1].name}.diff`} />}
         </div>
         {error ? <p className="error" role="alert">{error}</p> : !d ? <p className="muted">Comparing…</p> : <DiffBody key={`${pair[0].id}-${pair[1].id}`} d={d} />}
       </div>

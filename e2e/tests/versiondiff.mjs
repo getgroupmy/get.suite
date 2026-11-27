@@ -74,6 +74,28 @@ await step('Version history → Compare shows an earlier version against now: th
   await dlg.getByRole('button', { name: '← All versions' }).click();
   await dlg.getByRole('list', { name: 'Versions' }).waitFor();
 });
+await step('Download .diff gives a unified diff that GNU patch applies to the old text to get the new', async () => {
+  const dlg = page.getByRole('dialog', { name: 'Version history: shop.yaml' });
+  if (!(await dlg.getByRole('region', { name: 'Differences, line by line' }).count())) {
+    await page.keyboard.press('Escape');
+    await page.goto(`${B}/drive`);
+    await page.getByRole('button', { name: 'Actions for shop.yaml' }).click();
+    await page.getByRole('menuitem', { name: 'Version history' }).click();
+    await dlg.getByRole('button', { name: /^Compare the version from/ }).first().click();
+  }
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: 'Download .diff' }).click()]);
+  if (dl.suggestedFilename() !== 'shop changes.diff') throw new Error(dl.suggestedFilename());
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path'), cp = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diff-'));
+  const patchFile = path.join(dir, 'p.diff'), target = path.join(dir, 'shop.yaml');
+  await dl.saveAs(patchFile);
+  const text = fs.readFileSync(patchFile, 'utf8');
+  if (!/^--- a\/shop\.yaml\t.+\n\+\+\+ b\/shop\.yaml\n@@ -1,5 \+1,5 @@/.test(text)) throw new Error(text.slice(0, 200));
+  fs.writeFileSync(target, OLD);
+  cp.execFileSync('patch', ['--quiet', target, patchFile]);
+  if (fs.readFileSync(target, 'utf8') !== NEW) throw new Error('patched file differs from the new version');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 await step('Compare with picks another earlier version instead of now', async () => {
   await put(`/api/files/${f.id}/versions`, NEW.replace('mode: dev', 'mode: live'));
   await page.keyboard.press('Escape');
@@ -128,6 +150,16 @@ await step('two files selected together: Compare shows what differs between them
   await view.locator('.diff-line.add .diff-text').first().waitFor();
   await page.waitForFunction(([w]) => [...document.querySelectorAll('.diff-line.add .diff-text')].map((x) => x.textContent).join('|') === w, [want[second]], { timeout: 10000 });
   await page.screenshot({ path: `${SP}/shots/file-compare.png` });
+  // Its .diff turns the first file into the second (GNU patch).
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: 'Download .diff' }).click()]);
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path'), cp = await import('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diff-'));
+  await dl.saveAs(path.join(dir, 'p.diff'));
+  const texts = { staging: 'port: 8443\nname: shop\n', prod: 'port: 443\nname: shop\nreplicas: 3\n' };
+  fs.writeFileSync(path.join(dir, 'x.yaml'), texts[second]);
+  cp.execFileSync('patch', ['--quiet', path.join(dir, 'x.yaml'), path.join(dir, 'p.diff')]);
+  if (fs.readFileSync(path.join(dir, 'x.yaml'), 'utf8') !== texts[first]) throw new Error(fs.readFileSync(path.join(dir, 'p.diff'), 'utf8'));
+  fs.rmSync(dir, { recursive: true, force: true });
   await page.keyboard.press('Escape');
 });
 await step('no Compare for a picture, nor for someone who may only view a file with downloading off', async () => {

@@ -4,8 +4,9 @@
 import { useEffect, useState } from 'react';
 import { get } from '../../api.js';
 import { foldLines } from './versionfold.js';
+import { unifiedDiff } from './unidiff.js';
 
-export default function VersionDiff({ fileId, version, versions = [], when, onBack }) {
+export default function VersionDiff({ fileId, name = 'file', version, versions = [], when, onBack }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [withId, setWithId] = useState(''); // '' : the file now; or another earlier version
@@ -33,6 +34,7 @@ export default function VersionDiff({ fileId, version, versions = [], when, onBa
         <button type="button" className="btn small" onClick={onBack}>← All versions</button>
         {picker}
         <span className="muted small grow">{when(from.saved_at)} compared with {to ? when(to.saved_at) : 'now'}: <span className="diff-count-add">{d.added} line{d.added === 1 ? '' : 's'} added</span>, <span className="diff-count-del">{d.removed} removed</span>{d.rough ? ' (too different to match line by line: shown as replaced)' : ''}</span>
+        {(d.added > 0 || d.removed > 0) && <DownloadDiff lines={d.lines} from={`a/${name}\t${when(from.saved_at)}`} to={`b/${name}${to ? `\t${when(to.saved_at)}` : ''}`} file={`${name.replace(/\.[^.]+$/, '')} changes.diff`} />}
       </div>
       <DiffBody d={d} />
     </div>
@@ -56,4 +58,16 @@ export function DiffBody({ d }) {
             )))}
         </div>
   );
+}
+
+/** Download a comparison as a .diff file (a unified diff, for patch, git apply or a code review). */
+export function DownloadDiff({ lines, from, to, file }) {
+  const go = () => {
+    const url = URL.createObjectURL(new Blob([unifiedDiff(lines, from, to)], { type: 'text/x-diff' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = file;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return <button type="button" className="btn small" onClick={go}>Download .diff</button>;
 }
