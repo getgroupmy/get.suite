@@ -80,4 +80,14 @@ test('a calendar file in Drive: its events listed, then added to Calendar once',
   assert.ok((Array.isArray(mine) ? mine : mine.contacts).some((c) => c.email === 'rosa@supplier.example' && c.company === 'Supplier Ltd'));
   assert.equal((await ann('POST', '/api/contacts/from-file', { file: ics.id })).status, 400);
   assert.equal((await ben('POST', '/api/contacts/from-file', { file: vcf.id })).status, 404);
+
+  // A file that isn't in Drive (an attachment, a chat file): its text read the same way.
+  const read = await ann('POST', '/api/files/read-cards?name=invite.ics&tz=UTC', null, ICS);
+  assert.equal(read.status, 200, JSON.stringify(read.body));
+  assert.deepEqual([read.body.kind, read.body.total, read.body.events[0].title], ['calendar', 2, 'Kick-off']);
+  const readV = (await ann('POST', '/api/files/read-cards?name=card.vcf', null, VCF)).body;
+  assert.deepEqual([readV.kind, readV.total, readV.contacts[1].name], ['contacts', 2, 'Tom Ng']);
+  assert.equal((await ann('POST', '/api/files/read-cards?name=notes.txt', null, 'hi')).status, 400);
+  assert.equal((await ann('POST', '/api/files/read-cards?name=x.ics', null, 'not a calendar')).status, 400);
+  assert.equal((await client()('POST', '/api/files/read-cards?name=x.ics', null, ICS)).status, 401);
 });

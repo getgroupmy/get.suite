@@ -14,7 +14,7 @@ import { MAX_SHARE_DAYS } from '../shareexpiry.js';
 import { recordActivity, activityOf, folderActivityOf, recentActivityFor, ACTIVITY_KINDS } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { audit } from '../audit.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -209,6 +209,24 @@ export async function sheetAsCsv(fileId, sheet, user, notSheet = 'Choose a sprea
 }
 
 const CARD_FILE = /\.(ics|vcf)$/i;
+/** What's in a calendar file or contact cards: the first 50 events (title, when, where) or people (name, address, phone,
+ *  company), and how many in all. */
+export function cardsOf(name, text, tz = 'UTC') {
+  if (/\.ics$/i.test(name)) {
+    if (!/BEGIN:VCALENDAR/i.test(text)) throw bad('This isn’t a calendar file');
+    const parts = splitCalendar(text);
+    const events = [];
+    for (const part of parts.slice(0, 50)) {
+      const e = parseIcsEvent(part, { tz: zoneOrUtc(tz) });
+      if (!e.error) events.push({ title: e.title, start: e.start, end: e.end, all_day: !!e.all_day, location: e.location || null, repeats: !!e.rrule });
+    }
+    return { kind: 'calendar', total: parts.length, events };
+  }
+  const found = contactsFromFile(text);
+  if (found.error) throw bad(found.error);
+  return { kind: 'contacts', total: found.contacts.length,
+    contacts: found.contacts.slice(0, 50).map((c) => ({ name: c.name, email: c.email || null, phone: c.phone || null, company: c.company || null })) };
+}
 /** A calendar file's text (an uploaded .ics this person may take away), or null when the file isn't one. */
 export function calendarFileText(id, user) {
   const f = loadFile(id, user);
@@ -1692,20 +1710,13 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/cards', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'file' || !CARD_FILE.test(f.name)) throw bad('Not a calendar file or contact cards');
-    const text = fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8');
-    if (/\.ics$/i.test(f.name)) {
-      const parts = splitCalendar(text);
-      const events = [];
-      for (const part of parts.slice(0, 50)) {
-        const e = parseIcsEvent(part, { tz: zoneOrUtc(String(req.query.tz || 'UTC')) });
-        if (!e.error) events.push({ title: e.title, start: e.start, end: e.end, all_day: !!e.all_day, location: e.location || null, repeats: !!e.rrule });
-      }
-      return res.json({ kind: 'calendar', total: parts.length, events });
-    }
-    const found = contactsFromFile(text);
-    if (found.error) throw bad(found.error);
-    res.json({ kind: 'contacts', total: found.contacts.length,
-      contacts: found.contacts.slice(0, 50).map((c) => ({ name: c.name, email: c.email || null, phone: c.phone || null, company: c.company || null })) });
+    res.json(cardsOf(f.name, fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8'), String(req.query.tz || 'UTC')));
+  });
+  // The same for a file that isn't in Drive (an email's attachment, a file sent in Chat): its text is sent, ?name= says which kind.
+  r.post('/read-cards', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
+    const name = String(req.query.name || '');
+    if (!CARD_FILE.test(name)) throw bad('Not a calendar file or contact cards');
+    res.json(cardsOf(name, typeof req.body === 'string' ? req.body : '', String(req.query.tz || 'UTC')));
   });
   r.get('/:id/eml', async (req, res) => {
     const f = loadFile(req.params.id, req.user);

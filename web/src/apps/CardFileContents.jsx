@@ -1,8 +1,9 @@
-// A calendar file (.ics) or contact cards (.vcf) kept in Drive, shown as what's in them: its events (title, when,
-// where) or its people (name, address, phone, company), with Add to Calendar or Add to Contacts.
+// A calendar file (.ics) or contact cards (.vcf), shown as what's in them: its events (title, when, where) or its
+// people (name, address, phone, company), with Add to Calendar or Add to Contacts. `fileId` for one kept in Drive;
+// `source` ({ url, name }) for one that isn't (an email's attachment, a file sent in Chat): its text is read from url.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post } from '../api.js';
+import { get, post, postText } from '../api.js';
 import { useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -16,25 +17,30 @@ const when = (e) => {
 };
 const n = (k, one, many = `${one}s`) => `${k.toLocaleString()} ${k === 1 ? one : many}`;
 
-export default function CardFileContents({ fileId, canAdd = true }) {
+export default function CardFileContents({ fileId = null, source = null, canAdd = true }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [text, setText] = useState(null); // the file's text, when it isn't in Drive
   const toast = useToast();
   const navigate = useNavigate();
   useEffect(() => {
     let live = true;
     setD(null); setError('');
-    get(`/files/${fileId}/cards?tz=${encodeURIComponent(TZ)}`).then((x) => live && setD(x)).catch((e) => live && setError(e.message));
+    const read = fileId ? get(`/files/${fileId}/cards?tz=${encodeURIComponent(TZ)}`)
+      : fetch(source.url, { credentials: 'same-origin' }).then((r) => { if (!r.ok) throw new Error('The file couldn’t be read'); return r.text(); })
+        .then((text) => { if (live) setText(text); return postText(`/files/read-cards?name=${encodeURIComponent(source.name)}&tz=${encodeURIComponent(TZ)}`, text); });
+    read.then((x) => live && setD(x)).catch((e) => live && setError(e.message));
     return () => { live = false; };
-  }, [fileId]);
+  }, [fileId, source?.url, source?.name]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
   const cal = d.kind === 'calendar';
   const add = async () => {
     setBusy(true);
     try {
-      const r = cal ? await post(`/files/${fileId}/add-events`, { tz: TZ }) : await post('/contacts/from-file', { file: fileId });
+      const r = fileId ? (cal ? await post(`/files/${fileId}/add-events`, { tz: TZ }) : await post('/contacts/from-file', { file: fileId }))
+        : cal ? await postText(`/events/import?tz=${encodeURIComponent(TZ)}`, text) : await postText('/contacts/import', text);
       const what = cal ? n(r.added, 'event') : n(r.added, 'contact');
       toast([`${what} added to ${cal ? 'Calendar' : 'Contacts'}`, r.skipped && `${r.skipped} already there`, r.failed && `${r.failed} couldn’t be read`].filter(Boolean).join(', '),
         'info', r.added ? { action: { label: 'Show', onClick: () => navigate(cal ? '/calendar' : '/contacts') } } : undefined);
