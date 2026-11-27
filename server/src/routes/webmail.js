@@ -580,7 +580,7 @@ export default function webmailRoutes() {
   const SHARED_OK = [
     ['GET', /^\/(unread|folders|messages|find|messages-eml\.zip|messages-conversation\.zip)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview|\/zip)?))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
-    ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
+    ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/(\d+\/)?save-(pdf|doc)$/], ['POST', /^\/messages\/save-conversation-pdf$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
     ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/shared-report$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
   ];
   r.use((req, res, next) => {

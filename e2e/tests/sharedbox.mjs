@@ -101,6 +101,12 @@ await step('Kim replies; it goes out from support@ and Olivia receives it from t
   const body = (await api(page, 'GET', `/mail/messages/${got.uid}?folder=INBOX`)).body;
   if (!/Kim Park\s+Acme Support team/.test(body.text)) throw new Error(body.text);
 }, kim);
+await step('Kim saves the support email to her own Drive as a PDF (⋮ → Save to Drive as PDF), as from her own mail', async () => {
+  const reader = kim.locator('.mail-reader');
+  await reader.getByRole('button', { name: 'More for this message' }).click();
+  await kim.getByRole('menuitem', { name: 'Save to Drive as PDF' }).click();
+  await kim.locator('.toast', { hasText: /Saved to Drive: Saved emails \/ Question about invoice 77 \(\d{4}-\d\d-\d\d\)\.pdf/ }).waitFor();
+}, kim);
 await step('Kim gives it to Olivia (also on the mailbox); Olivia is told, sees it under Given to me, and marks it done', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
   const box = (await api(page, 'GET', '/mail-admin/shared')).body[0];

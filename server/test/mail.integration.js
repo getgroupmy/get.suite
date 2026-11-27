@@ -1833,6 +1833,12 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   assert.equal(z.status, 200);
   const JSZip = (await import('jszip')).default;
   assert.ok(Object.keys((await JSZip.loadAsync(z.body)).files)[0].endsWith('My order is late.eml'));
+  // Saving one to Drive works there too: into Bob's own Drive (Saved emails), as a PDF or a document.
+  const pdf = await bob('POST', `/api/mail/messages/${got.uid}/save-pdf`, { folder: 'INBOX', time_zone: 'UTC' }, as);
+  assert.equal(pdf.status, 201, JSON.stringify(pdf.body));
+  assert.match(pdf.body.file.name, /^My order is late \(\d{4}-\d\d-\d\d\)\.pdf$/);
+  assert.equal((await bob('GET', `/api/files/${pdf.body.file.id}`)).status, 200, 'Bob’s own');
+  assert.equal((await bob('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [got.uid], time_zone: 'UTC' }, as)).status, 201);
   assert.equal((await bob('POST', '/api/mail/send', { from: 'helper@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x' }, as)).status, 400, 'only as the mailbox');
   assert.equal((await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x', sendAt: Date.now() + 864e5 }, as)).status, 400, 'no scheduling');
   const sent = await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'Re: My order is late', text: 'It ships today.', inReplyTo: full.messageId, replyTo: { folder: 'INBOX', uid: got.uid } }, as);
