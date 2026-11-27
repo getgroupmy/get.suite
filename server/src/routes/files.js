@@ -48,7 +48,8 @@ import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/o
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
-import { importCalendar } from '../calimport.js';
+import { importCalendar, splitCalendar } from '../calimport.js';
+import { parseIcsEvent, zoneOrUtc } from '../ics.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -60,7 +61,7 @@ import { delimitedFromSheet, sheetReadingText, formulaResults, cellsWithValuesFr
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
-import { parseCsv } from '../contactfiles.js';
+import { parseCsv, contactsFromFile } from '../contactfiles.js';
 import { brokenProtections } from '../sheetprotect.js';
 import { renamed, byName } from '../bulkrename.js';
 
@@ -205,6 +206,22 @@ export async function sheetAsCsv(fileId, sheet, user, notSheet = 'Choose a sprea
   const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
   const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(sheet) || 0));
   return (await delimitedFromSheet(data, index, ',')).replace(/^\ufeff/, '');
+}
+
+const CARD_FILE = /\.(ics|vcf)$/i;
+/** A calendar file's text (an uploaded .ics this person may take away), or null when the file isn't one. */
+export function calendarFileText(id, user) {
+  const f = loadFile(id, user);
+  if (f.kind !== 'file' || !/\.ics$/i.test(f.name)) return null;
+  if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+  return fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8');
+}
+/** Contact cards' text (an uploaded .vcf this person may take away), or null when the file isn't one. */
+export function contactFileText(id, user) {
+  const f = loadFile(id, user);
+  if (f.kind !== 'file' || !/\.vcf$/i.test(f.name)) return null;
+  if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+  return fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8');
 }
 
 export function loadFile(id, user, needed = 'viewer') {
@@ -1670,6 +1687,26 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
   });
   // An email saved in Drive (.eml): who, when, subject, text and what's attached.
+  // What's in a calendar file (.ics) or contact cards (.vcf) kept in Drive, for its preview: the first 50 events
+  // (title, when, where) or people (name, address, phone, company), and how many in all.
+  r.get('/:id/cards', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'file' || !CARD_FILE.test(f.name)) throw bad('Not a calendar file or contact cards');
+    const text = fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8');
+    if (/\.ics$/i.test(f.name)) {
+      const parts = splitCalendar(text);
+      const events = [];
+      for (const part of parts.slice(0, 50)) {
+        const e = parseIcsEvent(part, { tz: zoneOrUtc(String(req.query.tz || 'UTC')) });
+        if (!e.error) events.push({ title: e.title, start: e.start, end: e.end, all_day: !!e.all_day, location: e.location || null, repeats: !!e.rrule });
+      }
+      return res.json({ kind: 'calendar', total: parts.length, events });
+    }
+    const found = contactsFromFile(text);
+    if (found.error) throw bad(found.error);
+    res.json({ kind: 'contacts', total: found.contacts.length,
+      contacts: found.contacts.slice(0, 50).map((c) => ({ name: c.name, email: c.email || null, phone: c.phone || null, company: c.company || null })) });
+  });
   r.get('/:id/eml', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'file' || !/\.eml$/i.test(f.name)) throw bad('Not an email');
@@ -2650,6 +2687,13 @@ export default function fileRoutes({ maxUploadBytes }) {
   // End Time, All day event, Description, Location, as Outlook and Google Calendar write it) added to your calendar,
   // its values as the sheet shows them; ones already there (the same title and times) left out.
   r.post('/:id/add-events', async (req, res) => {
+    const ics = calendarFileText(req.params.id, req.user);
+    if (ics !== null) {
+      const r1 = importCalendar(req.user.id, ics, String(req.body?.tz || 'UTC'));
+      if (r1.error) throw bad(r1.error);
+      if (r1.added) sendTo([req.user.id], { type: 'events-changed' });
+      return res.json(r1);
+    }
     const csv = await sheetAsCsv(req.params.id, req.body?.sheet, req.user, 'Only a spreadsheet’s rows become events');
     const r2 = importCalendar(req.user.id, csv, String(req.body?.tz || 'UTC'));
     if (r2.error) throw bad(r2.error.replace('This isn’t a calendar file (.ics) or a calendar exported as CSV', 'This sheet isn’t laid out as a calendar: give it columns Subject, Start Date and Start Time (and End Date, End Time, All day event, Description, Location if you like)'));

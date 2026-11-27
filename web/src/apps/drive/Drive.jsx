@@ -23,6 +23,7 @@ import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
 import EmlContents from '../EmlContents.jsx';
+import CardFileContents from '../CardFileContents.jsx';
 import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
@@ -1506,7 +1507,9 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   );
   else if (/^video\/(mp4|webm)$/.test(m)) body = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
-  else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
+  else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
+  // Only text the server shows in the browser (plain text, CSV, Markdown); others (.tsv, …) download.
+  else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
   else if (isZip) body = <ZipContents url={`/files/${file.id}/zip`} />;
   else if (/\.eml$/i.test(file.name)) body = <EmlContents url={`/files/${file.id}/eml`} />;

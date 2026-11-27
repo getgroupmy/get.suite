@@ -7,7 +7,7 @@ import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT, contactsTable } from '../contactfiles.js';
 import { sheetFromRows } from '../office/tablesheet.js';
-import { insertFile, sheetAsCsv } from './files.js';
+import { insertFile, sheetAsCsv, contactFileText } from './files.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { notify } from '../notifications.js';
@@ -600,6 +600,12 @@ export default function contactRoutes() {
 
   // Add rows to Contacts (Sheets): { file, sheet } — the sheet read as Import reads a CSV (Name, Email, Phone, Company…);
   // anyone already in your contacts isn't added twice.
+  // Contact cards (.vcf) kept in Drive added to Contacts: { file }; anyone already in your contacts isn't added twice.
+  r.post('/from-file', (req, res) => {
+    const text = contactFileText(String(req.body?.file || ''), req.user);
+    if (text === null) throw bad('Only contact cards (.vcf) can be added to Contacts');
+    res.json(importContacts(req.user, text));
+  });
   r.post('/from-sheet', async (req, res) => {
     const csv = await sheetAsCsv(req.body?.file, req.body?.sheet, req.user);
     try { res.json(importContacts(req.user, csv)); }
