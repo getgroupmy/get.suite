@@ -206,6 +206,9 @@ await step('an AI assistant (MCP write_text_file) writes a file, then changes it
   if (made?.name !== 'checklist.txt') throw new Error(JSON.stringify(made));
   const rep = (await call('write_text_file', { file: made.id, text: 'Open the shop\nCount the float\nCheck the fridge\n' }))?.structuredContent;
   if (!rep?.replaced) throw new Error(JSON.stringify(rep));
+  const bad = await call('write_text_file', { name: 'shop.json', text: '{"open": true,}' });
+  if (!bad?.isError || !/isn't valid JSON \(line 1, column 15\)/.test(bad.content[0].text)) throw new Error(JSON.stringify(bad));
+  if ((await api(page, 'GET', '/files?view=search&q=shop.json')).body.some((x) => x.name === 'shop.json')) throw new Error('broken JSON was written');
   await page.keyboard.press('Escape');
   await page.goto(`${B}/drive`);
   await page.locator('.files tbody tr').filter({ hasText: 'checklist.txt' }).getByText('checklist.txt').dblclick();

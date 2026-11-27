@@ -136,6 +136,14 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   assert.equal((await call(rw, 'write_text_file', { name: 'List', text: 'a' })).structuredContent.name, 'List.txt');
   assert.equal((await call(ro, 'write_text_file', { name: 'x.txt', text: 'a' })).isError, true);
   assert.match((await call(rw, 'write_text_file', { text: 'a' })).content[0].text, /Give the new file a name/);
+  // JSON that doesn't parse: refused with where, unless asked for; valid JSON fine.
+  const badJson = await call(rw, 'write_text_file', { name: 'settings.json', text: '{\n  "a": 1,\n}' });
+  assert.equal(badJson.isError, true);
+  assert.match(badJson.content[0].text, /isn't valid JSON \(line 3, column 1\).*even_if_invalid/s);
+  const okJson = (await call(rw, 'write_text_file', { name: 'settings.json', text: '{"a": 1}' })).structuredContent;
+  assert.equal(okJson.name, 'settings.json');
+  assert.equal((await call(rw, 'write_text_file', { file: okJson.id, text: '{"a": }' })).isError, true);
+  assert.equal((await call(rw, 'write_text_file', { file: okJson.id, text: '{"a": }', even_if_invalid: true })).structuredContent.replaced, true);
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));

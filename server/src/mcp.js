@@ -1413,18 +1413,31 @@ export const TOOLS = [
       name: { type: 'string', description: 'For a new file: its name, with its ending' },
       folder: FOLDER_ARG,
       file: { type: 'string', description: 'To replace an existing file\'s text instead: file:… from search, find_files or list_files' },
+      even_if_invalid: { type: 'boolean', description: 'Write a .json file even though its text doesn\'t parse (refused otherwise)' },
     } },
     async run(api, a) {
       const text = String(a.text ?? '');
+      // A .json file that doesn't parse is refused (with where), so a config isn't broken by mistake.
+      const checkJson = (name) => {
+        if (a.even_if_invalid || !/\.json$/i.test(String(name || '')) || !text.trim()) return;
+        try { JSON.parse(text); } catch (e) {
+          const at = Number(/position (\d+)/.exec(e.message)?.[1] ?? text.length);
+          const before = text.slice(0, at).split('\n');
+          throw new ToolError(`This isn't valid JSON (line ${before.length}, column ${before.at(-1).length + 1}): ${String(e.message).replace(/\s*(in JSON )?at position \d+.*$/, '')}. Fix it, or pass even_if_invalid to write it anyway.`);
+        }
+      };
       if (a.file) {
         const id = String(a.file).replace(/^file:/, '');
         const now = await api('GET', `/files/${encodeURIComponent(id)}/source-text`);
+        const meta = await api('GET', `/files/${encodeURIComponent(id)}`);
+        checkJson(meta.name);
         if (now.truncated) throw new ToolError('This file is too large to replace here');
         if (now.text === text) return { id: `file:${id}`, unchanged: true };
         const f = await api('PUT', `/files/${encodeURIComponent(id)}/source-text`, { text, version: now.version });
         return { id: `file:${f.id}`, name: f.name, replaced: true, earlier_version_kept: true, url: fileUrl(f) };
       }
       if (!String(a.name || '').trim()) throw new ToolError('Give the new file a name (with its ending), or `file` to replace one');
+      checkJson(a.name);
       const f = await api('POST', '/files/new-text', { name: String(a.name).slice(0, 200), text, parent_id: folderId(a.folder) });
       return { id: `file:${f.id}`, name: f.name, url: fileUrl(f) };
     },
