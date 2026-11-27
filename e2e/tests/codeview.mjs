@@ -106,6 +106,23 @@ await step('Wrap lines keeps a long line in view instead of scrolling sideways',
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('Copy all puts the text, as shown (laid out), on the clipboard', async () => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick();
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Copy all' }).click();
+  await page.getByRole('status').filter({ hasText: 'Copied' }).waitFor();
+  const got = await page.evaluate(() => navigator.clipboard.readText());
+  if (got !== JSON.stringify({ chair: 40, desk: { oak: 120, pine: 80 } }, null, 2)) throw new Error(got);
+  await page.getByRole('button', { name: 'Show as written' }).click();
+  await page.getByRole('button', { name: 'Copy all' }).click();
+  if (await page.evaluate(() => navigator.clipboard.readText()) !== '{"chair":40,"desk":{"oak":120,"pine":80}}') throw new Error('not as written');
+  await page.getByRole('button', { name: 'Lay out' }).click();
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
@@ -127,6 +144,7 @@ await step('a Python file someone may only view (downloading off) still shows as
   const pre = k.getByLabel('Text of report.py');
   await pre.waitFor({ timeout: 15000 });
   if (!(await pre.innerText()).includes('return sum(xs)')) throw new Error(await pre.innerText());
+  if (await k.getByRole('button', { name: 'Copy all' }).count()) throw new Error('Copy all offered on a view-only file with copying off');
   // Kim sends Olivia a SQL file in Chat: it opens in the viewer as text too.
   const dm = (await api(k, 'POST', '/chat/dm', { user_id: (await api(page, 'GET', '/auth/me')).body.user.id })).body.id;
   const sql = await upload(k, 'monthly.sql', 'SELECT name, SUM(total)\nFROM orders\nGROUP BY name;\n');

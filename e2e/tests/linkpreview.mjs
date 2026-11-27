@@ -54,6 +54,7 @@ await step('someone opening a link to a YAML file (no account) reads it as text 
   if (!(await pre.innerText()).includes('- desk')) throw new Error(await pre.innerText());
   await visitor.getByText('5 lines').waitFor();
   await visitor.getByRole('link', { name: 'Download' }).waitFor();
+  await visitor.getByRole('button', { name: 'Copy all' }).waitFor(); // offered while downloading is on
   await visitor.screenshot({ path: `${SP}/shots/link-yaml.png` });
   await visitor.evaluate(AXE);
   const v = await visitor.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
@@ -66,6 +67,7 @@ await step('with downloading turned off it is still shown, and Download isn’t 
   await visitor.getByLabel('Text of shop.yaml').waitFor({ timeout: 15000 });
   await visitor.getByText('View only: downloading is turned off').waitFor();
   if (await visitor.getByRole('link', { name: 'Download' }).count()) throw new Error('Download offered');
+  if (await visitor.getByRole('button', { name: 'Copy all' }).count()) throw new Error('Copy all offered with copying off');
 }, visitor);
 await step('a calendar file behind a password: after the password, its events (nothing to add them to without an account)', async () => {
   const ics = await upload('Open days.ics', ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:od-1@x', 'DTSTART:20261205T100000Z', 'DTEND:20261205T120000Z', 'SUMMARY:Open day', 'LOCATION:Main hall', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n'));

@@ -1,6 +1,7 @@
 // A code or data file (.json, .xml, .yaml, .py, .sql…) shown as its text, with line numbers; JSON written on one line
 // is laid out to be read; Find in this file marks each match (Enter / Shift+Enter or the arrows step through them),
-// and Wrap lines keeps long lines in view. `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
+// Wrap lines keeps long lines in view, and Copy all puts the text (as shown) on the clipboard, unless the owner turned
+// copying off (canCopy). `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf } from './codefind.js';
 
@@ -20,7 +21,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load }) {
+export default function CodeContents({ name, load, canCopy = true }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -28,6 +29,7 @@ export default function CodeContents({ name, load }) {
   const [at, setAt] = useState(0);
   const [wrap, setWrap] = useState(false);
   const view = useRef(null);
+  const [copied, setCopied] = useState('');
   useEffect(() => {
     let live = true;
     setD(null); setError('');
@@ -58,6 +60,11 @@ export default function CodeContents({ name, load }) {
         <span className="muted small grow">{lines.length.toLocaleString()} line{lines.length === 1 ? '' : 's'}{d.truncated ? ' · only the start is shown: download it for the rest' : ''}</span>
         {pretty !== d.text && <button type="button" className="btn small" aria-pressed={laid} onClick={() => setLaid(!laid)}>{laid ? 'Show as written' : 'Lay out'}</button>}
         <button type="button" className="btn small" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Wrap lines</button>
+        {canCopy && <button type="button" className="btn small" onClick={async () => {
+          try { await navigator.clipboard.writeText(text); setCopied('Copied'); } catch { setCopied('Couldn’t copy: select the text and copy it instead'); }
+          setTimeout(() => setCopied(''), 2500);
+        }}>Copy all</button>}
+        {copied && <span className="muted small" role="status">{copied}</span>}
       </div>
       <div className="row wrap code-find" role="search">
         <input type="search" className="grow" placeholder="Find in this file" aria-label="Find in this file" value={find}

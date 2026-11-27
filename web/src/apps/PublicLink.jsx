@@ -116,9 +116,9 @@ function FileView({ file, src, download, read, picturesAt }) {
   else if (/\.eml$/i.test(file.name)) preview = <div className="link-md"><EmlContents load={() => read('eml')} /></div>;
   else if (/\.zip$/i.test(file.name)) preview = <div className="link-md"><ZipContents load={() => read('zip-contents')} /></div>;
   else if (/\.(docx|odt|xlsx|ods|pptx|odp)$/i.test(file.name)) preview = <div className="link-md"><Suspense fallback={<p className="muted">Getting the preview ready…</p>}><OfficePreview load={() => read('office')} picturesAt={(t) => picturesAt(`office/${t}`)} /></Suspense></div>;
-  else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} />;
+  else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} canCopy={!file.no_download} />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;
-  else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} />;
+  else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} canCopy={!file.no_download} />;
   else if (/\.(ics|vcf)$/i.test(file.name)) preview = <LinkCards read={read} canDownload={!file.no_download} />;
   return (
     <section className="link-file stack">

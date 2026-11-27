@@ -7,7 +7,7 @@ import CodeContents from './CodeContents.jsx';
 
 const MAX_ROWS = 1000;
 
-export default function TableContents({ name, load }) {
+export default function TableContents({ name, load, canCopy = true }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [asText, setAsText] = useState(false);
@@ -23,7 +23,7 @@ export default function TableContents({ name, load }) {
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
   const toggle = <button type="button" className="btn small" aria-pressed={asText} onClick={() => setAsText(!asText)}>{asText ? 'Show as a table' : 'Show as text'}</button>;
-  if (asText) return <div className="stack-tight table-contents"><div className="row">{toggle}</div><CodeContents name={name} load={async () => d} /></div>;
+  if (asText) return <div className="stack-tight table-contents"><div className="row">{toggle}</div><CodeContents name={name} load={async () => d} canCopy={canCopy} /></div>;
   const [head = [], ...body] = table.rows;
   const shown = body.slice(0, MAX_ROWS);
   const cols = Math.max(head.length, ...shown.map((r) => r.length), 0);
