@@ -197,6 +197,28 @@ await step('New → Text file… makes one and opens it in the editor; a name wi
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('an AI assistant (MCP write_text_file) writes a file, then changes it; Drive shows it and keeps the first text as a version', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Writer', scope: 'write', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const made = (await call('write_text_file', { name: 'checklist.txt', text: 'Open the shop\nCount the float\n' }))?.structuredContent;
+  if (made?.name !== 'checklist.txt') throw new Error(JSON.stringify(made));
+  const rep = (await call('write_text_file', { file: made.id, text: 'Open the shop\nCount the float\nCheck the fridge\n' }))?.structuredContent;
+  if (!rep?.replaced) throw new Error(JSON.stringify(rep));
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'checklist.txt' }).getByText('checklist.txt').dblclick();
+  await page.getByLabel('Text of checklist.txt').getByText('Check the fridge').waitFor({ timeout: 15000 });
+  const vs = (await api(page, 'GET', `/files/${made.id.replace('file:', '')}/versions`)).body;
+  if (vs.length !== 1) throw new Error(`${vs.length} versions`);
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

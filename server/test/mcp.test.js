@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'find_files', 'compare_file_versions', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'find_files', 'compare_file_versions', 'write_text_file', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -124,6 +124,18 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   assert.doesNotMatch(between.changes, /store/, 'the two earlier versions, not now');
   assert.deepEqual([between.from.id, between.to.id], [v1.id, v2.id]);
   assert.equal((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: 'previous' })).structuredContent.to, 'the file now');
+  // write_text_file: a new file, then its text replaced (the old kept as a version); not with a read-only token.
+  const made = (await call(rw, 'write_text_file', { name: 'deploy.yaml', text: 'replicas: 1\n', folder: proj.id })).structuredContent;
+  assert.equal(made.name, 'deploy.yaml');
+  assert.equal((await call(rw, 'fetch', { id: made.id })).structuredContent.text.includes('replicas: 1'), true);
+  const rep = (await call(rw, 'write_text_file', { file: made.id, text: 'replicas: 3\n' })).structuredContent;
+  assert.deepEqual([rep.replaced, rep.earlier_version_kept], [true, true]);
+  const chg = (await call(ro, 'compare_file_versions', { file: made.id, version: 'previous' })).structuredContent;
+  assert.match(chg.changes, /- 1: replicas: 1\n\+ 1: replicas: 3/);
+  assert.equal((await call(rw, 'write_text_file', { file: made.id, text: 'replicas: 3\n' })).structuredContent.unchanged, true);
+  assert.equal((await call(rw, 'write_text_file', { name: 'List', text: 'a' })).structuredContent.name, 'List.txt');
+  assert.equal((await call(ro, 'write_text_file', { name: 'x.txt', text: 'a' })).isError, true);
+  assert.match((await call(rw, 'write_text_file', { text: 'a' })).content[0].text, /Give the new file a name/);
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));

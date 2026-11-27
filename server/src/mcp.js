@@ -1406,6 +1406,30 @@ export const TOOLS = [
     },
   },
   {
+    name: 'write_text_file', title: 'Write a text file', readOnly: false,
+    description: 'Make a new plain text, code or data file in Drive (name it with its ending: notes.txt, deploy.yaml, report.csv, a Dockerfile…; no ending gets .txt), or, with `file`, replace an existing one\'s text: what was there is kept as an earlier version (compare_file_versions shows the change). For formatted writing use create_document instead.',
+    inputSchema: { type: 'object', required: ['text'], properties: {
+      text: { type: 'string', description: 'The whole text of the file' },
+      name: { type: 'string', description: 'For a new file: its name, with its ending' },
+      folder: FOLDER_ARG,
+      file: { type: 'string', description: 'To replace an existing file\'s text instead: file:… from search, find_files or list_files' },
+    } },
+    async run(api, a) {
+      const text = String(a.text ?? '');
+      if (a.file) {
+        const id = String(a.file).replace(/^file:/, '');
+        const now = await api('GET', `/files/${encodeURIComponent(id)}/source-text`);
+        if (now.truncated) throw new ToolError('This file is too large to replace here');
+        if (now.text === text) return { id: `file:${id}`, unchanged: true };
+        const f = await api('PUT', `/files/${encodeURIComponent(id)}/source-text`, { text, version: now.version });
+        return { id: `file:${f.id}`, name: f.name, replaced: true, earlier_version_kept: true, url: fileUrl(f) };
+      }
+      if (!String(a.name || '').trim()) throw new ToolError('Give the new file a name (with its ending), or `file` to replace one');
+      const f = await api('POST', '/files/new-text', { name: String(a.name).slice(0, 200), text, parent_id: folderId(a.folder) });
+      return { id: `file:${f.id}`, name: f.name, url: fileUrl(f) };
+    },
+  },
+  {
     name: 'list_chat_conversations', title: 'Chat conversations', readOnly: true,
     description: 'The person’s Chat channels and direct messages, with how many messages are unread.',
     inputSchema: { type: 'object', properties: {} },
