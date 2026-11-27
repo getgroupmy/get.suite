@@ -2832,6 +2832,7 @@ p.doc-email-fields { margin: 0; }
 .code-view mark { background: #fde68a; color: #1f1f1f; border-radius: 2px; }
 .code-view mark.current { background: #f59e0b; outline: 2px solid #b45309; }
 .code-find input { min-width: 0; }
+.code-edit { width: 100%; box-sizing: border-box; min-height: 50vh; max-height: 65vh; resize: vertical; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 4; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); white-space: pre; }
 .table-contents { min-width: 0; width: 100%; align-self: stretch; text-align: left; }
 .link-md { width: 100%; align-self: stretch; text-align: left; min-width: 0; }
 .diff-view { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

@@ -1516,7 +1516,8 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
-  else if (previewKind(file.name) === 'code') body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
+  else if (previewKind(file.name) === 'code') body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)}
+    onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
   else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;

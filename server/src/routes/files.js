@@ -1760,7 +1760,31 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user);
     const out = sourceTextOf(f);
     sawFile(f.id, req.user.id);
-    res.json(out);
+    res.json({ ...out, version: f.version });
+  });
+  // Edit an uploaded text, code or data file in place: { text, version } (the version it was opened at). What was there
+  // becomes an earlier version (so Version history and Compare show the change); refused when someone saved meanwhile.
+  r.put('/:id/source-text', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'file' || !(TEXT_EXT_RE.test(f.name) || /\.(txt|md|markdown|log|csv|tsv)$/i.test(f.name))) throw bad('Only text, code and data files can be edited here');
+    notLocked(f);
+    if (typeof req.body?.text !== 'string') throw bad('Give the text');
+    if (Number(req.body.version) !== f.version) throw new HttpError(409, 'Someone saved this file since you opened it: copy your changes, close it and open it again');
+    if ((f.size || 0) > TEXT_PREVIEW_MAX) throw bad('This file is too large to edit here: download it, edit it and upload it as a new version');
+    const bytes = Buffer.from(req.body.text, 'utf8');
+    if (bytes.length > 1024 * 1024) throw bad('At most 1 MB of text');
+    const owner = q('SELECT id, org_id FROM users WHERE id = ?').get(f.owner_id);
+    checkQuota(owner.org_id, bytes.length, owner.id);
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
+    tx(() => {
+      snapshot(f.id);
+      q('UPDATE files SET storage = ?, size = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?').run(storage, bytes.length, now(), req.user.id, f.id);
+    });
+    recordActivity(f.id, req.user.id, 'edit');
+    notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    const g = loadFile(f.id, req.user);
+    res.json({ ...publicFile(g), version: g.version });
   });
   // The same for a file that isn't in Drive (an email's attachment, a file sent in Chat): its text is sent, ?name= says which kind.
   r.post('/read-cards', express.text({ type: () => true, limit: '20mb' }), (req, res) => {

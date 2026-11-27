@@ -1,7 +1,8 @@
 // A code or data file (.json, .xml, .yaml, .py, .sql…) shown as its text, with line numbers; JSON written on one line
 // is laid out to be read; Find in this file marks each match (Enter / Shift+Enter or the arrows step through them),
 // Wrap lines keeps long lines in view, and Copy all puts the text (as shown) on the clipboard, unless the owner turned
-// copying off (canCopy). `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
+// copying off (canCopy). Edit (onSave, for those who may change the file) edits the text as written; Save keeps the
+// file as it was as an earlier version. `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf } from './codefind.js';
 
@@ -21,7 +22,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -30,12 +31,16 @@ export default function CodeContents({ name, load, canCopy = true }) {
   const [wrap, setWrap] = useState(false);
   const view = useRef(null);
   const [copied, setCopied] = useState('');
+  const [draft, setDraft] = useState(null); // the text being edited (onSave: those who may edit it)
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let live = true;
     setD(null); setError('');
     load().then((x) => live && setD(x)).catch((e) => live && setError(e.message));
     return () => { live = false; };
-  }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [name, reload]); // eslint-disable-line react-hooks/exhaustive-deps
   const pretty = d ? readable(name, d.text) : '';
   const text = d ? (laid ? pretty : d.text) : '';
   const lines = useMemo(() => { const l = text.split('\n'); if (l.length > 1 && l[l.length - 1] === '') l.pop(); return l; }, [text]);
@@ -51,6 +56,27 @@ export default function CodeContents({ name, load, canCopy = true }) {
   }, [current, find, wrap]);
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
+  const save = async () => {
+    setSaving(true); setSaveError('');
+    try { await onSave(draft, d.version); setDraft(null); setReload((r) => r + 1); } catch (e) { setSaveError(e.message); }
+    setSaving(false);
+  };
+  if (draft !== null) return (
+    <div className="code-contents stack-tight">
+      <div className="row wrap">
+        <span className="muted small grow">Editing: saving keeps what was there as an earlier version</span>
+        <button type="button" className="btn small" disabled={saving} onClick={() => { setDraft(null); setSaveError(''); }}>Cancel</button>
+        <button type="button" className="btn small primary" disabled={saving || draft === d.text} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+      {saveError && <p className="error small" role="alert">{saveError}</p>}
+      <textarea className="code-edit" aria-label={`Edit ${name}`} spellCheck={false} value={draft} autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (draft !== d.text && !saving) save(); }
+          if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); const t = e.target, a = t.selectionStart; setDraft(draft.slice(0, a) + '\t' + draft.slice(t.selectionEnd)); requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = a + 1; }); }
+        }} />
+    </div>
+  );
   const step = (dir) => matches.length && setAt((current + dir + matches.length) % matches.length);
   const byLine = new Map();
   matches.forEach((m, k) => { if (!byLine.has(m.line)) byLine.set(m.line, { first: k, list: [] }); byLine.get(m.line).list.push(m); });
@@ -60,6 +86,7 @@ export default function CodeContents({ name, load, canCopy = true }) {
         <span className="muted small grow">{lines.length.toLocaleString()} line{lines.length === 1 ? '' : 's'}{d.truncated ? ' · only the start is shown: download it for the rest' : ''}</span>
         {pretty !== d.text && <button type="button" className="btn small" aria-pressed={laid} onClick={() => setLaid(!laid)}>{laid ? 'Show as written' : 'Lay out'}</button>}
         <button type="button" className="btn small" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Wrap lines</button>
+        {onSave && !d.truncated && <button type="button" className="btn small" onClick={() => setDraft(d.text)}>Edit</button>}
         {canCopy && <button type="button" className="btn small" onClick={async () => {
           try { await navigator.clipboard.writeText(text); setCopied('Copied'); } catch { setCopied('Couldn’t copy: select the text and copy it instead'); }
           setTimeout(() => setCopied(''), 2500);

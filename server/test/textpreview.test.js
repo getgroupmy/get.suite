@@ -35,7 +35,7 @@ test('a code or data file’s text for its preview', async () => {
   const json = (await ann('POST', '/api/files/upload?name=prices.json', null, Buffer.from('{"chair":40,"desk":"Ünïcode ✓"}'))).body;
   const r = await ann('GET', `/api/files/${json.id}/source-text`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body, { text: '{"chair":40,"desk":"Ünïcode ✓"}', truncated: false, size: json.size });
+  assert.deepEqual(r.body, { text: '{"chair":40,"desk":"Ünïcode ✓"}', truncated: false, size: json.size, version: 1 });
   const py = (await ann('POST', '/api/files/upload?name=report.py', null, Buffer.from('print("hi")\n'))).body;
   assert.equal((await ann('GET', `/api/files/${py.id}/source-text`)).body.text, 'print("hi")\n');
   const csv = (await ann('POST', '/api/files/upload?name=stock.csv', null, Buffer.from('Item,Price\nDesk,120\n'))).body;
@@ -261,4 +261,32 @@ test('two text files compared line by line; not when one is a picture, someone e
   assert.equal((await ben('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`)).status, 200);
   await ann('PATCH', `/api/files/${prod.id}`, { no_download: true });
   assert.equal((await ben('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`)).status, 403);
+});
+
+test('editing a text file in place: saved as a new version (the old one kept), refused if someone saved meanwhile, for editors only', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const f = (await ann('POST', '/api/files/upload?name=edit-me.yaml', null, Buffer.from('port: 80\n'))).body;
+  const opened = (await ann('GET', `/api/files/${f.id}/source-text`)).body;
+  assert.equal(typeof opened.version, 'number');
+  const saved = await ann('PUT', `/api/files/${f.id}/source-text`, { text: 'port: 8080\n', version: opened.version });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.version, opened.version + 1);
+  assert.equal((await ann('GET', `/api/files/${f.id}/source-text`)).body.text, 'port: 8080\n');
+  const vs = (await ann('GET', `/api/files/${f.id}/versions`)).body;
+  assert.equal(vs.length, 1);
+  const d = (await ann('GET', `/api/files/${f.id}/versions/${vs[0].id}/diff`)).body;
+  assert.deepEqual(d.lines.map((l) => `${l.op}${l.text}`), ['-port: 80', '+port: 8080']);
+  // Saving with the version it was opened at, after someone else saved: refused, nothing lost.
+  const stale = await ann('PUT', `/api/files/${f.id}/source-text`, { text: 'port: 1\n', version: opened.version });
+  assert.equal(stale.status, 409);
+  assert.match(stale.body.error, /Someone saved this file since you opened it/);
+  assert.equal((await ann('GET', `/api/files/${f.id}/source-text`)).body.text, 'port: 8080\n');
+  // Viewers can't; pictures can't be edited this way.
+  const benId = (await ann('GET', '/api/users')).body.find((u) => u.username === 'ben@acme.com').id;
+  await ann('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: benId, role: 'viewer' }] });
+  const ben = client(); await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' });
+  assert.equal((await ben('PUT', `/api/files/${f.id}/source-text`, { text: 'x', version: saved.body.version })).status, 403);
+  const pic = (await ann('POST', '/api/files/upload?name=p.png', null, PNG)).body;
+  assert.equal((await ann('PUT', `/api/files/${pic.id}/source-text`, { text: 'x', version: 1 })).status, 400);
 });

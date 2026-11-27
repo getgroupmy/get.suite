@@ -140,6 +140,36 @@ await step('a Dockerfile (no extension) opens as text and is found by a word ins
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('Edit changes a YAML file in place: Ctrl+S saves it, the old text stays in Version history', async () => {
+  await page.keyboard.press('Escape');
+  const f = await page.evaluate(async () => (await fetch('/api/files/upload?name=site.yaml', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'title: Shop\nport: 80\n' })).json());
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'site.yaml' }).getByText('site.yaml').dblclick();
+  await page.getByLabel('Text of site.yaml').waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const box = page.getByLabel('Edit site.yaml');
+  if (await page.getByRole('button', { name: 'Save' }).isEnabled()) throw new Error('Save enabled before any change');
+  await box.fill('title: Shop\nport: 8080\n');
+  await box.press('Control+s');
+  await page.getByLabel('Text of site.yaml').getByText('port: 8080').waitFor({ timeout: 10000 });
+  const vs = (await api(page, 'GET', `/files/${f.id}/versions`)).body;
+  if (vs.length !== 1) throw new Error(`${vs.length} versions`);
+  const raw = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/raw?download`)).text(), f.id);
+  if (raw !== 'title: Shop\nport: 8080\n') throw new Error(raw);
+  // Someone else saves meanwhile: this save is refused, and says why.
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await api(page, 'PUT', `/files/${f.id}/source-text`, { text: 'title: Store\nport: 8080\n', version: (await api(page, 'GET', `/files/${f.id}/source-text`)).body.version });
+  await page.getByLabel('Edit site.yaml').fill('title: Mine\n');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('alert').filter({ hasText: 'Someone saved this file since you opened it' }).waitFor();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
@@ -162,6 +192,7 @@ await step('a Python file someone may only view (downloading off) still shows as
   await pre.waitFor({ timeout: 15000 });
   if (!(await pre.innerText()).includes('return sum(xs)')) throw new Error(await pre.innerText());
   if (await k.getByRole('button', { name: 'Copy all' }).count()) throw new Error('Copy all offered on a view-only file with copying off');
+  if (await k.getByRole('button', { name: 'Edit', exact: true }).count()) throw new Error('Edit offered to someone who may only view');
   // Kim sends Olivia a SQL file in Chat: it opens in the viewer as text too.
   const dm = (await api(k, 'POST', '/chat/dm', { user_id: (await api(page, 'GET', '/auth/me')).body.user.id })).body.id;
   const sql = await upload(k, 'monthly.sql', 'SELECT name, SUM(total)\nFROM orders\nGROUP BY name;\n');
