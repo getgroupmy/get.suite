@@ -2,6 +2,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { formatBytes, formatDate } from '../api.js';
 import Icon, { fileIcon } from '../components/Icon.jsx';
+import CodeContents from './CodeContents.jsx';
+import { CardsList } from './CardFileContents.jsx';
+import { previewKind } from '../components/viewkind.js';
 
 const LinkedItem = lazy(() => import('./LinkedItem.jsx'));
 const OPENABLE = ['doc', 'sheet', 'slides'];
@@ -49,14 +52,14 @@ export default function PublicLink({ token }) {
   else if (!info) body = <p className="muted">Loading…</p>;
   else if (info.locked) body = <Unlock token={token} info={info} onKey={(k) => { saveKey(token, k); setKey(k); }} />;
   else if (info.mode === 'upload') body = <FileRequest token={token} info={info} linkKey={key} />;
-  else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} />;
+  else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}`, key)} />;
   else if (OPENABLE.includes(info.kind)) body = <ItemView token={token} linkKey={key} item={{ id: info.root, name: info.name, kind: info.kind, updated_at: info.updated_at, no_download: info.no_download }} download={raw(null, true)} />;
   else if (open) body = (
     <>
       <button type="button" className="link-btn" onClick={() => setOpen(null)}><Icon name="back" size={18} /> Back to {info.path.at(-1).name}</button>
       {OPENABLE.includes(open.kind)
         ? <ItemView token={token} linkKey={key} item={open} download={raw(open.id, true)} />
-        : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} />}
+        : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}${what.includes('?') ? '&' : '?'}item=${encodeURIComponent(open.id)}`, key)} />}
     </>
   );
   else {
@@ -99,19 +102,21 @@ function Unlock({ token, info, onKey }) {
   );
 }
 
-function FileView({ file, src, download }) {
+function FileView({ file, src, download, read }) {
   const m = file.mime || '';
   let preview = null;
   if (/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m)) preview = <img src={src} alt={file.name} className="preview-media" />;
   else if (/^video\/(mp4|webm)$/.test(m)) preview = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) preview = <audio src={src} controls />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;
+  else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} />;
+  else if (/\.(ics|vcf)$/i.test(file.name)) preview = <LinkCards read={read} canDownload={!file.no_download} />;
   return (
     <section className="link-file stack">
       <div className="row link-file-head">
         <Icon name={fileIcon(file)} size={32} />
         <div className="grow"><h1 className="ellipsis">{file.name}</h1><p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p></div>
-        <a className="btn primary" href={download}><Icon name="download" size={18} /> Download</a>
+        {file.no_download ? <span className="muted small">View only: downloading is turned off</span> : <a className="btn primary" href={download}><Icon name="download" size={18} /> Download</a>}
       </div>
       {preview ? <div className="preview">{preview}</div> : <p className="muted">No preview for this kind of file. Download it to open it on your device.</p>}
     </section>
@@ -227,4 +232,18 @@ function FileRequest({ token, info, linkKey }) {
       )}
     </div>
   );
+}
+
+/** A calendar file's events or contact cards' people, read through the link (nothing to add them to without an account). */
+function LinkCards({ read, canDownload }) {
+  const [d, setD] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    read(`cards?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`).then((x) => live && setD(x)).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (error) return <p className="muted" role="alert">{error}</p>;
+  if (!d) return <p className="muted">Reading the file…</p>;
+  return <CardsList d={d}>{canDownload && <p className="muted small">Download it to add {d.kind === 'calendar' ? 'these events to your calendar' : 'these people to your contacts'}.</p>}</CardsList>;
 }

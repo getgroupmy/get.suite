@@ -58,3 +58,33 @@ test('a code or data file’s text for its preview', async () => {
   const raw = await fetch(`${base}/api/files/${json.id}/raw?download`, { headers: { 'x-requested-with': 'nas-workspace' } });
   assert.notEqual(raw.status, 200);
 });
+
+test('a public link: a code file’s text and a calendar file’s events, for its preview; a password asked first; folders too', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const pub = async (url, key) => { const r = await fetch(base + url, { headers: { 'x-requested-with': 'nas-workspace', ...(key && { 'x-link-key': key }) } }); return { status: r.status, body: await r.json().catch(() => null) }; };
+  const yaml = (await ann('POST', '/api/files/upload?name=config.yaml', null, Buffer.from('port: 8080\nname: shop\n'))).body;
+  const link = (await ann('POST', '/api/links', { file_id: yaml.id })).body;
+  assert.deepEqual((await pub(`/api/public/links/${link.token}/source-text`)).body, { text: 'port: 8080\nname: shop\n', truncated: false, size: yaml.size });
+  assert.equal((await pub(`/api/public/links/${link.token}/cards`)).status, 400);
+  // Downloading turned off: still shown (looking only), while the file itself can't be taken.
+  assert.equal((await ann('PATCH', `/api/files/${yaml.id}`, { no_download: true })).status, 200);
+  assert.equal((await pub(`/api/public/links/${link.token}/source-text`)).status, 200);
+  assert.equal((await pub(`/api/public/links/${link.token}`)).body.no_download, true, 'the page knows not to offer Download for an uploaded file too');
+  assert.equal((await pub(`/api/public/links/${link.token}/cards`)).status, 400);
+  assert.equal((await fetch(`${base}/api/public/links/${link.token}/raw?download`)).status, 403);
+  // A password: nothing until it's given.
+  const ics = (await ann('POST', '/api/files/upload?name=Dates.ics', null, Buffer.from(['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:a@x', 'DTSTART:20261203T100000Z', 'DTEND:20261203T110000Z', 'SUMMARY:Open day', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n')))).body;
+  const locked = (await ann('POST', '/api/links', { file_id: ics.id, password: 'pass-1234' })).body;
+  assert.equal((await pub(`/api/public/links/${locked.token}/cards`)).status, 401);
+  const key = (await (await fetch(`${base}/api/public/links/${locked.token}/unlock`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ password: 'pass-1234' }) })).json()).key;
+  const cards = (await pub(`/api/public/links/${locked.token}/cards`, key)).body;
+  assert.deepEqual([cards.kind, cards.total, cards.events[0].title], ['calendar', 1, 'Open day']);
+  // A file inside a linked folder (?item=); one outside it isn't reachable.
+  const folder = (await ann('POST', '/api/files/folder', { name: 'Shop code' })).body;
+  const inside = (await ann('POST', `/api/files/upload?name=app.js&parent=${folder.id}`, null, Buffer.from('console.log(1);\n'))).body;
+  const fl = (await ann('POST', '/api/links', { file_id: folder.id })).body;
+  assert.equal((await pub(`/api/public/links/${fl.token}/source-text?item=${inside.id}`)).body.text, 'console.log(1);\n');
+  assert.equal((await pub(`/api/public/links/${fl.token}/source-text?item=${yaml.id}`)).status, 404);
+  assert.equal((await pub('/api/public/links/nope/source-text')).status, 404);
+});

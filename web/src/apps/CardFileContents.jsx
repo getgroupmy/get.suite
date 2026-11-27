@@ -47,13 +47,24 @@ export default function CardFileContents({ fileId = null, source = null, canAdd 
     } catch (e) { toast(e.message, 'error'); }
     setBusy(false);
   };
+  return (
+    <CardsList d={d} action={canAdd && d.total > 0 && <button type="button" className="btn primary" disabled={busy} onClick={add}>
+      <Icon name={cal ? 'calendar' : 'person'} size={18} /> {busy ? 'Adding…' : cal ? 'Add to Calendar' : 'Add to Contacts'}</button>}>
+      {!canAdd && <p className="muted small">The owner has turned off downloading and copying, so these can’t be added from here.</p>}
+      <p className="muted small">Anything already in your {cal ? 'calendar' : 'contacts'} isn’t added twice.</p>
+    </CardsList>
+  );
+}
+
+/** The events or people themselves (no buttons): also on a public link's page, which has no account to add them to. */
+export function CardsList({ d, action = null, children = null }) {
+  const cal = d.kind === 'calendar';
   const shown = cal ? d.events.length : d.contacts.length;
   return (
     <section className="card-file stack-tight" aria-label={cal ? 'Events in this calendar file' : 'People in these contact cards'}>
       <div className="row wrap">
         <strong className="grow">{cal ? n(d.total, 'event') : n(d.total, 'person', 'people')}{d.total > shown ? ` (the first ${shown} shown)` : ''}</strong>
-        {canAdd && d.total > 0 && <button type="button" className="btn primary" disabled={busy} onClick={add}>
-          <Icon name={cal ? 'calendar' : 'person'} size={18} /> {busy ? 'Adding…' : cal ? 'Add to Calendar' : 'Add to Contacts'}</button>}
+        {action}
       </div>
       {cal ? (
         <ul className="card-file-list">
@@ -64,8 +75,7 @@ export default function CardFileContents({ fileId = null, source = null, canAdd 
           {d.contacts.map((c, i) => <li key={i}><strong>{c.name || c.email || '(no name)'}</strong> <span className="muted small">{[c.email, c.phone, c.company].filter(Boolean).join(' · ')}</span></li>)}
         </ul>
       )}
-      {!canAdd && <p className="muted small">The owner has turned off downloading and copying, so these can’t be added from here.</p>}
-      <p className="muted small">Anything already in your {cal ? 'calendar' : 'contacts'} isn’t added twice.</p>
+      {children}
     </section>
   );
 }

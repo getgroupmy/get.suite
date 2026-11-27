@@ -215,6 +215,23 @@ export const TEXT_EXTS = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', '
   'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'];
 const TEXT_PREVIEW = new RegExp(`\\.(${TEXT_EXTS.join('|')})$`, 'i');
 const TEXT_PREVIEW_MAX = 512 * 1024;
+/** A code or data file's text for its preview: { text (the first 512 KB, UTF-8), truncated, size }. Refuses other files. */
+export function sourceTextOf(f) {
+  if (f.kind !== 'file' || !TEXT_PREVIEW.test(f.name)) throw bad('Not a text file');
+  const fd = fs.openSync(path.join(FILES_DIR, f.storage), 'r');
+  let buf;
+  try { buf = Buffer.alloc(Math.min(f.size || 0, TEXT_PREVIEW_MAX)); fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+  if (buf.includes(0)) throw bad('This file isn’t text');
+  const truncated = (f.size || 0) > TEXT_PREVIEW_MAX;
+  let text = buf.toString('utf8');
+  if (truncated) text = text.replace(/\uFFFD$/, ''); // a character cut in half at the end
+  return { text, truncated, size: f.size || 0 };
+}
+/** What's in a calendar file or contact cards kept in Drive (see cardsOf). */
+export function cardsOfFile(f, tz = 'UTC') {
+  if (f.kind !== 'file' || !CARD_FILE.test(f.name)) throw bad('Not a calendar file or contact cards');
+  return cardsOf(f.name, fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8'), tz);
+}
 /** What's in a calendar file or contact cards: the first 50 events (title, when, where) or people (name, address, phone,
  *  company), and how many in all. */
 export function cardsOf(name, text, tz = 'UTC') {
@@ -1714,24 +1731,15 @@ export default function fileRoutes({ maxUploadBytes }) {
   // What's in a calendar file (.ics) or contact cards (.vcf) kept in Drive, for its preview: the first 50 events
   // (title, when, where) or people (name, address, phone, company), and how many in all.
   r.get('/:id/cards', (req, res) => {
-    const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'file' || !CARD_FILE.test(f.name)) throw bad('Not a calendar file or contact cards');
-    res.json(cardsOf(f.name, fs.readFileSync(path.join(FILES_DIR, f.storage), 'utf8'), String(req.query.tz || 'UTC')));
+    res.json(cardsOfFile(loadFile(req.params.id, req.user), String(req.query.tz || 'UTC')));
   });
   // A code or data file's text (.json, .xml, .yaml, .py…) for its preview: the first 512 KB as UTF-8. Looking only, so
   // allowed for viewers even with downloading turned off (as a picture or PDF is shown to them). Not for binary files.
   r.get('/:id/source-text', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'file' || !TEXT_PREVIEW.test(f.name)) throw bad('Not a text file');
-    const fd = fs.openSync(path.join(FILES_DIR, f.storage), 'r');
-    let buf;
-    try { buf = Buffer.alloc(Math.min(f.size || 0, TEXT_PREVIEW_MAX)); fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
-    if (buf.includes(0)) throw bad('This file isn’t text');
-    let text = buf.toString('utf8');
-    const truncated = (f.size || 0) > TEXT_PREVIEW_MAX;
-    if (truncated) text = text.replace(/\uFFFD$/, ''); // a character cut in half at the end
+    const out = sourceTextOf(f);
     sawFile(f.id, req.user.id);
-    res.json({ text, truncated, size: f.size || 0 });
+    res.json(out);
   });
   // The same for a file that isn't in Drive (an email's attachment, a file sent in Chat): its text is sent, ?name= says which kind.
   r.post('/read-cards', express.text({ type: () => true, limit: '20mb' }), (req, res) => {

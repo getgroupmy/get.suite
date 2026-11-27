@@ -16,7 +16,7 @@ import { cleanRequest, accepts, acceptText, acceptAttr, looksLike } from '../fil
 import { roleFor, subtreeIds, atLeast } from '../access.js';
 import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
-import { receiveUpload, insertFile, cleanName, picturesIn } from './files.js';
+import { receiveUpload, insertFile, cleanName, picturesIn, sourceTextOf, cardsOfFile } from './files.js';
 import { withoutSuggestions } from '../office/suggestions.js';
 import { publishedBook } from '../office/sheetvalues.js';
 import { saveNow, CO_EDITED } from '../collab.js';
@@ -341,7 +341,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     }
     // A file request: nothing in the folder is shown; what it takes and the owner's note are.
     if (l.mode === 'upload') return res.json({ ...info, mode: 'upload', accept: l.req_accept ? l.req_accept.split(',') : [], accept_text: acceptText(l.req_accept), accept_attr: acceptAttr(l.req_accept), max_mb: l.req_max_mb ?? null, note: l.req_note ?? null });
-    Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id, ...(OPENABLE.includes(l.kind) && l.no_download && { no_download: true }) });
+    Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id, ...((OPENABLE.includes(l.kind) || l.kind === 'file') && l.no_download && { no_download: true }) });
     if (l.kind === 'folder') {
       const folder = itemIn(l, req.query.folder);
       if (folder.kind !== 'folder') throw bad('Not a folder');
@@ -394,6 +394,17 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.sendFile(path.join(FILES_DIR, f.storage));
   });
+
+  // A code or data file's text (?item= for one inside a linked folder), or what's in a calendar file or contact cards: for
+  // the link's preview. Looking only, so given even when downloading is turned off (as a picture or PDF is shown).
+  const linkedFile = (req) => {
+    const l = liveLink(req.params.token);
+    if (!unlocked(l, req)) throw new HttpError(401, 'This link needs a password');
+    if (l.mode === 'upload') throw notFound('Not found');
+    return itemIn(l, req.query.item);
+  };
+  r.get('/links/:token/source-text', (req, res) => res.json(sourceTextOf(linkedFile(req))));
+  r.get('/links/:token/cards', (req, res) => res.json(cardsOfFile(linkedFile(req), String(req.query.tz || 'UTC'))));
 
   // A file request: send one file into the linked folder (?name=, &from= who's sending it). The file
   // belongs to the folder's owner and counts towards their company's storage.
