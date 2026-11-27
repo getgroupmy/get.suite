@@ -106,6 +106,9 @@ await step('Kim saves the support email to her own Drive as a PDF (⋮ → Save 
   await reader.getByRole('button', { name: 'More for this message' }).click();
   await kim.getByRole('menuitem', { name: 'Save to Drive as PDF' }).click();
   await kim.locator('.toast', { hasText: /Saved to Drive: Saved emails \/ Question about invoice 77 \(\d{4}-\d\d-\d\d\)\.pdf/ }).waitFor();
+  // What would act as the mailbox (a reaction, a read receipt, unsubscribing) isn't offered there.
+  if (await reader.getByRole('button', { name: /React/ }).count()) throw new Error('React offered in a shared mailbox');
+  if (await reader.getByRole('button', { name: /^Unsubscribe/ }).count()) throw new Error('Unsubscribe offered in a shared mailbox');
   // ⋮ → Download message (.eml) works there too.
   await reader.getByRole('button', { name: 'More for this message' }).click();
   const [dl] = await Promise.all([kim.waitForEvent('download'), kim.getByRole('menuitem', { name: 'Download message (.eml)' }).click()]);

@@ -1316,7 +1316,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}
             {m.first_contact && <span className="first-contact small" title="You’ve never had email from this address, written to it or kept it as a contact. That’s normal for someone new, and it’s also how impersonation usually starts: check unexpected requests for money, passwords or new bank details another way.">ⓘ You don’t often get email from {m.from.address}</span>}
             {m.sender_check === 'unverified' && <span className="sender-unverified small" title="Its domain didn’t vouch for it: no SPF or DKIM check passed for it when it arrived. Mail from mailing lists and some services looks like this too.">? Couldn’t verify it came from {m.from.address.split('@')[1]}</span>}
-            {m.unsubscribe && (m.unsubscribe.how === 'link'
+            {!shared && m.unsubscribe && (m.unsubscribe.how === 'link'
               ? <a className="link-btn small unsub" href={m.unsubscribe.url} target="_blank" rel="noopener noreferrer nofollow" title="Opens the list's own page to unsubscribe">Unsubscribe</a>
               : <button type="button" className="link-btn small unsub" onClick={() => setUnsubscribing(true)}>Unsubscribe</button>)}</div>
           {m.sentBy && <div className="muted small sent-by">sent by {m.sentBy.name || m.sentBy.address}{m.sentBy.name ? ` <${m.sentBy.address}>` : ''}</div>}
@@ -1325,10 +1325,10 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
       </div>
       <FollowUpBanner messageId={m.messageId} sent={special === '\\Sent' && !shared ? m : null} />
-      {m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
+      {!shared && m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
       {special === '\\Sent' && !shared && m.messageId && <DeliveryStatus messageId={m.messageId} />}
       {m.importance === 'high' && <div className="importance-note small" role="note"><span className="importance" aria-hidden="true">!</span> The sender marked this message as high importance.</div>}
-      {m.receipt && (
+      {!shared && m.receipt && (
         <div className="banner receipt-ask" role="region" aria-label="Read receipt">
           <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
           <button type="button" className="btn small" onClick={() => answerReceipt(true)}>Send receipt</button>
@@ -1344,7 +1344,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             title={wholeQuote ? 'Hide the earlier messages quoted in this one' : 'Show the earlier messages quoted in this one'} onClick={() => setWholeQuote(!wholeQuote)}>•••</button>
         )}</>;
       })()}
-      <MailReactions m={m} uid={uid} folder={folder} canReact={special !== '\\Sent' && special !== '\\Drafts'} onChange={(reactions) => setM({ ...m, reactions })} />
+      <MailReactions m={m} uid={uid} folder={folder} canReact={!shared && special !== '\\Sent' && special !== '\\Drafts'} onChange={(reactions) => setM({ ...m, reactions })} />
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (
