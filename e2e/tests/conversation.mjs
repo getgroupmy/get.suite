@@ -124,6 +124,18 @@ await step('Save all to Drive keeps the whole conversation as one PDF in Saved e
   await toast.getByRole('button', { name: 'Show' }).click();
   await page.getByText(/Quote for chairs \(conversation of 3/).first().waitFor();
 });
+await step('Archive all moves the conversation\'s Inbox messages to Archive (from a reply in Sent, which stays)', async () => {
+  const sent = (await api(page, 'GET', '/mail/folders')).body.find?.((f) => f.special === '\\Sent')?.path || 'Sent';
+  const mine = (await api(page, 'GET', `/mail/messages?folder=${encodeURIComponent(sent)}&q=${encodeURIComponent('Quote for chairs')}`)).body.messages[0];
+  await page.goto(`${B}/mail/${encodeURIComponent(sent)}/${mine.uid}`);
+  const btn = page.getByRole('button', { name: /^Archive all \(2\)$/ });
+  await btn.click();
+  await page.getByText('Archived 2 messages of this conversation').waitFor();
+  await btn.waitFor({ state: 'detached' });
+  const left = (await api(page, 'GET', `/mail/messages?folder=INBOX&q=${encodeURIComponent('Quote for chairs')}`)).body.messages;
+  if (left.length) throw new Error(`still in the Inbox: ${left.map((m) => m.subject)}`);
+  await page.locator('.reader-subject', { hasText: 'Re: Quote for chairs' }).waitFor(); // (the reply in Sent stays open)
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

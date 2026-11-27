@@ -1308,7 +1308,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}
-      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} onCompose={shared ? null : onCompose} onChanged={onChanged} />
+      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} onCompose={shared ? null : onCompose} onChanged={onChanged} onRemoved={onRemoved} />
       {readingMail && <ReadAloudBar key={`${uid}-${readingMail}`} label="Read aloud" showText sentences={mailSentences({ subject: m.subject, from: m.from, text: m.trimmed?.text ?? m.text })} onClose={() => setReadingMail(null)} />}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
@@ -1398,7 +1398,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
 
 /** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
 /** The rest of the conversation (same subject without Re:/Fwd:, someone in common), earlier and later, from any folder. */
-function Conversation({ folder, uid, date, onOpen, onCompose, onChanged }) {
+function Conversation({ folder, uid, date, onOpen, onCompose, onChanged, onRemoved }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [list, setList] = useState(null);
@@ -1433,6 +1433,16 @@ function Conversation({ folder, uid, date, onOpen, onCompose, onChanged }) {
       onChanged?.();
     } catch (e) { toast(e.message, 'error'); }
   };
+  // Archive all: the conversation's messages in the Inbox (this one too, if it's there) go to Archive, as Archive does.
+  const inInbox = [...list.filter((x) => x.folder === 'INBOX').map((x) => x.uid), ...(folder === 'INBOX' ? [uid] : [])];
+  const archiveAll = async () => {
+    try {
+      await post(`/mail/messages/move${mailboxParam().replace(/^&/, '?')}`, { folder: 'INBOX', uids: inInbox, to: 'archive' });
+      toast(`Archived ${inInbox.length === 1 ? '1 message' : `${inInbox.length} messages`} of this conversation`);
+      if (folder === 'INBOX') onRemoved?.();
+      else { setList((l) => l.filter((x) => x.folder !== 'INBOX')); onChanged?.(); }
+    } catch (e) { toast(e.message, 'error'); }
+  };
   // Print all: one after another.
   const printAll = async () => { const got = await fetchAll(); if (got.length) printHtml(printDocuments(got, { conversation: true })); };
   // Forward all: a new email with each message under its own "Forwarded message" lines (not their attachments).
@@ -1453,6 +1463,7 @@ function Conversation({ folder, uid, date, onOpen, onCompose, onChanged }) {
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
         {unread.length > 0 && <button type="button" className="link-btn small" title="Mark the conversation's unread messages read" onClick={markAllRead}>Mark all read ({unread.length})</button>}
+        {inInbox.length > 0 && <button type="button" className="link-btn small" title="Move the conversation's messages in the Inbox to Archive" onClick={archiveAll}>Archive all ({inInbox.length})</button>}
         <button type="button" className="link-btn small" title="Print every message in this conversation, oldest first (or save it as a PDF)" onClick={printAll}>Print all</button>
         {onCompose && <button type="button" className="link-btn small" title="A new email with every message in this conversation, oldest first (without their attachments)" onClick={forwardAll}>Forward all</button>}
         <button type="button" className="link-btn small" title="One PDF of the whole conversation, oldest first, in Drive: Saved emails" onClick={saveAll}>Save all to Drive</button>
