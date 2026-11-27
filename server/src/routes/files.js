@@ -50,7 +50,7 @@ import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
 import { importCalendar, splitCalendar } from '../calimport.js';
 import { parseIcsEvent, zoneOrUtc } from '../ics.js';
-import { TEXT_EXT_RE, TEXT_EXTS } from '../textexts.js';
+import { TEXT_EXT_RE, TEXT_EXTS, TEXT_NAMES } from '../textexts.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -622,7 +622,7 @@ const SEARCH_TYPES = {
   archive: "f.kind = 'file' AND (f.name LIKE '%.zip' OR f.name LIKE '%.7z' OR f.name LIKE '%.rar' OR f.name LIKE '%.tar' OR f.name LIKE '%.gz')",
   // Code and data files (those the viewer shows as text; .csv and .tsv are spreadsheets), emails kept as files, and
   // calendar files and contact cards. (The extensions are a fixed list of letters and digits, so safe in SQL.)
-  code: `f.kind = 'file' AND (${TEXT_EXTS.filter((e) => !['csv', 'tsv'].includes(e)).map((e) => `f.name LIKE '%.${e}'`).join(' OR ')})`,
+  code: `f.kind = 'file' AND (${TEXT_EXTS.filter((e) => !['csv', 'tsv'].includes(e)).map((e) => `f.name LIKE '%.${e}'`).join(' OR ')} OR LOWER(f.name) IN (${TEXT_NAMES.map((n) => `'${n}'`).join(', ')}))`,
   email: "f.kind = 'file' AND (f.name LIKE '%.eml' OR f.name LIKE '%.msg' OR f.name LIKE '%.mbox')",
   cards: "f.kind = 'file' AND (f.name LIKE '%.ics' OR f.name LIKE '%.vcf' OR f.name LIKE '%.vcs')",
 };

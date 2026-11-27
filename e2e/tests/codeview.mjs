@@ -123,6 +123,23 @@ await step('Copy all puts the text, as shown (laid out), on the clipboard', asyn
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('a Dockerfile (no extension) opens as text and is found by a word inside it', async () => {
+  await page.keyboard.press('Escape');
+  await page.evaluate(async () => fetch('/api/files/upload?name=Dockerfile', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'FROM node:22-alpine\nRUN npm ci --omit=dev\nCMD ["node", "warehouse.js"]\n' }));
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'Dockerfile' }).getByText('Dockerfile').dblclick();
+  await page.getByLabel('Text of Dockerfile').getByText('RUN npm ci --omit=dev').waitFor({ timeout: 15000 });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(2000); // the words index catches up
+  await page.getByLabel('Search everything').fill('warehouse.js');
+  await page.getByLabel('Search everything').press('Enter');
+  await page.locator('.files tbody tr').filter({ hasText: 'Dockerfile' }).waitFor({ timeout: 10000 });
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

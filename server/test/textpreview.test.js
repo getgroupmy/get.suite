@@ -196,7 +196,12 @@ test('Drive search can be narrowed to code and data files, emails, or calendars 
   await up('zq-quote.eml', 'Subject: x\r\n\r\nhi'); await up('zq-team.vcf', 'BEGIN:VCARD\r\nFN:A\r\nEND:VCARD'); await up('zq-days.ics', 'BEGIN:VCALENDAR\r\nEND:VCALENDAR');
   await up('zq-rota.tsv', 'a\tb');
   const find = async (type) => (await ann('GET', `/api/files?view=search&q=zq&type=${type}`)).body.map((f) => f.name).sort();
+  await up('Dockerfile', 'FROM node:22 # zq'); await up('zq-LICENSE-old', 'x');
   assert.deepEqual(await find('code'), ['zq-main.go', 'zq-settings.yaml']);
+  const codeAll = (await ann('GET', '/api/files?view=search&q=&type=code')).body.map((f) => f.name);
+  assert.ok(codeAll.includes('Dockerfile') && !codeAll.includes('zq-LICENSE-old'), JSON.stringify(codeAll));
+  const df = (await ann('GET', '/api/files?view=search&q=&type=code')).body.find((f) => f.name === 'Dockerfile');
+  assert.equal((await ann('GET', `/api/files/${df.id}/source-text`)).body.text, 'FROM node:22 # zq');
   assert.deepEqual(await find('email'), ['zq-quote.eml']);
   assert.deepEqual(await find('cards'), ['zq-days.ics', 'zq-team.vcf']);
   assert.ok((await find('sheet')).includes('zq-rota.tsv'));

@@ -40,6 +40,13 @@ test('in code, the words between < and > are kept; markup loses its tags', async
   assert.match(xml, /Spring sale/);
 });
 
+test('files usually named without an extension are read: Dockerfile, Makefile, LICENSE, README', async () => {
+  assert.match(await textOf(put('Dockerfile', 'FROM node:22\nRUN npm ci --omit=dev\n')), /omit=dev/);
+  assert.match(await textOf(put('Makefile', 'build:\n\tgo build ./cmd/ledger\n')), /cmd\/ledger/);
+  assert.match(await textOf(put('LICENSE', 'Permission is hereby granted, free of charge')), /hereby granted/);
+  assert.equal(await textOf(put('mylicense', 'not looked at')), '', 'only the usual names, whole');
+});
+
 test('other binary files are still not read as text', async () => {
   assert.equal(await textOf(put('photo.raw', 'not text')), '');
 });

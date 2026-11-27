@@ -3,4 +3,7 @@
 export const TEXT_EXTS = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'csv', 'tsv', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
   'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss', 'less', 'vue', 'svelte',
   'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'];
-export const TEXT_EXT_RE = new RegExp(`\\.(${TEXT_EXTS.join('|')})$`, 'i');
+// Files usually named without an extension that are text (a project's Dockerfile, Makefile, LICENSE, README…).
+export const TEXT_NAMES = ['dockerfile', 'makefile', 'gnumakefile', 'license', 'licence', 'copying', 'readme', 'changelog', 'changes', 'authors',
+  'contributors', 'contributing', 'notice', 'todo', 'procfile', 'gemfile', 'rakefile', 'vagrantfile', 'jenkinsfile', 'brewfile', 'codeowners'];
+export const TEXT_EXT_RE = new RegExp(`(\\.(${TEXT_EXTS.join('|')})|^(${TEXT_NAMES.join('|')}))$`, 'i');

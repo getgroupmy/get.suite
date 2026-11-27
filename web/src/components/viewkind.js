@@ -18,9 +18,14 @@ const KINDS = {
 const BY_EXT = Object.fromEntries(Object.entries(KINDS).flatMap(([k, exts]) => exts.map((e) => [e, k])));
 
 /** 'picture' | 'pdf' | 'text' | 'video' | 'audio' | 'office' | 'eml' | 'cards' | 'code' | 'table' | 'zip', or null for attachments that only download. */
+// Files usually named without an extension that are text (as the server's TEXT_NAMES): shown as code.
+const TEXT_NAMES = new Set(['dockerfile', 'makefile', 'gnumakefile', 'license', 'licence', 'copying', 'readme', 'changelog', 'changes', 'authors',
+  'contributors', 'contributing', 'notice', 'todo', 'procfile', 'gemfile', 'rakefile', 'vagrantfile', 'jenkinsfile', 'brewfile', 'codeowners']);
+
 export function previewKind(filename) {
-  const m = /\.([a-z0-9]+)$/i.exec(String(filename || ''));
-  return (m && BY_EXT[m[1].toLowerCase()]) || null;
+  const name = String(filename || '');
+  const m = /\.([a-z0-9]+)$/i.exec(name);
+  return (m && BY_EXT[m[1].toLowerCase()]) || (TEXT_NAMES.has(name.toLowerCase()) ? 'code' : null);
 }
 
 /** The next attachment that can be shown, going forward (+1) or back (-1) from index i, round the list. */

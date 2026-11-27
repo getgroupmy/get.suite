@@ -21,3 +21,9 @@ test('stepPreview skips what cannot be shown and wraps round', () => {
   assert.equal(stepPreview(atts, 0, -1), 2);
   assert.equal(stepPreview([{ filename: 'a.png' }, { filename: 'b.exe' }], 0, 1), 0);
 });
+
+test('files usually named without an extension are shown as code: Dockerfile, Makefile, LICENSE, README', () => {
+  for (const n of ['Dockerfile', 'Makefile', 'LICENSE', 'README', 'CHANGELOG', 'Procfile']) assert.equal(previewKind(n), 'code', n);
+  assert.equal(previewKind('mylicense'), null);
+  assert.equal(previewKind('README.md'), 'office', 'with an extension, the extension decides');
+});
