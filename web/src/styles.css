@@ -2840,6 +2840,9 @@ p.doc-email-fields { margin: 0; }
 .table-view thead th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; z-index: 1; }
 .table-view .table-num { color: var(--muted); font-weight: 400; text-align: right; background: var(--surface-2); position: sticky; left: 0; width: 1%; white-space: nowrap; }
 .table-view thead .table-num { z-index: 2; }
+.table-sort { all: unset; cursor: pointer; display: block; width: 100%; font-weight: 600; }
+.table-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.table-sort-mark { color: var(--muted); font-size: 11px; }
 .code-num { display: inline-block; min-width: 3.5em; padding: 0 12px 0 8px; margin-right: 8px; text-align: right; color: var(--muted, #5f6368); user-select: none; border-right: 1px solid var(--border); }
 .card-file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .card-file-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }

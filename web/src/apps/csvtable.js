@@ -32,3 +32,28 @@ export function parseTable(text, sep = ',', maxRows = 1000) {
   const more = rows.length > maxRows || i < s.length;
   return { rows: rows.slice(0, maxRows), more };
 }
+
+const NUM = /^\s*[-+]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?\s*%?\s*$/;
+/** A cell as a number when it reads as one (1,234.5, -3, 12%), else null. */
+export function numberOf(cell) {
+  return NUM.test(String(cell ?? '')) ? Number(String(cell).replace(/[,%\s]/g, '')) : null;
+}
+
+/** Rows sorted by column col, up (1) or down (-1): numbers as numbers, words as words (ignoring case and accents,
+ *  with digits in them in order: "Item 9" before "Item 10"); empty cells last either way; ties keep the file's order. */
+export function sortRows(rows, col, dir = 1) {
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return rows.map((r, i) => ({ r, i })).sort((a, b) => {
+    const x = a.r[col] ?? '', y = b.r[col] ?? '';
+    if (x === '' || y === '') return x === y ? a.i - b.i : x === '' ? 1 : -1;
+    const nx = numberOf(x), ny = numberOf(y);
+    const c = nx !== null && ny !== null ? nx - ny : coll.compare(x, y);
+    return c ? c * dir : a.i - b.i;
+  }).map((x) => x.r);
+}
+
+/** Rows with a cell containing q (ignoring case). */
+export function filterRows(rows, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  return needle ? rows.filter((r) => r.some((c) => String(c).toLowerCase().includes(needle))) : rows;
+}

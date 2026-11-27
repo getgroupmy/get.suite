@@ -77,6 +77,34 @@ await step('a big file: the headings stay in view while scrolling, and it says o
   if (Math.abs(headTop) > 3) throw new Error(`heading row moved ${headTop}px`);
   await page.keyboard.press('Escape');
 });
+await step('a heading sorts its column (numbers as numbers), again the other way, a third time back to the file’s order; Filter rows narrows them', async () => {
+  await upload(page, 'parts.csv', 'Part,Count,City\nLamp,25,Lyon\nDesk,120,Paris\nChair,9,lyon\nShelf,,Nice\n');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'parts.csv' }).getByText('parts.csv').dblclick();
+  const t = page.getByRole('region', { name: 'Table of parts.csv' });
+  await t.waitFor({ timeout: 15000 });
+  const col = (i) => t.locator('tbody tr').evaluateAll((rows, k) => rows.map((r) => r.querySelectorAll('td')[k]?.textContent), i);
+  const count = t.getByRole('button', { name: 'Count' });
+  await count.click();
+  if ((await col(0)).join('|') !== 'Chair|Lamp|Desk|Shelf') throw new Error(`up: ${(await col(0)).join('|')}`);
+  if (await t.locator('thead th').nth(2).getAttribute('aria-sort') !== 'ascending') throw new Error('aria-sort');
+  await count.click();
+  if ((await col(0)).join('|') !== 'Desk|Lamp|Chair|Shelf') throw new Error(`down: ${(await col(0)).join('|')}`);
+  await count.click();
+  if ((await col(0)).join('|') !== 'Lamp|Desk|Chair|Shelf') throw new Error(`file order: ${(await col(0)).join('|')}`);
+  // Row numbers stay those of the file.
+  await t.getByRole('button', { name: 'Part' }).click();
+  const nums = await t.locator('tbody th').allInnerTexts();
+  if (nums.join('|') !== '4|3|2|5') throw new Error(`numbers: ${nums.join('|')}`);
+  await page.getByLabel('Filter rows').fill('LYON');
+  await page.getByText('2 of 4 rows').waitFor();
+  if ((await col(0)).join('|') !== 'Chair|Lamp') throw new Error(`filtered: ${(await col(0)).join('|')}`);
+  await page.getByLabel('Filter rows').fill('Berlin');
+  await t.getByText('No rows contain “Berlin”').waitFor();
+  await page.getByLabel('Filter rows').fill('');
+  await page.screenshot({ path: `${SP}/shots/table-sort.png` });
+  await page.keyboard.press('Escape');
+});
 await step('the table passes an accessibility check and fits a phone screen', async () => {
   await page.locator('.files tbody tr').filter({ hasText: 'stock.csv' }).getByText('stock.csv').dblclick();
   await page.getByRole('region', { name: 'Table of stock.csv' }).waitFor({ timeout: 15000 });

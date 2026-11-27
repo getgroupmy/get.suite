@@ -29,3 +29,26 @@ test('at most maxRows, saying more were left out', () => {
   assert.equal(p.more, true);
   assert.equal(parseTable(t, ',', 10).more, false);
 });
+
+import { sortRows, filterRows, numberOf } from './csvtable.js';
+
+test('numbers read as numbers: thousands, signs, decimals, percentages', () => {
+  assert.equal(numberOf('1,234.5'), 1234.5);
+  assert.equal(numberOf('-3'), -3);
+  assert.equal(numberOf('12%'), 12);
+  assert.equal(numberOf('12 apples'), null);
+  assert.equal(numberOf(''), null);
+});
+
+test('sorting: numbers by value, words naturally, empty cells last, ties in file order', () => {
+  const rows = [['Lamp', '25'], ['desk', '120'], ['Chair', '9'], ['Item 10', ''], ['Item 9', '9']];
+  assert.deepEqual(sortRows(rows, 1).map((r) => r[0]), ['Chair', 'Item 9', 'Lamp', 'desk', 'Item 10']);
+  assert.deepEqual(sortRows(rows, 1, -1).map((r) => r[0]), ['desk', 'Lamp', 'Chair', 'Item 9', 'Item 10']);
+  assert.deepEqual(sortRows(rows, 0).map((r) => r[0]), ['Chair', 'desk', 'Item 9', 'Item 10', 'Lamp']);
+});
+
+test('filtering keeps rows with a cell containing the words, ignoring case', () => {
+  const rows = [['Lamp', 'Lyon'], ['Desk', 'Paris'], ['Chair', 'lyon']];
+  assert.deepEqual(filterRows(rows, 'LYON').map((r) => r[0]), ['Lamp', 'Chair']);
+  assert.equal(filterRows(rows, '  ').length, 3);
+});
