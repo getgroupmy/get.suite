@@ -210,6 +210,18 @@ export async function sheetAsCsv(fileId, sheet, user, notSheet = 'Choose a sprea
   return (await delimitedFromSheet(data, index, ',')).replace(/^\ufeff/, '');
 }
 
+/** Refuse comparing a file that isn't uploaded text, code or data, or that this person may not take away. */
+function comparable(f) {
+  if (f.kind !== 'file' || !(TEXT_EXT_RE.test(f.name) || /\.(txt|md|markdown|log|csv|tsv)$/i.test(f.name))) throw bad('Only text, code and data files can be compared');
+  if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+}
+/** A stored file's text for comparing: up to 1 MB, and text. */
+function readComparable(storage) {
+  const buf = fs.readFileSync(path.join(FILES_DIR, storage));
+  if (buf.length > 1024 * 1024) throw bad('This file is too large to compare here (1 MB at most): download both instead');
+  if (buf.includes(0)) throw bad('This file isn’t text');
+  return buf.toString('utf8');
+}
 const CARD_FILE = /\.(ics|vcf)$/i;
 const TEXT_PREVIEW = TEXT_EXT_RE; // code and data files shown as text in their preview
 const TEXT_PREVIEW_MAX = 512 * 1024;
@@ -1445,6 +1457,13 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(out);
   });
 
+  // Two text, code or data files compared line by line (?a=&b=: from a to b), for those who may take both away.
+  r.get('/compare', (req, res) => {
+    const a = loadFile(String(req.query.a || ''), req.user), b = loadFile(String(req.query.b || ''), req.user);
+    comparable(a); comparable(b);
+    const shownF = (x) => ({ id: x.id, name: x.name, updated_at: x.updated_at });
+    res.json({ ...diffLines(readComparable(a.storage), readComparable(b.storage)), a: shownF(a), b: shownF(b) });
+  });
   r.get('/:id', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (req.query.open !== undefined) sawFile(f.id, req.user.id); // opened in its editor
@@ -2891,16 +2910,10 @@ export default function fileRoutes({ maxUploadBytes }) {
   // version's download, only for those who may take the file away). Up to 1 MB of each.
   r.get('/:id/versions/:vid/diff', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'file' || !(TEXT_EXT_RE.test(f.name) || /\.(txt|md|markdown|log|csv|tsv)$/i.test(f.name))) throw bad('Only text, code and data files can be compared');
-    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    comparable(f);
     const v = versionOf(f, req.params.vid);
     if (!v.storage) throw bad('Not a binary file');
-    const read = (storage) => {
-      const buf = fs.readFileSync(path.join(FILES_DIR, storage));
-      if (buf.length > 1024 * 1024) throw bad('This file is too large to compare here (1 MB at most): download both versions instead');
-      if (buf.includes(0)) throw bad('This file isn’t text');
-      return buf.toString('utf8');
-    };
+    const read = readComparable;
     // ?with=<another version>: compared with that one instead of the file now (from the older to the newer).
     const w = req.query.with ? versionOf(f, String(req.query.with)) : null;
     if (w && !w.storage) throw bad('Not a binary file');

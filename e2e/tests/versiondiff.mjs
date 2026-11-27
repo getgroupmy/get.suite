@@ -106,6 +106,30 @@ await step('an AI assistant (MCP compare_file_versions) lists the versions and s
   const ch = (await call('compare_file_versions', { file: `file:${f.id}`, version: list[1].id, compare_with: list[0].id }))?.structuredContent;
   if (ch?.added !== 2 || ch?.removed !== 1 || !/- 2: name: shop\n\+ 2: name: store/.test(ch.changes) || !/\+ 24: cache: on/.test(ch.changes)) throw new Error(JSON.stringify(ch));
 });
+await step('two files selected together: Compare shows what differs between them, and Swap turns it round', async () => {
+  await put('/api/files/upload?name=staging.yaml', 'port: 8443\nname: shop\n');
+  await put('/api/files/upload?name=prod.yaml', 'port: 443\nname: shop\nreplicas: 3\n');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Select staging.yaml').check();
+  const bar = page.getByRole('toolbar', { name: 'Selected files' });
+  if (await bar.getByRole('button', { name: 'Compare' }).count()) throw new Error('Compare offered for one file');
+  await page.getByLabel('Select prod.yaml').check();
+  await bar.getByRole('button', { name: 'Compare' }).click();
+  const dlg = page.getByRole('dialog', { name: /^Compare (staging|prod)\.yaml and (staging|prod)\.yaml$/ });
+  const view = dlg.getByRole('region', { name: 'Differences, line by line' });
+  await view.waitFor({ timeout: 15000 });
+  const first = (await dlg.getByRole('heading').innerText()).includes('Compare staging.yaml') ? 'staging' : 'prod';
+  const adds = async () => (await view.locator('.diff-line.add .diff-text').allTextContents()).join('|');
+  const want = { staging: 'Added: port: 443|Added: replicas: 3', prod: 'Added: port: 8443' };
+  if (await adds() !== want[first]) throw new Error(`${first}: ${await adds()}`);
+  await dlg.getByRole('button', { name: 'Swap' }).click();
+  const second = first === 'staging' ? 'prod' : 'staging';
+  await view.locator('.diff-line.add .diff-text').first().waitFor();
+  await page.waitForFunction(([w]) => [...document.querySelectorAll('.diff-line.add .diff-text')].map((x) => x.textContent).join('|') === w, [want[second]], { timeout: 10000 });
+  await page.screenshot({ path: `${SP}/shots/file-compare.png` });
+  await page.keyboard.press('Escape');
+});
 await step('no Compare for a picture, nor for someone who may only view a file with downloading off', async () => {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const pic = await page.evaluate(async (b) => (await fetch('/api/files/upload?name=logo.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) })).json(), PNG);

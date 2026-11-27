@@ -242,3 +242,23 @@ test('an earlier version of a code file compared with the file now, line by line
   const pv = (await ann('GET', `/api/files/${pic.id}/versions`)).body[0];
   assert.equal((await ann('GET', `/api/files/${pic.id}/versions/${pv.id}/diff`)).status, 400);
 });
+
+test('two text files compared line by line; not when one is a picture, someone else’s, or view-only with downloading off', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const prod = (await ann('POST', '/api/files/upload?name=prod.yaml', null, Buffer.from('port: 443\nname: shop\nreplicas: 3\n'))).body;
+  const stage = (await ann('POST', '/api/files/upload?name=staging.yaml', null, Buffer.from('port: 8443\nname: shop\n'))).body;
+  const r = await ann('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.lines.map((l) => `${l.op}${l.text}`), ['-port: 8443', '+port: 443', '=name: shop', '+replicas: 3']);
+  assert.deepEqual([r.body.a.name, r.body.b.name], ['staging.yaml', 'prod.yaml']);
+  const pic = (await ann('POST', '/api/files/upload?name=x.png', null, PNG)).body;
+  assert.equal((await ann('GET', `/api/files/compare?a=${pic.id}&b=${prod.id}`)).status, 400);
+  const ben = client(); await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' });
+  assert.equal((await ben('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`)).status, 404);
+  const benId = (await ann('GET', '/api/users')).body.find((u) => u.username === 'ben@acme.com').id;
+  for (const f of [stage, prod]) await ann('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: benId, role: 'viewer' }] });
+  assert.equal((await ben('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`)).status, 200);
+  await ann('PATCH', `/api/files/${prod.id}`, { no_download: true });
+  assert.equal((await ben('GET', `/api/files/compare?a=${stage.id}&b=${prod.id}`)).status, 403);
+});

@@ -39,6 +39,7 @@ import { addToTasksWithToast } from '../tasks/addtask.js';
 import TasksAbout from '../../components/TasksAbout.jsx';
 import MyLinks from './MyLinks.jsx';
 import VersionDiff from './VersionDiff.jsx';
+import FileCompare, { comparableFile } from './FileCompare.jsx';
 import { sortFiles, isPicture, sharers } from './drivesort.js';
 
 function useDriveRoute() {
@@ -818,6 +819,7 @@ export default function Drive() {
               {mail?.enabled && <button className="btn small" title="A new email with a link to each (it offers to share them with recipients who can't open them)" onClick={() => emailLinks(picked)}><Icon name="mail" size={16} /> Email links</button>}
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
+              {picked.length === 2 && picked.every(comparableFile) && <button className="btn small" title="What's different between them, line by line" onClick={() => setDialog({ type: 'compare', files: picked })}><Icon name="copy" size={16} /> Compare</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => setDialog({ type: 'copyto', files: picked })}><Icon name="copy" size={16} /> Copy to</button>}
               {picked.every((f) => f.owner_id === user.id && !f.is_drive && !f.shortcut_id) && <button className="btn small" title="Take away everyone's access: people, groups and your whole company" onClick={() => setDialog({ type: 'unshare', files: picked })}><Icon name="share" size={16} /> Stop sharing</button>}
@@ -1029,6 +1031,7 @@ export default function Drive() {
       })()}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
+      {dialog?.type === 'compare' && <FileCompare files={dialog.files} onClose={() => setDialog(null)} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
     </div>
   );
