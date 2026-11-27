@@ -1724,7 +1724,6 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!isZip(f)) throw bad('Not a zip file');
     res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
   });
-  // An email saved in Drive (.eml): who, when, subject, text and what's attached.
   // What's in a calendar file (.ics) or contact cards (.vcf) kept in Drive, for its preview: the first 50 events
   // (title, when, where) or people (name, address, phone, company), and how many in all.
   r.get('/:id/cards', (req, res) => {
@@ -1744,6 +1743,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!CARD_FILE.test(name)) throw bad('Not a calendar file or contact cards');
     res.json(cardsOf(name, typeof req.body === 'string' ? req.body : '', String(req.query.tz || 'UTC')));
   });
+  // An email saved in Drive (.eml): who, when, subject, text and what's attached.
   r.get('/:id/eml', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'file' || !/\.eml$/i.test(f.name)) throw bad('Not an email');

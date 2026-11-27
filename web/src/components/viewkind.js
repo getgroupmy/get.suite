@@ -2,11 +2,11 @@
 const KINDS = {
   picture: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'],
   pdf: ['pdf'],
-  text: ['txt', 'log', 'md'],
+  text: ['txt', 'log'],
   table: ['csv', 'tsv'], // shown as a table (headings, rows), or as text
   video: ['mp4', 'webm'],
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'weba', 'opus'],
-  office: ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'odp'],
+  office: ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'odp', 'md', 'markdown'], // (Markdown shown formatted, as a document)
   eml: ['eml'], // an email, shown as text
   // code and data files shown as their text (the server's TEXT_EXTS, server/src/textexts.js, has these and csv/tsv)
   code: ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',

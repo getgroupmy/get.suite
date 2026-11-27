@@ -1513,8 +1513,8 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} />;
   else if (previewKind(file.name) === 'code') body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} />;
-  // Only text the server shows in the browser (plain text, CSV, Markdown); others (.tsv, …) download.
-  else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) body = <iframe src={src} title={file.name} className="preview-frame" />;
+  // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
+  else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
   else if (isZip) body = <ZipContents url={`/files/${file.id}/zip`} />;
   else if (/\.eml$/i.test(file.name)) body = <EmlContents url={`/files/${file.id}/eml`} />;

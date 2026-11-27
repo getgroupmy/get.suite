@@ -90,3 +90,24 @@ test('a public link: a code file’s text and a calendar file’s events, for it
   assert.equal((await pub(`/api/public/links/${fl.token}/source-text?item=${yaml.id}`)).status, 404);
   assert.equal((await pub('/api/public/links/nope/source-text')).status, 404);
 });
+
+test('a Markdown file’s preview is it formatted (headings, lists, bold), in Drive and in Chat', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const md = (await ann('POST', '/api/files/upload?name=README.md', null, Buffer.from('# Shop setup\n\nSteps:\n\n- Install **the till**\n- Count the float\n'))).body;
+  const p = await ann('GET', `/api/files/${md.id}/preview`);
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  assert.equal(p.body.kind, 'doc');
+  const nodes = JSON.stringify(p.body.content);
+  assert.match(nodes, /"type":"heading".*"Shop setup"/);
+  assert.match(nodes, /"type":"bulletList"/);
+  assert.match(nodes, /"type":"bold".*?|"marks":\[\{"type":"bold"\}\],"text":"the till"/);
+  // Sent in Chat: the same.
+  const benId = (await ann('GET', '/api/users')).body.find((u) => u.username === 'ben@acme.com').id;
+  const dm = (await ann('POST', '/api/chat/dm', { user_id: benId })).body.id;
+  const m = (await ann('POST', `/api/chat/channels/${dm}/messages`, { body: 'Notes', files: [md.id] })).body;
+  const fileId = m.files[0].id;
+  const c = await ann('GET', `/api/chat/messages/${m.id}/files/${fileId}/preview`);
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.match(JSON.stringify(c.body.content), /"Shop setup"/);
+});
