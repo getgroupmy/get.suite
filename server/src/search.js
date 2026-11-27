@@ -18,6 +18,7 @@ import { docFromRtf } from './office/rtf.js';
 import { simpleParser } from 'mailparser';
 import JSZip from 'jszip';
 import { chipText, dateText, eventLines } from './office/chiptext.js';
+import { TEXT_EXT_RE } from './textexts.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
 q('CREATE TABLE IF NOT EXISTS file_text_state (file_id TEXT PRIMARY KEY, version INTEGER NOT NULL)').run();
@@ -89,7 +90,11 @@ export async function textOf(f) {
   const file = path.join(FILES_DIR, f.storage);
   const name = f.name || '';
   try {
-    if (TEXT_TYPES.test(f.mime || '') || TEXT_NAMES.test(name)) return fs.readFileSync(file, 'utf8').replace(/<[^>]+>/g, ' ');
+    if (TEXT_TYPES.test(f.mime || '') || TEXT_NAMES.test(name) || TEXT_EXT_RE.test(name)) {
+      const text = fs.readFileSync(file, 'utf8');
+      // Markup's tags aren't words; in code, < and > are just signs (a < b … c > d keeps what's between them).
+      return /\.(html?|xml|svg|xhtml|vue|svelte)$/i.test(name) || /^(text\/html|application\/xml|text\/xml)/.test(f.mime || '') ? text.replace(/<[^>]+>/g, ' ') : text;
+    }
     if (/\.docx$/i.test(name)) return (await mammoth.extractRawText({ buffer: fs.readFileSync(file) })).value;
     if (/\.xlsx$/i.test(name)) {
       const wb = new ExcelJS.Workbook();

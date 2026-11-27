@@ -7,7 +7,7 @@ const KINDS = {
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'weba', 'opus'],
   office: ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'odp'],
   eml: ['eml'], // an email, shown as text
-  // code and data files shown as their text (the same list as the server's TEXT_EXTS, server/src/routes/files.js)
+  // code and data files shown as their text (the same list as the server's TEXT_EXTS, server/src/textexts.js)
   code: ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'tsv', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
     'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss', 'less', 'vue', 'svelte',
     'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'],

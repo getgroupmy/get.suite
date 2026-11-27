@@ -108,6 +108,20 @@ await step('an e-book (.epub) is found by the words of its pages, with them mark
   await row.waitFor({ timeout: 10000 });
   await row.locator('mark', { hasText: 'cempedak' }).waitFor();
 });
+await step('a Go file is found by a word in its code, including one between < and > signs, and opens as text', async () => {
+  const src = 'package stock\n\nfunc Check(n int) bool {\n\treturn n < tamarindLimit && n > 0\n}\n';
+  await page.evaluate(async (t) => fetch('/api/files/upload?name=stock.go', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: t }), src);
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('tamarindLimit');
+  await page.getByLabel('Search everything').press('Enter');
+  const row = page.locator('.files tbody tr').filter({ hasText: 'stock.go' });
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('mark', { hasText: 'tamarindLimit' }).waitFor();
+  await row.getByText('stock.go').dblclick();
+  await page.getByLabel('Text of stock.go').getByText('return n < tamarindLimit && n > 0').waitFor({ timeout: 15000 });
+  await page.keyboard.press('Escape');
+});
 await step('an uploaded email and e-book are kept as what they are (message/rfc822, application/epub+zip), not as unknown files', async () => {
   const list = await page.evaluate(async () => (await (await fetch('/api/files', { headers: { 'x-requested-with': 'nas-workspace' } })).json()));
   const files = Array.isArray(list) ? list : list.files || [];

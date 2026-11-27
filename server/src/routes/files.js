@@ -50,6 +50,7 @@ import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
 import { importCalendar, splitCalendar } from '../calimport.js';
 import { parseIcsEvent, zoneOrUtc } from '../ics.js';
+import { TEXT_EXT_RE } from '../textexts.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -209,11 +210,7 @@ export async function sheetAsCsv(fileId, sheet, user, notSheet = 'Choose a sprea
 }
 
 const CARD_FILE = /\.(ics|vcf)$/i;
-// Code and data files shown as text in their preview (the same list as the web viewer's 'code' kind).
-export const TEXT_EXTS = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'tsv', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
-  'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss', 'less', 'vue', 'svelte',
-  'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'];
-const TEXT_PREVIEW = new RegExp(`\\.(${TEXT_EXTS.join('|')})$`, 'i');
+const TEXT_PREVIEW = TEXT_EXT_RE; // code and data files shown as text in their preview
 const TEXT_PREVIEW_MAX = 512 * 1024;
 /** A code or data file's text for its preview: { text (the first 512 KB, UTF-8), truncated, size }. Refuses other files. */
 export function sourceTextOf(f) {
