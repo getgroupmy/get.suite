@@ -4,7 +4,7 @@
 // copying off (canCopy). Edit (onSave, for those who may change the file) edits the text as written; Save keeps the
 // file as it was as an earlier version. `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { findInLines, piecesOf } from './codefind.js';
+import { findInLines, piecesOf, countIn, replaceAllIn } from './codefind.js';
 import { languageOf, colourLines } from './codecolour.js';
 import { checkText } from './textcheck.js';
 
@@ -38,6 +38,10 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const [saveError, setSaveError] = useState('');
   const [problem, setProblem] = useState(null); // a .json that doesn't parse, found on Save
   const editBox = useRef(null);
+  const [rFind, setRFind] = useState(''); // find and replace while editing
+  const [rWith, setRWith] = useState('');
+  const [rCase, setRCase] = useState(false);
+  const [replaced, setReplaced] = useState('');
   const [reload, setReload] = useState(0);
   const started = useRef(false); // startEditing: open in the editor, the first time it's read (a file just made)
   useEffect(() => {
@@ -82,6 +86,18 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
         <span className="muted small grow">Editing: saving keeps what was there as an earlier version</span>
         <button type="button" className="btn small" disabled={saving} onClick={() => { setDraft(null); setSaveError(''); setProblem(null); }}>Cancel</button>
         <button type="button" className="btn small primary" disabled={saving || draft === d.text} onClick={() => save()}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+      <div className="row wrap code-replace" role="group" aria-label="Find and replace">
+        <input type="search" className="grow" placeholder="Find" aria-label="Find" value={rFind} onChange={(e) => { setRFind(e.target.value); setReplaced(''); }} />
+        <input type="text" className="grow" placeholder="Replace with" aria-label="Replace with" value={rWith} onChange={(e) => setRWith(e.target.value)} />
+        <label className="row small"><input type="checkbox" checked={rCase} onChange={(e) => setRCase(e.target.checked)} /> Match case</label>
+        {rFind && <span className="muted small">{countIn(draft, rFind, rCase).toLocaleString()} found</span>}
+        <button type="button" className="btn small" disabled={!rFind || !countIn(draft, rFind, rCase)} onClick={() => {
+          const n = countIn(draft, rFind, rCase);
+          setDraft(replaceAllIn(draft, rFind, rWith, rCase)); setProblem(null);
+          setReplaced(`Replaced ${n.toLocaleString()}`);
+        }}>Replace all{rFind && countIn(draft, rFind, rCase) ? ` (${countIn(draft, rFind, rCase).toLocaleString()})` : ''}</button>
+        {replaced && <span className="muted small" role="status">{replaced}</span>}
       </div>
       {saveError && <p className="error small" role="alert">{saveError}</p>}
       {problem && (

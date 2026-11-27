@@ -17,3 +17,16 @@ test('a line in pieces around its matches, numbered among all matches', () => {
   assert.deepEqual(piecesOf('ab', [{ start: 0, end: 2 }], 0), [{ text: 'ab', hit: 0 }]);
   assert.deepEqual(piecesOf('', [], 0), [{ text: '', hit: -1 }]);
 });
+
+import { countIn, replaceAllIn } from './codefind.js';
+
+test('replace all: literal, ignoring case unless asked, $ and regex characters mean themselves', () => {
+  const t = 'env: Staging\nurl: https://staging.shop/a.b\n';
+  assert.equal(countIn(t, 'staging'), 2);
+  assert.equal(countIn(t, 'staging', true), 1);
+  assert.equal(replaceAllIn(t, 'staging', 'prod'), 'env: prod\nurl: https://prod.shop/a.b\n');
+  assert.equal(replaceAllIn(t, 'staging', 'prod', true), 'env: Staging\nurl: https://prod.shop/a.b\n');
+  assert.equal(replaceAllIn('a.b a.b', 'a.b', '$1'), '$1 $1');
+  assert.equal(replaceAllIn('aaa', 'aa', 'b'), 'ba', 'not overlapping');
+  assert.equal(replaceAllIn('x', '', 'y'), 'x');
+});

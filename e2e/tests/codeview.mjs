@@ -282,6 +282,34 @@ await step('saving JSON that doesn’t parse says where (line, column) and puts 
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('Find and replace while editing: counts, Match case, Replace all, then Save', async () => {
+  await page.keyboard.press('Escape');
+  const f = await page.evaluate(async () => (await fetch('/api/files/new-text', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'env.yaml', text: 'env: Staging\nurl: https://staging.shop\ndb: staging-db\n' }) })).json());
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  await page.getByLabel('Text of env.yaml').waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const box = page.getByLabel('Edit env.yaml');
+  await box.waitFor();
+  await page.getByLabel('Find', { exact: true }).fill('staging');
+  await page.getByText('3 found').waitFor();
+  await page.getByLabel('Match case').check();
+  await page.getByText('2 found').waitFor();
+  await page.getByLabel('Replace with').fill('prod');
+  await page.getByRole('button', { name: 'Replace all (2)' }).click();
+  await page.getByRole('status').filter({ hasText: 'Replaced 2' }).waitFor();
+  if (await box.inputValue() !== 'env: Staging\nurl: https://prod.shop\ndb: prod-db\n') throw new Error(await box.inputValue());
+  await page.getByLabel('Match case').uncheck();
+  await page.getByRole('button', { name: 'Replace all (1)' }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByLabel('Text of env.yaml').getByText('env: prod').waitFor({ timeout: 10000 });
+  if ((await api(page, 'GET', `/files/${f.id}/source-text`)).body.text !== 'env: prod\nurl: https://prod.shop\ndb: prod-db\n') throw new Error('not saved as replaced');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
