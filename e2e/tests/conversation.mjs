@@ -88,6 +88,13 @@ await step('opening one from Sent goes there', async () => {
   if (!/\/mail\/Sent\/\d+/.test(page.url())) throw new Error(page.url());
   await page.getByRole('button', { name: /^▸ Conversation: 1 earlier, 1 later message/ }).waitFor();
 });
+await step('Mark all read marks the conversation\'s unread messages read', async () => {
+  const btn = page.getByRole('button', { name: /^Mark all read \(1\)$/ });
+  await btn.click();
+  await btn.waitFor({ state: 'detached' });
+  const kims = (await api(page, 'GET', `/mail/messages?folder=INBOX&q=${encodeURIComponent('RE: Quote for chairs')}`)).body.messages.find((m) => m.subject === 'RE: Quote for chairs');
+  if (!kims?.seen) throw new Error(JSON.stringify(kims));
+});
 await step('Print all prints the whole conversation, oldest first, on one page', async () => {
   await page.getByRole('button', { name: 'Print all' }).click();
   const frame = page.locator('iframe.print-frame').last();

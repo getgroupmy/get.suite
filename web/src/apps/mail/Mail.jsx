@@ -1308,7 +1308,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}
-      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} onCompose={shared ? null : onCompose} />
+      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} onCompose={shared ? null : onCompose} onChanged={onChanged} />
       {readingMail && <ReadAloudBar key={`${uid}-${readingMail}`} label="Read aloud" showText sentences={mailSentences({ subject: m.subject, from: m.from, text: m.trimmed?.text ?? m.text })} onClose={() => setReadingMail(null)} />}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
@@ -1398,7 +1398,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
 
 /** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
 /** The rest of the conversation (same subject without Re:/Fwd:, someone in common), earlier and later, from any folder. */
-function Conversation({ folder, uid, date, onOpen, onCompose }) {
+function Conversation({ folder, uid, date, onOpen, onCompose, onChanged }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [list, setList] = useState(null);
@@ -1422,6 +1422,17 @@ function Conversation({ folder, uid, date, onOpen, onCompose }) {
       toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { duration: 12000, actions: [{ label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) }] });
     } catch (e) { toast(e.message, 'error'); }
   };
+  // Mark all read: the conversation's unread ones (this one is read already, being open).
+  const unread = list.filter((x) => !x.seen);
+  const markAllRead = async () => {
+    const byFolder = new Map();
+    for (const x of unread) byFolder.set(x.folder, [...(byFolder.get(x.folder) || []), x.uid]);
+    try {
+      for (const [f, uids] of byFolder) await post(`/mail/messages/flags${mailboxParam().replace(/^&/, '?')}`, { folder: f, uids, seen: true });
+      setList((l) => l.map((x) => ({ ...x, seen: true })));
+      onChanged?.();
+    } catch (e) { toast(e.message, 'error'); }
+  };
   // Print all: one after another.
   const printAll = async () => { const got = await fetchAll(); if (got.length) printHtml(printDocuments(got, { conversation: true })); };
   // Forward all: a new email with each message under its own "Forwarded message" lines (not their attachments).
@@ -1441,6 +1452,7 @@ function Conversation({ folder, uid, date, onOpen, onCompose }) {
     <div className="conversation">
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
+        {unread.length > 0 && <button type="button" className="link-btn small" title="Mark the conversation's unread messages read" onClick={markAllRead}>Mark all read ({unread.length})</button>}
         <button type="button" className="link-btn small" title="Print every message in this conversation, oldest first (or save it as a PDF)" onClick={printAll}>Print all</button>
         {onCompose && <button type="button" className="link-btn small" title="A new email with every message in this conversation, oldest first (without their attachments)" onClick={forwardAll}>Forward all</button>}
         <button type="button" className="link-btn small" title="One PDF of the whole conversation, oldest first, in Drive: Saved emails" onClick={saveAll}>Save all to Drive</button>
