@@ -49,6 +49,9 @@ const MIME = {
   doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet', odp: 'application/vnd.oasis.opendocument.presentation',
+  rtf: 'application/rtf', epub: 'application/epub+zip', eml: 'message/rfc822', ics: 'text/calendar', vcf: 'text/vcard', tsv: 'text/tab-separated-values',
+  gz: 'application/gzip', tar: 'application/x-tar',
 };
 export function mimeFor(name) {
   const ext = name.toLowerCase().split('.').pop();

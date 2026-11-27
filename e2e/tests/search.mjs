@@ -108,6 +108,12 @@ await step('an e-book (.epub) is found by the words of its pages, with them mark
   await row.waitFor({ timeout: 10000 });
   await row.locator('mark', { hasText: 'cempedak' }).waitFor();
 });
+await step('an uploaded email and e-book are kept as what they are (message/rfc822, application/epub+zip), not as unknown files', async () => {
+  const list = await page.evaluate(async () => (await (await fetch('/api/files', { headers: { 'x-requested-with': 'nas-workspace' } })).json()));
+  const files = Array.isArray(list) ? list : list.files || [];
+  const type = (n) => files.find((f) => f.name === n)?.mime;
+  if (type('delivery.eml') !== 'message/rfc822' || type('Harvest.epub') !== 'application/epub+zip') throw new Error(JSON.stringify(files.map((f) => [f.name, f.mime])));
+});
 await step('Chinese: a word inside a sentence (no spaces between words) is found, and marked as written', async () => {
   await api(page, 'POST', '/files/new', { kind: 'doc', name: '季度总结', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '第三季度销售报告已经完成。' }] }] } });
   await page.waitForTimeout(2500); // the index catches up
