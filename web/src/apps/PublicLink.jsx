@@ -4,6 +4,7 @@ import { formatBytes, formatDate } from '../api.js';
 import Icon, { fileIcon } from '../components/Icon.jsx';
 import CodeContents from './CodeContents.jsx';
 import TableContents from './TableContents.jsx';
+const OfficePreview = lazy(() => import('./OfficePreview.jsx'));
 import { CardsList } from './CardFileContents.jsx';
 import { previewKind } from '../components/viewkind.js';
 
@@ -53,14 +54,14 @@ export default function PublicLink({ token }) {
   else if (!info) body = <p className="muted">Loading…</p>;
   else if (info.locked) body = <Unlock token={token} info={info} onKey={(k) => { saveKey(token, k); setKey(k); }} />;
   else if (info.mode === 'upload') body = <FileRequest token={token} info={info} linkKey={key} />;
-  else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}`, key)} />;
+  else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}`, key)} picturesAt={(p) => `/api/public/links/${encodeURIComponent(token)}/${p}`} />;
   else if (OPENABLE.includes(info.kind)) body = <ItemView token={token} linkKey={key} item={{ id: info.root, name: info.name, kind: info.kind, updated_at: info.updated_at, no_download: info.no_download }} download={raw(null, true)} />;
   else if (open) body = (
     <>
       <button type="button" className="link-btn" onClick={() => setOpen(null)}><Icon name="back" size={18} /> Back to {info.path.at(-1).name}</button>
       {OPENABLE.includes(open.kind)
         ? <ItemView token={token} linkKey={key} item={open} download={raw(open.id, true)} />
-        : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}${what.includes('?') ? '&' : '?'}item=${encodeURIComponent(open.id)}`, key)} />}
+        : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} read={(what) => call('GET', `/${encodeURIComponent(token)}/${what}${what.includes('?') ? '&' : '?'}item=${encodeURIComponent(open.id)}`, key)}  picturesAt={(p) => `/api/public/links/${encodeURIComponent(token)}/${p}`} />}
     </>
   );
   else {
@@ -103,13 +104,14 @@ function Unlock({ token, info, onKey }) {
   );
 }
 
-function FileView({ file, src, download, read }) {
+function FileView({ file, src, download, read, picturesAt }) {
   const m = file.mime || '';
   let preview = null;
   if (/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m)) preview = <img src={src} alt={file.name} className="preview-media" />;
   else if (/^video\/(mp4|webm)$/.test(m)) preview = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) preview = <audio src={src} controls />;
   else if (/\.(md|markdown)$/i.test(file.name)) preview = <LinkMarkdown read={read} />;
+  else if (/\.(docx|odt|xlsx|ods|pptx|odp)$/i.test(file.name)) preview = <div className="link-md"><Suspense fallback={<p className="muted">Getting the preview ready…</p>}><OfficePreview load={() => read('office')} picturesAt={(t) => picturesAt(`office/${t}`)} /></Suspense></div>;
   else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} />;

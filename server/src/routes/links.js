@@ -19,6 +19,7 @@ import * as guard from '../security/guard.js';
 import { receiveUpload, insertFile, cleanName, picturesIn, sourceTextOf, cardsOfFile } from './files.js';
 import { withoutSuggestions } from '../office/suggestions.js';
 import { docFromMarkdown } from '../office/markdown.js';
+import { officeKind, officePreview, sendPreviewPicture } from '../office/preview.js';
 import { publishedBook } from '../office/sheetvalues.js';
 import { saveNow, CO_EDITED } from '../collab.js';
 import { wordFromDoc } from '../office/word.js';
@@ -405,6 +406,15 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     return itemIn(l, req.query.item);
   };
   r.get('/links/:token/source-text', (req, res) => res.json(sourceTextOf(linkedFile(req))));
+  // An uploaded Word, Excel, PowerPoint or OpenDocument file shown read-only, as Drive previews it (nothing saved); its
+  // pictures at office/<preview token>/pictures/<id>, for this link's visitors only. Looking, so allowed with downloading off.
+  r.get('/links/:token/office', async (req, res) => {
+    const f = linkedFile(req);
+    if (f.kind !== 'file' || !officeKind(f.name) || /\.(md|markdown)$/i.test(f.name)) throw bad('This kind of file has no preview');
+    if (f.size > 20 * 1024 * 1024) throw bad('This file is too large to preview (20 MB at most): download it instead');
+    res.json(await officePreview(fs.readFileSync(path.join(FILES_DIR, f.storage)), f.name, `link:${liveLink(req.params.token).id}`));
+  });
+  r.get('/links/:token/office/:preview/pictures/:pic', (req, res) => sendPreviewPicture(res, req.params.preview, `link:${liveLink(req.params.token).id}`, req.params.pic));
   // A Markdown file shown formatted, as the link's documents are (pictures in it come as their descriptions; nothing
   // outside is loaded, and only web and mail links are kept).
   r.get('/links/:token/markdown', (req, res) => {

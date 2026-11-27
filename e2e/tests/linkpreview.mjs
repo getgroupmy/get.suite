@@ -98,6 +98,28 @@ await step('a link to a Markdown file shows it formatted (a heading and a list),
   if (await visitor.getByText('# Opening hours').count()) throw new Error('raw Markdown shown');
   await visitor.screenshot({ path: `${SP}/shots/link-md.png` });
 }, visitor);
+await step('links to an uploaded Word file (with its picture) and Excel file show them read-only, not “No preview”', async () => {
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const pic = await page.evaluate(async (b) => (await fetch('/api/files/upload?name=logo.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) })).json(), PNG);
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Price list' })).body;
+  const c = (await api(page, 'GET', `/files/${d.id}/content`)).body;
+  await api(page, 'PUT', `/files/${d.id}/content`, { version: c.file.version, content: { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Spring prices' }] },
+    { type: 'image', attrs: { fileId: pic.id, src: `/api/files/${pic.id}/raw` } }] } });
+  const word = (await api(page, 'POST', `/files/${d.id}/export-copy`, {})).body;
+  const l = (await api(page, 'POST', '/links', { file_id: word.id })).body;
+  await visitor.goto(`${B}/s/${l.token}`);
+  await visitor.getByRole('heading', { name: 'Spring prices' }).waitFor({ timeout: 20000 });
+  await visitor.waitForFunction(() => [...document.querySelectorAll('.link-file img')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 15000 });
+  if (await visitor.getByText('No preview for this kind of file').count()) throw new Error('no preview');
+  await visitor.screenshot({ path: `${SP}/shots/link-docx.png` });
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Stock', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Item', B1: 'Count', A2: 'Lamps', B2: '14' } }] } })).body;
+  const xl = (await api(page, 'POST', `/files/${sh.id}/export-copy`, {})).body;
+  if (!/\.xlsx$/.test(xl.name)) throw new Error(xl.name);
+  const l2 = (await api(page, 'POST', '/links', { file_id: xl.id })).body;
+  await visitor.goto(`${B}/s/${l2.token}`);
+  await visitor.getByRole('cell', { name: 'Lamps' }).waitFor({ timeout: 20000 });
+}, visitor);
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

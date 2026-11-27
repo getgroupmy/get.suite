@@ -57,15 +57,18 @@ export async function officePreview(buf, filename, userId) {
   return { kind, content, token, ...(look && { look }) };
 }
 
+/** Send one picture of a preview made for `owner` (a person's id, or link:<id> for a share link's visitors). */
+export function sendPreviewPicture(res, token, owner, picId) {
+  const p = kept.get(token);
+  const pic = p && p.userId === owner && p.pictures.get(picId);
+  if (!pic || !/^image\/(png|jpeg|gif|bmp|webp)$/.test(pic.mime)) throw notFound('Picture not found');
+  res.set({ 'Content-Type': pic.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=900' });
+  res.end(pic.data);
+}
+
 /** The pictures of previews, for the person they were made for. */
 export function officePreviewRoutes() {
   const r = Router();
-  r.get('/:token/pictures/:pic', (req, res) => {
-    const p = kept.get(req.params.token);
-    const pic = p && p.userId === req.user.id && p.pictures.get(req.params.pic);
-    if (!pic || !/^image\/(png|jpeg|gif|bmp|webp)$/.test(pic.mime)) throw notFound('Picture not found');
-    res.set({ 'Content-Type': pic.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=900' });
-    res.end(pic.data);
-  });
+  r.get('/:token/pictures/:pic', (req, res) => sendPreviewPicture(res, req.params.token, req.user.id, req.params.pic));
   return r;
 }

@@ -129,3 +129,38 @@ test('a public link to a Markdown file: shown formatted; outside pictures and un
   const yl = (await ann('POST', '/api/links', { file_id: yaml.id })).body;
   assert.equal((await fetch(`${base}/api/public/links/${yl.token}/markdown`, { headers: { 'x-requested-with': 'nas-workspace' } })).status, 400);
 });
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+test('a public link to an uploaded Word file: previewed read-only with its pictures, for that link only', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const pic = (await ann('POST', '/api/files/upload?name=logo.png', null, PNG)).body;
+  const d = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'Price list' })).body;
+  const c = (await ann('GET', `/api/files/${d.id}/content`)).body;
+  await ann('PUT', `/api/files/${d.id}/content`, { version: c.file.version, content: { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Spring prices' }] },
+    { type: 'image', attrs: { fileId: pic.id, src: `/api/files/${pic.id}/raw` } }] } });
+  const word = (await ann('POST', `/api/files/${d.id}/export-copy`, {})).body; // an uploaded .docx
+  const link = (await ann('POST', '/api/links', { file_id: word.id })).body;
+  const pub = (u) => fetch(base + u, { headers: { 'x-requested-with': 'nas-workspace' } });
+  const r = await pub(`/api/public/links/${link.token}/office`);
+  assert.equal(r.status, 200, await r.clone().text());
+  const p = await r.json();
+  assert.equal(p.kind, 'doc');
+  const json = JSON.stringify(p.content);
+  assert.match(json, /Spring prices/);
+  const picId = /"fileId":"(p\d+)"/.exec(json)?.[1];
+  assert.ok(picId, json);
+  const img = await pub(`/api/public/links/${link.token}/office/${p.token}/pictures/${picId}`);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  // Not through another link, and not as someone signed in.
+  const other = (await ann('POST', '/api/links', { file_id: pic.id })).body;
+  assert.equal((await pub(`/api/public/links/${other.token}/office/${p.token}/pictures/${picId}`)).status, 404);
+  assert.equal((await ann('GET', `/api/office-preview/${p.token}/pictures/${picId}`)).status, 404);
+  // Downloading off: still previewed (looking only).
+  assert.equal((await ann('PATCH', `/api/files/${word.id}`, { no_download: true })).status, 200);
+  assert.equal((await pub(`/api/public/links/${link.token}/office`)).status, 200);
+  // Not for other kinds of file.
+  assert.equal((await pub(`/api/public/links/${other.token}/office`)).status, 400);
+});
