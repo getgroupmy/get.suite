@@ -1468,7 +1468,7 @@ function Conversation({ folder, uid, date, onOpen, onCompose, onChanged, onRemov
         {onCompose && <button type="button" className="link-btn small" title="A new email with every message in this conversation, oldest first (without their attachments)" onClick={forwardAll}>Forward all</button>}
         <button type="button" className="link-btn small" title="One PDF of the whole conversation, oldest first, in Drive: Saved emails" onClick={saveAll}>Save all to Drive</button>
         <a className="link-btn small" title="Every message of this conversation as an .eml file, in one .zip, oldest first" download
-          href={`/api/mail/messages-conversation.zip?items=${encodeURIComponent([...list.map((x) => `${x.folder}:${x.uid}`), `${folder}:${uid}`].join(','))}${mailboxParam()}`}>Download all (.zip)</a>
+          href={`/api/mail/messages-conversation.zip?items=${encodeURIComponent([...list.map((x) => `${x.folder}:${x.uid}`), `${folder}:${uid}`].join(','))}${mailboxParam()}`}>Download conversation (.zip)</a>
       </div>
       {open && (
         <ol className="conversation-list" aria-label="Conversation">
