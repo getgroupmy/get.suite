@@ -156,7 +156,7 @@ await step('select messages → Print: one printout, a page each', async () => {
   await refreshUntil(page, page.getByText('Dropped email b'));
   for (const s of ['a', 'b']) { const box = page.getByLabel(`Select Dropped email ${s}`); if (!(await box.isChecked())) await box.check(); }
   await page.getByText('2 selected').waitFor();
-  await page.locator('.mail-bulk').getByRole('button', { name: 'Print' }).click();
+  await page.locator('.mail-bulk').getByRole('button', { name: 'Print', exact: true }).click();
   await page.waitForFunction(() => { const f = [...document.querySelectorAll('iframe.print-frame')].pop(); return f && /<section class="msg">[\s\S]*<section class="msg">/.test(f.getAttribute('srcdoc')); });
   const html = await page.locator('iframe.print-frame').last().getAttribute('srcdoc');
   if (!/Dropped email a/.test(html) || !/Dropped email b/.test(html) || !/Dropped in \(a\)/.test(html)) throw new Error(html.slice(0, 300));

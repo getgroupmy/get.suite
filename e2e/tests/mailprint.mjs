@@ -56,7 +56,7 @@ await step('Print opens a clean page of the message for the print dialog', async
   await page.locator('.mail-list').getByText('Invoice <42>', { exact: true }).click();
   await page.locator('.mail-reader').getByText('Please pay by Friday.').waitFor();
   await page.evaluate(() => { window.__printed = 0; const orig = HTMLIFrameElement.prototype; void orig; });
-  await page.locator('.mail-reader').getByRole('button', { name: 'Print' }).click();
+  await page.locator('.mail-reader').getByRole('button', { name: 'Print', exact: true }).click();
   const frame = page.frameLocator('iframe.print-frame');
   await frame.locator('h1', { hasText: 'Invoice <42>' }).waitFor({ state: 'attached' });
   if (!(await frame.locator('.message').textContent()).includes('Please pay by Friday.')) throw new Error('body');
