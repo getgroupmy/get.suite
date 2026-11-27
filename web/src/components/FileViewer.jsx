@@ -10,6 +10,7 @@ const OfficePreview = lazy(() => import('../apps/OfficePreview.jsx')); // the ed
 import ZipContents from '../apps/ZipContents.jsx';
 import EmlContents from '../apps/EmlContents.jsx';
 import CardFileContents from '../apps/CardFileContents.jsx';
+import CodeContents, { textFrom } from '../apps/CodeContents.jsx';
 import { previewKind } from './viewkind.js';
 
 export default function FileViewer({ items, at, urls, onStep, onSave = null, onClose }) {
@@ -29,6 +30,7 @@ export default function FileViewer({ items, at, urls, onStep, onSave = null, onC
   const body = kind === 'zip' ? <ZipContents url={urls.zip(a)} />
     : kind === 'eml' ? <EmlContents url={urls.eml(a)} />
     : kind === 'cards' ? <CardFileContents source={{ url: urls.download(a), name: a.filename }} />
+    : kind === 'code' ? <CodeContents name={a.filename} load={() => textFrom(urls.download(a))} />
     : kind === 'office' ? <Suspense fallback={<p className="muted">Loading…</p>}><OfficePreview url={urls.office(a)} /></Suspense>
     : kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
     : kind === 'video' ? <video src={src} controls className="preview-media" />

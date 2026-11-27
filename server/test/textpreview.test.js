@@ -1,0 +1,60 @@
+// Code and data files (.json, .py, .yaml…) in Drive: their preview reads the text (the first 512 KB), also for someone who
+// may only view with downloading off; binary files and other kinds are refused.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-textprev-'));
+process.env.DATA_DIR = dir;
+let server, base;
+before(async () => {
+  const { createApp } = await import('../src/app.js');
+  server = http.createServer(createApp());
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+function client() {
+  let cookie = '';
+  return async (method, url, body, raw) => {
+    const res = await fetch(base + url, { method, headers: { 'x-requested-with': 'nas-workspace', ...(raw ? {} : { 'content-type': 'application/json' }), ...(cookie && { cookie }) }, body: raw || (body === undefined ? undefined : JSON.stringify(body)) });
+    const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0];
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+}
+
+
+test('a code or data file’s text for its preview', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/setup', { org_name: 'Acme', domain: 'acme.com', name: 'Ann Owner', local: 'ann', password: 'password123' })).status, 200);
+  const benId = (await ann('POST', '/api/users', { local: 'ben', domain: 'acme.com', name: 'Ben Member', password: 'password123' })).body.id;
+  const ben = client(); assert.equal((await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' })).status, 200);
+  const json = (await ann('POST', '/api/files/upload?name=prices.json', null, Buffer.from('{"chair":40,"desk":"Ünïcode ✓"}'))).body;
+  const r = await ann('GET', `/api/files/${json.id}/source-text`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { text: '{"chair":40,"desk":"Ünïcode ✓"}', truncated: false, size: json.size });
+  const py = (await ann('POST', '/api/files/upload?name=report.py', null, Buffer.from('print("hi")\n'))).body;
+  assert.equal((await ann('GET', `/api/files/${py.id}/source-text`)).body.text, 'print("hi")\n');
+  // Big: the first 512 KB, said to be cut short, with no half character at the end.
+  const big = (await ann('POST', '/api/files/upload?name=big.log.sql', null, Buffer.from('é'.repeat(300 * 1024)))).body;
+  const b = (await ann('GET', `/api/files/${big.id}/source-text`)).body;
+  assert.equal(b.truncated, true);
+  assert.equal(b.text, 'é'.repeat(256 * 1024));
+  // Binary content, other kinds of file and other people's files refused.
+  const bin = (await ann('POST', '/api/files/upload?name=data.json', null, Buffer.from([0x7b, 0x00, 0x01, 0x7d]))).body;
+  assert.equal((await ann('GET', `/api/files/${bin.id}/source-text`)).status, 400);
+  const pdf = (await ann('POST', '/api/files/upload?name=x.pdf', null, Buffer.from('%PDF-1.4'))).body;
+  assert.equal((await ann('GET', `/api/files/${pdf.id}/source-text`)).status, 400);
+  const doc = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'D.json' })).body;
+  assert.equal((await ann('GET', `/api/files/${doc.id}/source-text`)).status, 400);
+  assert.equal((await ben('GET', `/api/files/${json.id}/source-text`)).status, 404);
+  // A viewer may look even with downloading off (the file itself still can't be downloaded).
+  assert.equal((await ann('PUT', `/api/files/${json.id}/shares`, { shares: [{ user_id: benId, role: 'viewer' }] })).status, 200);
+  assert.equal((await ann('PATCH', `/api/files/${json.id}`, { no_download: true })).status, 200);
+  assert.equal((await ben('GET', `/api/files/${json.id}/source-text`)).body.text, '{"chair":40,"desk":"Ünïcode ✓"}');
+  const raw = await fetch(`${base}/api/files/${json.id}/raw?download`, { headers: { 'x-requested-with': 'nas-workspace' } });
+  assert.notEqual(raw.status, 200);
+});

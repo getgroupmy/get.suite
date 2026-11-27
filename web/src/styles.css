@@ -2822,7 +2822,12 @@ p.doc-email-fields { margin: 0; }
 .original-hops { margin: 0; padding-left: 20px; }
 .original-headers { font-family: ui-monospace, Consolas, monospace; font-size: 12px; width: 100%; white-space: pre; }
 .eml-contents { display: grid; gap: 10px; max-height: 70vh; overflow: auto; }
-.card-file { max-height: 70vh; overflow: auto; }
+.card-file { max-height: 70vh; overflow: auto; width: 100%; align-self: stretch; text-align: left; }
+.code-contents { min-width: 0; width: 100%; align-self: stretch; text-align: left; }
+.code-view { margin: 0; max-height: 65vh; overflow: auto; padding: 8px 0; background: var(--surface-2, #f6f8fa); border: 1px solid var(--border); border-radius: 8px;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; tab-size: 4; counter-reset: none; }
+.code-line { display: block; padding-right: 12px; }
+.code-num { display: inline-block; min-width: 3.5em; padding: 0 12px 0 8px; margin-right: 8px; text-align: right; color: var(--muted, #5f6368); user-select: none; border-right: 1px solid var(--border); }
 .card-file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .card-file-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .eml-subject { margin: 0; font-size: 18px; }

@@ -24,6 +24,8 @@ import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
 import EmlContents from '../EmlContents.jsx';
 import CardFileContents from '../CardFileContents.jsx';
+import CodeContents from '../CodeContents.jsx';
+import { previewKind } from '../../components/viewkind.js';
 import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
@@ -1508,6 +1510,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (/^video\/(mp4|webm)$/.test(m)) body = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
+  else if (previewKind(file.name) === 'code') body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} />;
   // Only text the server shows in the browser (plain text, CSV, Markdown); others (.tsv, …) download.
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
