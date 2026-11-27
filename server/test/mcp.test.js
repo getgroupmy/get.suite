@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'find_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'read_task_comments', 'comment_on_task', 'update_task', 'list_mail', 'read_email_conversation', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'read_note_comments', 'comment_on_note', 'react_to_comment', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'find_files', 'compare_file_versions', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'form_summary_presentation', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -104,6 +104,19 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   const byWords = (await call(ro, 'find_files', { query: 'hello', type: 'doc' })).structuredContent.files;
   const k = byWords.find((f) => f.name === 'Kickoff');
   assert.ok(k && /Hello/.test(k.matched || '') && !/[\u0001\u0002]/.test(k.matched), JSON.stringify(byWords));
+  // compare_file_versions: an uploaded file's versions, and what changed since one.
+  const cfgUp = await fetch(`${base}/api/files/upload?name=config.yaml`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', authorization: `Bearer ${rw}` }, body: 'port: 80\nname: shop\n' });
+  const cfg = await cfgUp.json();
+  assert.deepEqual((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}` })).structuredContent.versions, []);
+  await fetch(`${base}/api/files/${cfg.id}/versions`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', authorization: `Bearer ${rw}` }, body: 'port: 8080\nname: shop\n' });
+  const vers = (await call(ro, 'compare_file_versions', { file: `file:${cfg.id}` })).structuredContent.versions;
+  assert.equal(vers.length, 1);
+  const ch = (await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: 'previous' })).structuredContent;
+  assert.deepEqual([ch.added, ch.removed], [1, 1]);
+  assert.match(ch.changes, /- 1: port: 80\n\+ 1: port: 8080/);
+  assert.match(ch.changes, /BEGIN|file/i, 'marked as the file\'s text');
+  assert.equal((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: vers[0].id })).structuredContent.added, 1);
+  assert.match((await call(ro, 'compare_file_versions', { file: `file:${cfg.id}`, version: 'nope' })).content[0].text, /No such version/);
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));

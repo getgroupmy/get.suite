@@ -74,6 +74,16 @@ await step('Version history → Compare shows an earlier version against now: th
   await dlg.getByRole('button', { name: '← All versions' }).click();
   await dlg.getByRole('list', { name: 'Versions' }).waitFor();
 });
+await step('an AI assistant (MCP compare_file_versions) lists the versions and says what changed since the previous one', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Files helper', scope: 'read', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const list = (await call('compare_file_versions', { file: `file:${f.id}` }))?.structuredContent?.versions || [];
+  if (list.length !== 1) throw new Error(JSON.stringify(list));
+  const ch = (await call('compare_file_versions', { file: `file:${f.id}`, version: 'previous' }))?.structuredContent;
+  if (ch?.added !== 2 || ch?.removed !== 1 || !/- 2: name: shop\n\+ 2: name: store/.test(ch.changes) || !/\+ 24: cache: on/.test(ch.changes)) throw new Error(JSON.stringify(ch));
+});
 await step('no Compare for a picture, nor for someone who may only view a file with downloading off', async () => {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const pic = await page.evaluate(async (b) => (await fetch('/api/files/upload?name=logo.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(b), (c) => c.charCodeAt(0)) })).json(), PNG);
