@@ -1839,6 +1839,11 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   assert.match(pdf.body.file.name, /^My order is late \(\d{4}-\d\d-\d\d\)\.pdf$/);
   assert.equal((await bob('GET', `/api/files/${pdf.body.file.id}`)).status, 200, 'Bob’s own');
   assert.equal((await bob('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [got.uid], time_zone: 'UTC' }, as)).status, 201);
+  // And the reader's other read-only actions: Download message (.eml) and Show original.
+  const one = await bob('GET', `/api/mail/messages/${got.uid}/eml?folder=INBOX&mailbox=${mb}`, undefined, { binary: true });
+  assert.equal(one.status, 200);
+  assert.match(one.body.toString(), /Subject: My order is late/);
+  assert.equal((await bob('GET', `/api/mail/messages/${got.uid}/original?folder=INBOX&mailbox=${mb}`)).status, 200);
   assert.equal((await bob('POST', '/api/mail/send', { from: 'helper@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x' }, as)).status, 400, 'only as the mailbox');
   assert.equal((await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x', sendAt: Date.now() + 864e5 }, as)).status, 400, 'no scheduling');
   const sent = await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'Re: My order is late', text: 'It ships today.', inReplyTo: full.messageId, replyTo: { folder: 'INBOX', uid: got.uid } }, as);
