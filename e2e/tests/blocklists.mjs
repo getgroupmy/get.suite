@@ -79,6 +79,16 @@ await step('Admin → System lists it among the health checks', async () => {
   await item.getByText(/198\.51\.100\.7 on SpamCop: mail from it may be refused/).waitFor({ timeout: 30000 });
   await page.screenshot({ path: `${SP}/shots/blocklists-health.png` });
 });
+await step('Admin → System shows the mail server’s memory against its limit (from the report its container writes)', async () => {
+  const fs = await import('node:fs');
+  const MB = 1024 ** 2;
+  fs.writeFileSync('/var/nw-status/memory.json', JSON.stringify({ used: 110 * MB, limit: 512 * MB, at: Math.floor(Date.now() / 1000) }));
+  try {
+    await page.goto(`${B}/admin?tab=system`);
+    const item = page.getByRole('list', { name: 'Checks' }).getByRole('listitem', { name: 'Mail server memory' });
+    await item.getByText("110 MB of the container's 512 MB in use (21%)").waitFor({ timeout: 30000 });
+  } finally { fs.rmSync('/var/nw-status/memory.json', { force: true }); }
+});
 await step('…and the mail DNS records: this DNS has none for the company domain', async () => {
   const item = page.getByRole('list', { name: 'Checks' }).getByRole('listitem', { name: 'Mail DNS records' });
   await item.getByText(/acme\.com: MX, SPF, DKIM, DMARC.* not right.*Check DNS shows what to set/).waitFor({ timeout: 30000 });

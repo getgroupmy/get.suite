@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-health-db-')); // a database of its own
-const { collectHealth, checkAndNotify, probeMail, containerMemory, memoryCheck, thisMachine, isLocalAddress, connectionCheck } = await import('../src/health.js');
+const { collectHealth, checkAndNotify, probeMail, containerMemory, memoryCheck, thisMachine, isLocalAddress, connectionCheck, readMailMemory } = await import('../src/health.js');
 const { q } = await import('../src/db.js');
 
 const GB = 1024 ** 3;
@@ -167,4 +167,42 @@ test('health: which addresses are this machine or a private network', () => {
   assert.equal(connectionCheck({ secure: true, ip: '8.8.8.8' }).detail, 'Over HTTPS');
   assert.equal(connectionCheck({ secure: false, ip: '8.8.8.8' }).status, 'bad');
   assert.doesNotMatch(connectionCheck({ secure: false, ip: '8.8.8.8' }).detail, /X-Forwarded-Proto/, 'the proxy hint only when there is a proxy');
+});
+
+test('the mail container’s memory: written by its entrypoint from its cgroup, read when fresh, a check in Admin → System', async () => {
+  const MB = 1024 ** 2;
+  const { execFileSync } = await import('node:child_process');
+  const ROOT = new URL('../..', import.meta.url).pathname;
+  // The entrypoint's own function, run against a made-up cgroup (v2 with a limit; v2 without; v1).
+  const src = fs.readFileSync(path.join(ROOT, 'mail/entrypoint.sh'), 'utf8');
+  const fn = src.slice(src.indexOf('CGROUP=${NW_CGROUP_DIR'), src.indexOf('MEMORY_EVERY='));
+  const run = (files) => {
+    const cg = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-cg-')), status = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-st-'));
+    for (const [f, t] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(cg, f)), { recursive: true }); fs.writeFileSync(path.join(cg, f), t); }
+    execFileSync('bash', ['-c', `set -euo pipefail; STATUS=${status}; ${fn}\nwrite_memory_status`], { env: { ...process.env, NW_CGROUP_DIR: cg } });
+    const file = path.join(status, 'memory.json');
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+  };
+  const a = run({ 'memory.current': `${300 * MB}\n`, 'memory.max': `${512 * MB}\n`, 'memory.stat': `anon 1\ninactive_file ${40 * MB}\n` });
+  assert.deepEqual([a.used, a.limit], [260 * MB, 512 * MB]);
+  assert.ok(Math.abs(a.at * 1000 - Date.now()) < 60e3);
+  assert.equal(run({ 'memory.current': '1000\n', 'memory.max': 'max\n' }).limit, null, 'no limit');
+  assert.deepEqual((({ used, limit }) => [used, limit])(run({ 'memory/memory.usage_in_bytes': `${200 * MB}`, 'memory/memory.limit_in_bytes': '9223372036854771712', 'memory/memory.stat': `total_inactive_file ${10 * MB}` })), [190 * MB, null], 'v1, no limit');
+  assert.equal(run({}), null, 'nothing to read: nothing written');
+  // The app reads it while it's fresh.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-st-'));
+  const at = Math.floor(now / 1000);
+  fs.writeFileSync(path.join(dir, 'memory.json'), JSON.stringify({ used: 470 * MB, limit: 512 * MB, at }));
+  assert.deepEqual(readMailMemory(now, dir), { used: 470 * MB, limit: 512 * MB });
+  assert.equal(readMailMemory(now + 11 * 60e3, dir), null, 'over ten minutes old');
+  fs.writeFileSync(path.join(dir, 'memory.json'), 'nonsense');
+  assert.equal(readMailMemory(now, dir), null);
+  assert.equal(readMailMemory(now, path.join(dir, 'none')), null);
+  // Admin → System: a check of its own, warning near the limit; none when email is off or without a report.
+  const h = byId(await collectHealth({ ...base, mail: true, probe: async () => ({ ok: true }), queue: () => null, blocklists: async () => null, mailDns: async () => null,
+    statfs: disk(400, 1000), backupDir: backups(5), mailMemory: () => ({ used: 470 * MB, limit: 512 * MB }) }));
+  assert.equal(h.mail_memory.label, 'Mail server memory');
+  assert.equal(h.mail_memory.status, 'warn');
+  assert.match(h.mail_memory.detail, /470 MB of the container's 512 MB in use \(92%\)/);
+  assert.equal(byId(await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(5), mailMemory: () => ({ used: 1, limit: 2 }) })).mail_memory, undefined, 'email off');
 });

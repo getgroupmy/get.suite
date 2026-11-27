@@ -37,7 +37,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, memory = containerMemory, machine = thisMachine, connection = null, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, memory = containerMemory, mailMemory = readMailMemory, machine = thisMachine, connection = null, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -93,6 +93,10 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const mem = memory();
   const mc = memoryCheck(mem);
   if (mc) add('memory', 'Memory', mc.status, mc.detail);
+  // The mail container's own (it writes it about once a minute), when it has a limit to compare with.
+  const mm = mail ? mailMemory(now) : null;
+  const mmc = memoryCheck(mm);
+  if (mmc) add('mail_memory', 'Mail server memory', mmc.status, mmc.detail);
 
   const dbFile = path.join(dataDir, 'workspace.db');
   const size = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
@@ -148,6 +152,17 @@ export function containerMemory(read = (f) => fs.readFileSync(f, 'utf8')) {
   if (used === undefined || used === null) return null;
   const limit = num('/sys/fs/cgroup/memory/memory.limit_in_bytes');
   return { used: Math.max(0, used - cache('/sys/fs/cgroup/memory/memory.stat', 'total_inactive_file')), limit: limit && limit < 2 ** 60 ? limit : null }; // v1's "no limit" is a huge number
+}
+/**
+ * The mail container's memory ({ used, limit }) from the report it writes in the status folder (memory.json), or null
+ * when there is none, it can't be read, or it's over ten minutes old (the mail container isn't writing it).
+ */
+export function readMailMemory(now = Date.now(), dir = process.env.MAIL_STATUS_DIR || '/var/nw-status') {
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(dir, 'memory.json'), 'utf8'));
+    if (!Number.isFinite(m.used) || !Number.isFinite(m.at) || now - m.at * 1000 > 10 * 60e3) return null;
+    return { used: m.used, limit: Number.isFinite(m.limit) ? m.limit : null };
+  } catch { return null; }
 }
 /** The health check for memory ({ used, limit } as containerMemory gives it), or null without a limit to compare with. */
 export function memoryCheck(m) {

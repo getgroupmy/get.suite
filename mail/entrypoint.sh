@@ -197,6 +197,27 @@ rotate_maillog() {
   chmod 644 "$STATUS"/maillog* 2>/dev/null || true
 }
 
+# The container's memory in use (less file cache the system can drop, as docker stats counts it) and its limit (mem_limit
+# in the compose file; null when none), for Admin → System: $STATUS/memory.json, written about once a minute.
+CGROUP=${NW_CGROUP_DIR:-/sys/fs/cgroup}
+write_memory_status() {
+  local used limit inactive
+  if [[ -r $CGROUP/memory.current ]]; then
+    used=$(cat "$CGROUP/memory.current" || true); limit=$(cat "$CGROUP/memory.max" 2>/dev/null || true)
+    inactive=$(awk '$1 == "inactive_file" {print $2}' "$CGROUP/memory.stat" 2>/dev/null || true)
+  elif [[ -r $CGROUP/memory/memory.usage_in_bytes ]]; then
+    used=$(cat "$CGROUP/memory/memory.usage_in_bytes" || true); limit=$(cat "$CGROUP/memory/memory.limit_in_bytes" 2>/dev/null || true)
+    inactive=$(awk '$1 == "total_inactive_file" {print $2}' "$CGROUP/memory/memory.stat" 2>/dev/null || true)
+  else return 0; fi
+  [[ $used =~ ^[0-9]+$ ]] || return 0
+  [[ $limit =~ ^[0-9]+$ ]] && (( limit < 1152921504606846976 )) || limit=null   # ("max", or v1's huge "no limit")
+  [[ $inactive =~ ^[0-9]+$ ]] || inactive=0
+  used=$(( used - inactive )); (( used >= 0 )) || used=0
+  mkdir -p "$STATUS"
+  printf '{"used":%s,"limit":%s,"at":%s}\n' "$used" "$limit" "$(date +%s)" > "$STATUS/memory.json.tmp" && mv -f "$STATUS/memory.json.tmp" "$STATUS/memory.json"
+}
+MEMORY_EVERY=$(( 60 / (INTERVAL > 0 ? INTERVAL : 1) )); (( MEMORY_EVERY < 1 )) && MEMORY_EVERY=1
+TICKS=0
 running() { postfix status >/dev/null 2>&1 && pgrep -x dovecot >/dev/null && pgrep -x rspamd >/dev/null; }
 # A cold start can take a while on a small NAS (Rspamd compiles its rules first), so wait up to 2 minutes.
 for _ in $(seq 1 120); do running && break; sleep 1; done
@@ -215,6 +236,7 @@ while true; do
   fi
   run_queue_actions || true
   write_queue_status || true
+  (( TICKS++ % MEMORY_EVERY == 0 )) && { write_memory_status || true; }
   rotate_maillog || true
   pgrep -x master >/dev/null || { log "postfix died"; exit 1; }   # (not "postfix status": that writes to the mail log each time)
   pgrep -x dovecot >/dev/null || { log "dovecot died"; exit 1; }
