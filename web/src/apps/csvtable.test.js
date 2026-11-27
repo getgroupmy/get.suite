@@ -52,3 +52,12 @@ test('filtering keeps rows with a cell containing the words, ignoring case', () 
   assert.deepEqual(filterRows(rows, 'LYON').map((r) => r[0]), ['Lamp', 'Chair']);
   assert.equal(filterRows(rows, '  ').length, 3);
 });
+
+import { toCsv } from './csvtable.js';
+
+test('rows written as CSV: quoting where needed, formulas defused, read back the same', () => {
+  const rows = [['Item', 'Note'], ['Oak desk', 'Big, heavy'], ['Chair "Ola"', 'two\nlines'], ['=SUM(A1)', '-3'], ['@home', '']];
+  const csv = toCsv(rows);
+  assert.equal(csv, 'Item,Note\r\nOak desk,"Big, heavy"\r\n"Chair ""Ola""","two\nlines"\r\n\'=SUM(A1),-3\r\n\'@home,\r\n');
+  assert.deepEqual(parseTable(csv).rows.slice(0, 3), rows.slice(0, 3));
+});

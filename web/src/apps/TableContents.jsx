@@ -2,7 +2,7 @@
 // 1,000 rows; a heading sorts by its column (again: the other way, a third time: as in the file), Filter rows keeps
 // those with a cell containing the words; Show as text gives the file as written. `load` gives { text, truncated } as for the code viewer.
 import { useEffect, useMemo, useState } from 'react';
-import { separatorFor, parseTable, sortRows, filterRows } from './csvtable.js';
+import { separatorFor, parseTable, sortRows, filterRows, toCsv } from './csvtable.js';
 import CodeContents from './CodeContents.jsx';
 
 const MAX_ROWS = 1000;
@@ -41,6 +41,11 @@ export default function TableContents({ name, load, canCopy = true }) {
       <div className="row wrap">
         <input type="search" className="grow" placeholder="Filter rows" aria-label="Filter rows" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {filter && <span className="muted small" aria-live="polite">{rows.length.toLocaleString()} of {shown.length.toLocaleString()} rows</span>}
+        {canCopy && (filter || sort) && rows.length > 0 && <button type="button" className="btn small" title="The rows as shown here (filtered, in this order), with the headings" onClick={() => {
+          const url = URL.createObjectURL(new Blob([toCsv([Array.from({ length: cols }, (_, j) => head[j] ?? ''), ...rows.map((r) => Array.from({ length: cols }, (_, j) => r[j] ?? ''))])], { type: 'text/csv' }));
+          const a = document.createElement('a'); a.href = url; a.download = `${name.replace(/\.[^.]+$/, '')} (${filter ? 'filtered' : 'sorted'}).csv`;
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }}>Download these rows (.csv)</button>}
       </div>
       <div className="table-view" tabIndex={0} role="region" aria-label={`Table of ${name}`}>
         <table>

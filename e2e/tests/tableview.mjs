@@ -101,7 +101,16 @@ await step('a heading sorts its column (numbers as numbers), again the other way
   if ((await col(0)).join('|') !== 'Chair|Lamp') throw new Error(`filtered: ${(await col(0)).join('|')}`);
   await page.getByLabel('Filter rows').fill('Berlin');
   await t.getByText('No rows contain “Berlin”').waitFor();
+  // The rows as shown, downloaded: filtered to Lyon and sorted by Part.
+  await page.getByLabel('Filter rows').fill('lyon');
+  if (await page.getByRole('button', { name: 'Download these rows (.csv)' }).count() !== 1) throw new Error('no download button');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download these rows (.csv)' }).click()]);
+  if (dl.suggestedFilename() !== 'parts (filtered).csv') throw new Error(dl.suggestedFilename());
+  const got = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  if (got !== 'Part,Count,City\r\nChair,9,lyon\r\nLamp,25,Lyon\r\n') throw new Error(JSON.stringify(got));
   await page.getByLabel('Filter rows').fill('');
+  await t.getByRole('button', { name: 'Part' }).click(); await t.getByRole('button', { name: 'Part' }).click(); // back to the file's order
+  if (await page.getByRole('button', { name: 'Download these rows (.csv)' }).count()) throw new Error('offered with nothing sorted or filtered');
   await page.screenshot({ path: `${SP}/shots/table-sort.png` });
   await page.keyboard.press('Escape');
 });
@@ -130,6 +139,8 @@ await step('a view-only CSV (downloading off), a TSV sent in Chat and a TSV on a
   await k.getByRole('link', { name: 'Drive' }).first().waitFor();
   await k.goto(`${B}/drive?preview=${csv.id}`);
   await k.getByRole('region', { name: 'Table of stock.csv' }).getByText('Big, heavy').waitFor({ timeout: 15000 });
+  await k.getByLabel('Filter rows').fill('oak');
+  if (await k.getByRole('button', { name: 'Download these rows (.csv)' }).count()) throw new Error('download offered on a view-only file with downloading off');
   // Chat
   const dm = (await api(k, 'POST', '/chat/dm', { user_id: (await api(page, 'GET', '/auth/me')).body.user.id })).body.id;
   const tsv = await upload(k, 'rota.tsv', 'Day\tWho\nMon\tKim\nTue\tOlivia\n');

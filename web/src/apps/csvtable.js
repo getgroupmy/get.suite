@@ -57,3 +57,14 @@ export function filterRows(rows, q) {
   const needle = String(q || '').trim().toLowerCase();
   return needle ? rows.filter((r) => r.some((c) => String(c).toLowerCase().includes(needle))) : rows;
 }
+
+/** Rows as CSV text (comma-separated, CRLF lines as spreadsheets write them): a cell with a comma, quote or line break
+ *  is quoted, its quotes doubled; one starting = + - @ gets a leading ' so a spreadsheet doesn't run it as a formula. */
+export function toCsv(rows) {
+  const cell = (v) => {
+    let s = String(v ?? '');
+    if (/^[=+\-@]/.test(s) && !/^-?\d/.test(s)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}
