@@ -181,6 +181,7 @@ export default function Drive() {
   const [selected, setSelected] = useState(null);
   const fileInput = useRef();
   const madeDrive = useRef(null); // a shared drive just made: its members are asked for next
+  const madeText = useRef(null); // a text file just made: opened for editing when its name window closes
 
   const filterQuery = route.filters ? FILTERS.filter(([k]) => route.filters[k]).map(([k]) => `&${k}=${encodeURIComponent(route.filters[k])}`).join('') : '';
   const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}:${route.label || ''}`;
@@ -702,6 +703,7 @@ export default function Drive() {
           { label: 'Spreadsheet', icon: 'sheet', onClick: () => create('sheet') },
           { label: 'Presentation', icon: 'slides', onClick: () => create('slides') },
           { label: 'From a template…', icon: 'doc', onClick: () => setDialog({ type: 'templates' }) },
+          { label: 'Text file…', icon: 'file', onClick: () => setDialog({ type: 'text-file' }) },
         ]} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
         <input ref={folderInput} type="file" multiple hidden webkitdirectory="" aria-label="Folder to upload" onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
@@ -918,6 +920,11 @@ export default function Drive() {
         </div>
       )}
 
+      {dialog?.type === 'text-file' && (
+        <PromptModal title="New text file" label="File name (.txt, .md, .csv, .json, .yaml, .py… or a Dockerfile)" initial="notes.txt" confirm="Create"
+          onClose={() => { const f = madeText.current; madeText.current = null; setDialog(f ? { type: 'preview', file: f, edit: true } : null); }}
+          onSubmit={async (name) => { madeText.current = await post('/files/new-text', { name, parent_id: parentId }); load(); }} />
+      )}
       {dialog?.type === 'folder' && (
         <PromptModal title="New folder" label="Folder name" initial="Untitled folder" confirm="Create" onClose={() => setDialog(null)}
           onSubmit={async (name) => { await post('/files/folder', { name, parent_id: parentId }); load(); }} />
@@ -953,7 +960,7 @@ export default function Drive() {
       {dialog?.type === 'chat' && <SendInChat items={dialog.files.map((f) => ({ name: f.name, url: linkTo(f) }))} what={dialog.files.length === 1 ? `“${dialog.files[0].name}”` : `${dialog.files.length} files`} onClose={() => setDialog(null)} />}
       {dialog?.type === 'copyto' && <MoveDialog copy files={dialog.files} onClose={() => setDialog(null)} onCopy={(to) => copyMany(dialog.files, to)} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
-      {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
+      {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} edit={!!dialog.edit} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
       {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
         try {
@@ -1472,7 +1479,7 @@ export function officeAs(f) {
   return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, txt: { what: 'document', icon: 'doc' }, rtf: { what: 'document', icon: 'doc' }, html: { what: 'document', icon: 'doc' }, htm: { what: 'document', icon: 'doc' }, csv: { what: 'spreadsheet', icon: 'sheet' }, tsv: { what: 'spreadsheet', icon: 'sheet' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, ods: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' }, odp: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
-function Preview({ file, onClose, onOpenAs, comment = null }) {
+function Preview({ file, onClose, onOpenAs, comment = null, edit = false }) {
   const src = `/api/files/${file.id}/raw`;
   const m = file.mime || '';
   // Comments: on the whole file, or (pictures) on a spot, shown as a numbered pin.
@@ -1516,10 +1523,10 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
-  else if (previewKind(file.name) === 'code') body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)}
+  else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit}
     onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
-  else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
+  else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown|txt|log)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
   else if (isZip) body = <ZipContents url={`/files/${file.id}/zip`} />;
   else if (/\.eml$/i.test(file.name)) body = <EmlContents url={`/files/${file.id}/eml`} />;

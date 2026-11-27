@@ -223,7 +223,7 @@ function readComparable(storage) {
   return buf.toString('utf8');
 }
 const CARD_FILE = /\.(ics|vcf)$/i;
-const TEXT_PREVIEW = TEXT_EXT_RE; // code and data files shown as text in their preview
+const TEXT_PREVIEW = { test: (n) => TEXT_EXT_RE.test(n) || /\.(txt|log|md|markdown)$/i.test(n) }; // code, data and plain text files, read as text for their preview and editing
 const TEXT_PREVIEW_MAX = 512 * 1024;
 /** A code or data file's text for its preview: { text (the first 512 KB, UTF-8), truncated, size }. Refuses other files. */
 export function sourceTextOf(f) {
@@ -1089,6 +1089,24 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ id: parentId, created: made.length });
   });
 
+  // A new plain text, code or data file: { name, parent_id, text }. A name that isn't a text kind gets .txt.
+  r.post('/new-text', (req, res) => {
+    let name = cleanName(String(req.body?.name || '').trim() || 'Untitled.txt');
+    if (!(TEXT_EXT_RE.test(name) || /\.(txt|md|markdown|log|csv|tsv)$/i.test(name))) {
+      if (/\.[a-z0-9]{1,8}$/i.test(name)) throw bad('That kind of file can’t be written as text here: give it a name ending .txt, .md, .csv, .json, .yaml…');
+      name = `${name}.txt`;
+    }
+    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    const bytes = Buffer.from(text, 'utf8');
+    if (bytes.length > 1024 * 1024) throw bad('At most 1 MB of text');
+    const parentId = resolveParent(req.body?.parent_id, req.user);
+    checkQuota(req.user.org_id, bytes.length, req.user.id);
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
+    const id = insertFile({ owner: req.user.id, parentId, name, kind: 'file', mime: mimeFor(name), size: bytes.length, storage, activity: { action: 'create' } });
+    notify(id, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
   r.post('/new', (req, res) => {
     const kind = req.body.kind;
     if (!EMPTY[kind]) throw bad('kind must be doc, sheet or slides');

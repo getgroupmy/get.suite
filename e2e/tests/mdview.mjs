@@ -61,7 +61,7 @@ await step('a plain .txt file still shows as it is', async () => {
   await upload(page, 'notes.txt', 'Plain notes, # not a heading');
   await page.goto(`${B}/drive`);
   await page.locator('.files tbody tr').filter({ hasText: 'notes.txt' }).getByText('notes.txt').dblclick();
-  await page.frameLocator('iframe.preview-frame').getByText('Plain notes, # not a heading').waitFor({ timeout: 15000 });
+  await page.getByLabel('Text of notes.txt').getByText('Plain notes, # not a heading').waitFor({ timeout: 15000 }); // as written, in the text viewer
   await page.keyboard.press('Escape');
 });
 await step('a Markdown file sent in Chat opens formatted in the viewer too', async () => {

@@ -22,7 +22,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true, onSave = null }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -35,12 +35,14 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [reload, setReload] = useState(0);
+  const started = useRef(false); // startEditing: open in the editor, the first time it's read (a file just made)
   useEffect(() => {
     let live = true;
     setD(null); setError('');
     load().then((x) => live && setD(x)).catch((e) => live && setError(e.message));
     return () => { live = false; };
   }, [name, reload]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (d && startEditing && onSave && !started.current) { started.current = true; setDraft(d.text); } }, [d, startEditing, onSave]);
   const pretty = d ? readable(name, d.text) : '';
   const text = d ? (laid ? pretty : d.text) : '';
   const lines = useMemo(() => { const l = text.split('\n'); if (l.length > 1 && l[l.length - 1] === '') l.pop(); return l; }, [text]);

@@ -290,3 +290,24 @@ test('editing a text file in place: saved as a new version (the old one kept), r
   const pic = (await ann('POST', '/api/files/upload?name=p.png', null, PNG)).body;
   assert.equal((await ann('PUT', `/api/files/${pic.id}/source-text`, { text: 'x', version: 1 })).status, 400);
 });
+
+test('a new text file: named as asked (.txt added when the name has no ending), empty or with text, then editable', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const y = await ann('POST', '/api/files/new-text', { name: 'deploy.yaml' });
+  assert.equal(y.status, 201, JSON.stringify(y.body));
+  assert.deepEqual([y.body.name, y.body.kind, y.body.size], ['deploy.yaml', 'file', 0]);
+  assert.equal((await ann('GET', `/api/files/${y.body.id}/source-text`)).body.text, '');
+  const t = (await ann('POST', '/api/files/new-text', { name: 'Shopping list', text: 'milk\n' })).body;
+  assert.equal(t.name, 'Shopping list.txt');
+  assert.equal(t.mime, 'text/plain');
+  assert.equal((await ann('GET', `/api/files/${t.id}/source-text`)).body.text, 'milk\n');
+  assert.equal((await ann('POST', '/api/files/new-text', { name: 'Procfile' })).body.name, 'Procfile');
+  assert.match((await ann('POST', '/api/files/new-text', { name: 'photo.png' })).body.error, /can’t be written as text/);
+  // It's then edited like any other.
+  const opened = (await ann('GET', `/api/files/${y.body.id}/source-text`)).body;
+  assert.equal((await ann('PUT', `/api/files/${y.body.id}/source-text`, { text: 'replicas: 2\n', version: opened.version })).status, 200);
+  // In a folder.
+  const folder = (await ann('POST', '/api/files/folder', { name: 'Ops' })).body;
+  assert.equal((await ann('POST', '/api/files/new-text', { name: 'notes.md', parent_id: folder.id })).body.parent_id, folder.id);
+});

@@ -170,6 +170,33 @@ await step('Edit changes a YAML file in place: Ctrl+S saves it, the old text sta
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('New → Text file… makes one and opens it in the editor; a name with no ending gets .txt', async () => {
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('menuitem', { name: 'Text file…' }).click();
+  await page.getByLabel(/^File name/).fill('deploy.yaml');
+  await page.getByRole('button', { name: 'Create' }).click();
+  const box = page.getByLabel('Edit deploy.yaml');
+  await box.waitFor({ timeout: 15000 });
+  await box.fill('replicas: 2\nimage: shop:1.4\n');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByLabel('Text of deploy.yaml').getByText('image: shop:1.4').waitFor({ timeout: 10000 });
+  await page.keyboard.press('Escape');
+  await page.locator('.files tbody tr').filter({ hasText: 'deploy.yaml' }).waitFor();
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('menuitem', { name: 'Text file…' }).click();
+  await page.getByLabel(/^File name/).fill('Packing list');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByLabel('Edit Packing list.txt').waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));
