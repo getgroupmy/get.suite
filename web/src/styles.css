@@ -2832,6 +2832,13 @@ p.doc-email-fields { margin: 0; }
 .code-view mark { background: #fde68a; color: #1f1f1f; border-radius: 2px; }
 .code-view mark.current { background: #f59e0b; outline: 2px solid #b45309; }
 .code-find input { min-width: 0; }
+.table-contents { min-width: 0; width: 100%; align-self: stretch; text-align: left; }
+.table-view { max-height: 65vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.table-view table { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
+.table-view th, .table-view td { padding: 5px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: pre-wrap; vertical-align: top; max-width: 40ch; overflow-wrap: anywhere; text-align: left; }
+.table-view thead th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; z-index: 1; }
+.table-view .table-num { color: var(--muted); font-weight: 400; text-align: right; background: var(--surface-2); position: sticky; left: 0; width: 1%; white-space: nowrap; }
+.table-view thead .table-num { z-index: 2; }
 .code-num { display: inline-block; min-width: 3.5em; padding: 0 12px 0 8px; margin-right: 8px; text-align: right; color: var(--muted, #5f6368); user-select: none; border-right: 1px solid var(--border); }
 .card-file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .card-file-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }

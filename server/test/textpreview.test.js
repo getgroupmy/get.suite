@@ -38,6 +38,8 @@ test('a code or data file’s text for its preview', async () => {
   assert.deepEqual(r.body, { text: '{"chair":40,"desk":"Ünïcode ✓"}', truncated: false, size: json.size });
   const py = (await ann('POST', '/api/files/upload?name=report.py', null, Buffer.from('print("hi")\n'))).body;
   assert.equal((await ann('GET', `/api/files/${py.id}/source-text`)).body.text, 'print("hi")\n');
+  const csv = (await ann('POST', '/api/files/upload?name=stock.csv', null, Buffer.from('Item,Price\nDesk,120\n'))).body;
+  assert.equal((await ann('GET', `/api/files/${csv.id}/source-text`)).body.text, 'Item,Price\nDesk,120\n', 'a CSV too (shown as a table)');
   // Big: the first 512 KB, said to be cut short, with no half character at the end.
   const big = (await ann('POST', '/api/files/upload?name=big.log.sql', null, Buffer.from('é'.repeat(300 * 1024)))).body;
   const b = (await ann('GET', `/api/files/${big.id}/source-text`)).body;

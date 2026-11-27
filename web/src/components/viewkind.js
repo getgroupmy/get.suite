@@ -2,13 +2,14 @@
 const KINDS = {
   picture: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'],
   pdf: ['pdf'],
-  text: ['txt', 'log', 'csv', 'md'],
+  text: ['txt', 'log', 'md'],
+  table: ['csv', 'tsv'], // shown as a table (headings, rows), or as text
   video: ['mp4', 'webm'],
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'weba', 'opus'],
   office: ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'odp'],
   eml: ['eml'], // an email, shown as text
-  // code and data files shown as their text (the same list as the server's TEXT_EXTS, server/src/textexts.js)
-  code: ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'tsv', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
+  // code and data files shown as their text (the server's TEXT_EXTS, server/src/textexts.js, has these and csv/tsv)
+  code: ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
     'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss', 'less', 'vue', 'svelte',
     'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'],
   cards: ['ics', 'vcf'], // a calendar file's events or contact cards' people, to add to Calendar or Contacts
@@ -16,7 +17,7 @@ const KINDS = {
 };
 const BY_EXT = Object.fromEntries(Object.entries(KINDS).flatMap(([k, exts]) => exts.map((e) => [e, k])));
 
-/** 'picture' | 'pdf' | 'text' | 'video' | 'audio' | 'office' | 'eml' | 'cards' | 'code' | 'zip', or null for attachments that only download. */
+/** 'picture' | 'pdf' | 'text' | 'video' | 'audio' | 'office' | 'eml' | 'cards' | 'code' | 'table' | 'zip', or null for attachments that only download. */
 export function previewKind(filename) {
   const m = /\.([a-z0-9]+)$/i.exec(String(filename || ''));
   return (m && BY_EXT[m[1].toLowerCase()]) || null;

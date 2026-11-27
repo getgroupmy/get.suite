@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { formatBytes, formatDate } from '../api.js';
 import Icon, { fileIcon } from '../components/Icon.jsx';
 import CodeContents from './CodeContents.jsx';
+import TableContents from './TableContents.jsx';
 import { CardsList } from './CardFileContents.jsx';
 import { previewKind } from '../components/viewkind.js';
 
@@ -108,6 +109,7 @@ function FileView({ file, src, download, read }) {
   if (/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m)) preview = <img src={src} alt={file.name} className="preview-media" />;
   else if (/^video\/(mp4|webm)$/.test(m)) preview = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) preview = <audio src={src} controls />;
+  else if (previewKind(file.name) === 'table') preview = <TableContents name={file.name} load={() => read('source-text')} />;
   else if (m === 'application/pdf' || /^text\/(plain|csv|markdown)$/.test(m)) preview = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (previewKind(file.name) === 'code') preview = <CodeContents name={file.name} load={() => read('source-text')} />;
   else if (/\.(ics|vcf)$/i.test(file.name)) preview = <LinkCards read={read} canDownload={!file.no_download} />;
