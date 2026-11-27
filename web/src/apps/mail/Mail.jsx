@@ -1460,7 +1460,7 @@ function Conversation({ folder, uid, date, onOpen, onCompose, onChanged, onRemov
   };
   return (
     <div className="conversation">
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row wrap conversation-bar" style={{ gap: 8 }}>
         <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
         {unread.length > 0 && <button type="button" className="link-btn small" title="Mark the conversation's unread messages read" onClick={markAllRead}>Mark all read ({unread.length})</button>}
         {inInbox.length > 0 && <button type="button" className="link-btn small" title="Move the conversation's messages in the Inbox to Archive" onClick={archiveAll}>Archive all ({inInbox.length})</button>}

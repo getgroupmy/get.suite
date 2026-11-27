@@ -88,6 +88,26 @@ await step('opening one from Sent goes there', async () => {
   if (!/\/mail\/Sent\/\d+/.test(page.url())) throw new Error(page.url());
   await page.getByRole('button', { name: /^▸ Conversation: 1 earlier, 1 later message/ }).waitFor();
 });
+await step('the conversation bar: every button reachable on a phone (it wraps), and no accessibility problems, light and dark', async () => {
+  const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
+  const bar = page.locator('.conversation-bar');
+  await bar.getByRole('button', { name: /^Mark all read/ }).waitFor();
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.evaluate(AXE);
+    const bad = await page.evaluate(async () => (await window.axe.run(document.querySelector('.conversation'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes[0]?.html.slice(0, 120)}`));
+    if (bad.length) throw new Error(`${scheme}: ${bad.join(' | ')}`);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(400);
+  for (const b of await bar.getByRole('button').all()) {
+    const r = await b.boundingBox();
+    if (!r || r.x < 0 || r.x + r.width > 390) throw new Error(`${await b.innerText()} is off the screen: ${JSON.stringify(r)}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+});
 await step('Mark all read marks the conversation\'s unread messages read', async () => {
   const btn = page.getByRole('button', { name: /^Mark all read \(1\)$/ });
   await btn.click();
