@@ -970,7 +970,7 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .comment-threads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .comment-thread { border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; background: var(--surface); }
 .comment-thread.active { border-color: var(--accent); box-shadow: var(--shadow); cursor: default; }
-.comment-thread.resolved { opacity: .7; }
+.comment-thread.resolved { background: var(--surface-2); border-style: dashed; } /* (not faded: its text stays readable) */
 .new-comments-pill { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: middle; }
 .comments-new-count { margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: var(--on-danger); font-size: 11px; font-weight: 600; line-height: 18px; }
 .comment-new-tag { flex: none; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; line-height: 18px; }
@@ -2834,6 +2834,13 @@ p.doc-email-fields { margin: 0; }
 .code-find input { min-width: 0; }
 .code-find .code-goto { width: 7.5em; flex: none; }
 .code-view .code-line.target { background: var(--accent-soft); outline: 1px solid var(--accent); }
+.code-view .code-line { position: relative; }
+.code-view.picking .code-line { cursor: pointer; }
+.code-view.picking .code-line:hover { background: var(--accent-soft); }
+.code-view .code-line.commented { box-shadow: inset 3px 0 0 #e37400; }
+.code-mark { position: absolute; left: 5px; top: 3px; width: 13px; height: 13px; padding: 0; border: 0; border-radius: 7px 7px 7px 2px; background: #e37400; cursor: pointer; text-indent: 0; }
+.code-mark.on { background: #1a73e8; }
+.code-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .code-view .tok-comment { color: #5f6b7a; font-style: italic; }
 .code-view .tok-string { color: #0b6b2e; }
 .code-view .tok-number { color: #9a4a00; }
@@ -2841,6 +2848,7 @@ p.doc-email-fields { margin: 0; }
 .code-view .tok-key { color: #1a56b0; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .code-view .tok-comment { color: #9aa6b4; } :root:not([data-theme="light"]) .code-view .tok-string { color: #8fd19e; } :root:not([data-theme="light"]) .code-view .tok-number { color: #f6b26b; } :root:not([data-theme="light"]) .code-view .tok-keyword { color: #d4a5ff; } :root:not([data-theme="light"]) .code-view .tok-key { color: #8ab4f8; } }
 :root[data-theme="dark"] .code-view .tok-comment { color: #9aa6b4; } :root[data-theme="dark"] .code-view .tok-string { color: #8fd19e; } :root[data-theme="dark"] .code-view .tok-number { color: #f6b26b; } :root[data-theme="dark"] .code-view .tok-keyword { color: #d4a5ff; } :root[data-theme="dark"] .code-view .tok-key { color: #8ab4f8; }
+:root .code-view .code-line.target .tok-comment, :root .code-view.picking .code-line:hover .tok-comment { color: inherit; } /* readable on the highlight */
 .notice-warn { padding: 8px 12px; border-radius: 8px; background: #fef7e0; color: #5c3c00; border: 1px solid #f9d27a; }
 :root[data-theme="dark"] .notice-warn { background: #3d2f00; color: #fde293; border-color: #7a5c00; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .notice-warn { background: #3d2f00; color: #fde293; border-color: #7a5c00; } }

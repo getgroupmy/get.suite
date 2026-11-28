@@ -25,6 +25,7 @@ import ZipContents from '../ZipContents.jsx';
 import EmlContents from '../EmlContents.jsx';
 import CardFileContents from '../CardFileContents.jsx';
 import CodeContents from '../CodeContents.jsx';
+import { lineLabel } from '../linemarks.js';
 import { dropDraft } from '../textdrafts.js';
 import TableContents from '../TableContents.jsx';
 import { previewKind } from '../../components/viewkind.js';
@@ -1508,6 +1509,13 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
     } catch (e) { toast(e.message, 'error'); setUnpacking(false); }
   };
   const pins = threads.filter((t) => !t.resolved && t.anchor && t.anchor.x !== undefined);
+  // Text files: comments on a line, each shown as a marker beside it (and following it as lines are added above).
+  const isText = previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name);
+  const lineMarks = isText ? threads.filter((t) => !t.resolved && t.anchor?.line).map((t) => ({ id: t.id, line: t.anchor.line, text: t.anchor.text })) : null;
+  const [placed, setPlaced] = useState({});
+  const [showLine, setShowLine] = useState(null);
+  const linked = useRef(false); // a link to a comment on a line: that line brought into view, once the file is read
+  useEffect(() => { if (comment && !linked.current && placed[comment]) { linked.current = true; setShowLine({ line: placed[comment].line, n: Date.now() }); } }, [placed, comment]);
   const newComment = (anchor, label) => { setPanel(true); setPending({ anchor, label, onCreated: () => setPending(null), onCancel: () => setPending(null) }); };
   const pinAt = (e) => {
     if (!pinning) return;
@@ -1515,7 +1523,7 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
     setPinning(false);
     newComment({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }, 'this spot');
   };
-  const labelOf = (t) => (t.anchor?.x !== undefined ? `Spot ${pins.findIndex((p) => p.id === t.id) + 1 || ''}`.trim() : 'The whole file');
+  const labelOf = (t) => (t.anchor?.line ? lineLabel(t.anchor, placed[t.id]) : t.anchor?.x !== undefined ? `Spot ${pins.findIndex((p) => p.id === t.id) + 1 || ''}`.trim() : 'The whole file');
   let body;
   if (isPicture) body = (
     <div className={`preview-pic ${pinning ? 'pinning' : ''}`} onClick={pinAt}>
@@ -1529,6 +1537,8 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit} onDirty={(v) => { unsaved.current = v; }} draftId={file.id}
+    marks={lineMarks} activeMark={active} onMark={(id) => { setPanel(true); setActive(id); }} onPlaced={setPlaced} showLine={showLine}
+    picking={pinning} onPick={(a) => { setPinning(false); newComment(a, `line ${a.line.toLocaleString()}`); }}
     onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.
   else if (m === 'application/pdf' || (/^text\/(plain|csv)$/.test(m) && !/\.(md|markdown|txt|log)$/i.test(file.name))) body = <iframe src={src} title={file.name} className="preview-frame" />;
@@ -1553,10 +1563,11 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
                 <div className="row wrap">
                   <button type="button" className="btn small" onClick={() => newComment({}, 'the whole file')}>Comment on the file</button>
                   {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
+                  {isText && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} title="Click a line of the file, or type its number in Go to line and press Enter" onClick={() => setPinning(!pinning)}>{pinning ? 'Click a line…' : 'Comment on a line'}</button>}
                 </div>
               )}
               <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
-                onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
+                onShow={(t) => { setActive(t.id); if (isText && t.anchor?.line) setShowLine({ line: placed[t.id]?.line ?? t.anchor.line, n: Date.now() }); }} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
             </div>
           )}
         </div>

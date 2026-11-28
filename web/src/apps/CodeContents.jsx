@@ -2,12 +2,16 @@
 // is laid out to be read; Find in this file marks each match (Enter / Shift+Enter or the arrows step through them),
 // Wrap lines keeps long lines in view, and Copy all puts the text (as shown) on the clipboard, unless the owner turned
 // copying off (canCopy). Edit (onSave, for those who may change the file) edits the text as written; Save keeps the
-// file as it was as an earlier version. `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
+// file as it was as an earlier version. Comments on lines (Drive): `marks` are the comments ({ id, line, text }), each
+// shown as a marker on its line (onMark opens it; onPlaced tells where each one is now); `picking` makes a click on a
+// line (or Enter in Go to line) choose it for a new comment (onPick); `showLine` ({ line, n }) brings a line into view.
+// `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf, countIn, replaceAllIn } from './codefind.js';
 import { languageOf, colourLines } from './codecolour.js';
 import { checkText } from './textcheck.js';
 import { readDraft, keepDraft, dropDraft } from './textdrafts.js';
+import { lineAnchor, placeMarks } from './linemarks.js';
 
 export const TEXT_MAX = 512 * 1024;
 /** Read a file's text from an address (an attachment, a chat file), the first 512 KB of it. */
@@ -25,7 +29,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null, draftId = null }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null, draftId = null, marks = null, activeMark = null, onMark = null, onPlaced = null, picking = false, onPick = null, showLine = null }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -34,6 +38,7 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const [wrap, setWrap] = useState(false);
   const [goTo, setGoTo] = useState(''); // Go to line: what's typed
   const [target, setTarget] = useState(0); // the line gone to (1-based), highlighted
+  const [jump, setJump] = useState(0);
   const view = useRef(null);
   const [copied, setCopied] = useState('');
   const [draft, setDraft] = useState(null); // the text being edited (onSave: those who may edit it)
@@ -93,7 +98,14 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     if (!el) return;
     const box = view.current.getBoundingClientRect(), r = el.getBoundingClientRect();
     view.current.scrollTop += r.top - box.top - box.height / 3;
-  }, [target]);
+  }, [target, jump]);
+  // Comments on lines: shown on the text as written (line numbers are of the file itself, not of the laid-out JSON).
+  const marksKey = JSON.stringify(marks || []);
+  const { placed, byLine: markedLines } = useMemo(() => placeMarks(lines, d && text === d.text ? marks : null), [lines, marksKey, d, text]); // eslint-disable-line react-hooks/exhaustive-deps
+  const placedKey = JSON.stringify(placed);
+  useEffect(() => { onPlaced?.(placed); }, [placedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (picking) setLaid(false); }, [picking]);
+  useEffect(() => { if (showLine) { setLaid(false); setTarget(showLine.line); setJump((j) => j + 1); } }, [showLine?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
   const save = async (anyway = false) => {
@@ -178,13 +190,21 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
         </>}
         <input type="text" inputMode="numeric" className="code-goto" placeholder="Go to line" aria-label="Go to line" value={goTo}
           onChange={(e) => setGoTo(e.target.value.replace(/\D/g, '').slice(0, 7))}
-          onKeyDown={(e) => { if (e.key === 'Enter' && goTo) { e.preventDefault(); setTarget(Math.min(Math.max(1, Number(goTo)), lines.length)); } }} />
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !goTo) return;
+            e.preventDefault();
+            const n = Math.min(Math.max(1, Number(goTo)), lines.length);
+            setTarget(n);
+            if (picking && onPick && lines.length) onPick(lineAnchor(n, lines[n - 1]));
+          }} />
       </div>
-      <pre ref={view} className={`code-view ${wrap ? 'wrap' : ''}`} tabIndex={0} aria-label={`Text of ${name}`}>
+      <pre ref={view} className={`code-view ${wrap ? 'wrap' : ''}${picking ? ' picking' : ''}`} tabIndex={0} aria-label={`Text of ${name}`}>
         {lines.map((l, i) => {
-          const hits = byLine.get(i);
+          const hits = byLine.get(i), on = markedLines.get(i + 1);
           return (
-            <span key={i} className={`code-line${i + 1 === target ? ' target' : ''}`}><span className="code-num" aria-hidden="true">{i + 1}</span>
+            <span key={i} className={`code-line${i + 1 === target ? ' target' : ''}${on ? ' commented' : ''}`} onClick={picking && onPick ? () => { setTarget(i + 1); onPick(lineAnchor(i + 1, l)); } : undefined}>
+              {on && <button type="button" className={`code-mark${on.includes(activeMark) ? ' on' : ''}`} aria-label={`${on.length === 1 ? 'Comment' : `${on.length} comments`} on line ${i + 1}`} title={`${on.length === 1 ? 'A comment' : `${on.length} comments`} on this line`}
+                onClick={(e) => { e.stopPropagation(); onMark?.(on.includes(activeMark) ? on[(on.indexOf(activeMark) + 1) % on.length] : on[0]); }} />}<span className="code-num" aria-hidden="true">{i + 1}</span>
               {hits ? piecesOf(l, hits.list, hits.first).map((p, k) => (p.hit < 0 ? p.text : <mark key={k} className={p.hit === current ? 'current' : undefined}>{p.text}</mark>))
                 : colours ? colours[i].map((p, k) => (p.k ? <span key={k} className={`tok-${p.k}`}>{p.text}</span> : p.text)) : l}{'\n'}</span>
           );

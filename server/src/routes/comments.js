@@ -20,7 +20,7 @@ q(`CREATE TABLE IF NOT EXISTS file_comments (
   thread_id TEXT,                     -- null for the first comment of a thread; else that comment's id
   author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   body TEXT NOT NULL,
-  anchor TEXT,                        -- JSON: { quote } (Docs) or { sheet, cell } (Sheets)
+  anchor TEXT,                        -- JSON: { quote } (Docs), { sheet, cell } (Sheets), { slide }, or for files {} / { x, y } / { line, text }
   resolved INTEGER NOT NULL DEFAULT 0,
   resolved_by TEXT,
   created_at INTEGER NOT NULL,
@@ -93,7 +93,12 @@ function loadFile(id, user, needed = 'viewer') {
 function readAnchor(kind, a) {
   if (!a || typeof a !== 'object') return null;
   if (kind === 'doc') return { quote: str(a.quote ?? '', { max: 500 }) };
-  if (kind === 'file') { // the whole file, or a spot on a picture ({ x, y } in % of its width and height)
+  if (kind === 'file') { // the whole file, a spot on a picture ({ x, y } in % of its width and height), or a line of a text file
+    if (a.line !== undefined) { // { line, text }: the line's number and how it read, so the comment can follow it
+      const line = Number(a.line);
+      if (!Number.isInteger(line) || line < 1 || line > 9999999) throw bad('Comment on a line of the file');
+      return { line, text: String(a.text ?? '').slice(0, 300) };
+    }
     const x = Number(a.x), y = Number(a.y);
     if (a.x === undefined && a.y === undefined) return {};
     if (![x, y].every((v) => Number.isFinite(v) && v >= 0 && v <= 100)) throw bad('Comment on a spot inside the picture');
