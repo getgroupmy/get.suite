@@ -6,7 +6,7 @@ import { DRAFT_KEY, EVENT_KEY } from './docs/blocks.js';
 import { formatAddress } from '../components/addresses.js';
 
 const APP = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
-const linkTo = (file, origin) => (APP[file.kind] ? `${origin}/${APP[file.kind]}/${file.id}` : `${origin}/drive?file=${file.id}`);
+const linkTo = (file, origin) => (APP[file.kind] ? `${origin}/${APP[file.kind]}/${file.id}` : `${origin}/drive?preview=${file.id}`);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 /** The message for these people about this file: { to, subject, html }. */

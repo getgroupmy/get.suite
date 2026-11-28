@@ -211,6 +211,11 @@ await step('“Search everything” at the top: a match inside a text file says 
   await hit.click();
   await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
 });
+await step('an older link to an uploaded file (/drive?file=…, as the assistant and Email collaborators gave) opens the file too', async () => {
+  await page.goto(`${B}/drive?file=${f.id}`);
+  await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
+  await until(() => !page.url().includes('file='));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

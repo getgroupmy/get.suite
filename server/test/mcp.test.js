@@ -254,6 +254,14 @@ test('comments: on words in a document, a cell, a slide, a whole file; replies; 
   // Lines added above and one rewritten: the first is marked as changed, the second followed to its new number.
   assert.ok(!(await call(rw, 'write_text_file', { file: py.id, text: '# sums\n\na = 1\nb = 3\n\nprint(a + b)\nprint(a)\n' })).isError);
   assert.deepEqual((await call(rw, 'list_comments', { file: py.id })).structuredContent.threads.map((t) => t.about).sort(), ['line 2 (since changed: it read “b = 2”)', 'line 6: “print(a + b)”']);
+  // Searching for words inside it: the result says the line, and its link opens the file there (an uploaded file's link opens its preview).
+  const { indexPending } = await import('../src/search.js');
+  while (await indexPending()) { /* until everything is indexed */ }
+  const hit = (await call(rw, 'search', { query: 'print' })).structuredContent.results.find((r) => r.id === py.id);
+  assert.match(hit.title, /^review\.py.* — line 6$/);
+  assert.match(hit.url, /\/drive\?preview=[\w-]+&line=6$/);
+  const named = (await call(rw, 'search', { query: 'review.py' })).structuredContent.results.find((r) => r.id === py.id);
+  assert.match(named.url, /\/drive\?preview=[\w-]+$/, 'found by its name: no line');
   // Folders: no comments. Read-only tokens can list but not comment.
   const folder = (await call(rw, 'create_folder', { name: 'Review folder' })).structuredContent;
   assert.match((await call(rw, 'comment_on_file', { file: folder.id, text: 'x' })).content[0].text, /Folders don’t have comments/);

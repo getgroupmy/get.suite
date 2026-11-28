@@ -102,7 +102,7 @@ const describeSuggestion = (x, max = 80) => {
 };
 // What the person can do with a file, in words an assistant can act on (edit only with owner or editor; comment with commenter).
 const ACCESS = { owner: 'owner (can edit and share)', editor: 'can edit', commenter: 'can comment and suggest edits, not edit', viewer: 'can view only' };
-const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
+const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?preview=${x.id}`))(f)); // (an uploaded file: Drive with its preview open)
 
 // ---- the tools ----
 /** One of the person's forms by its id (form:…) or title (exactly, or the latest whose title has it in). */
@@ -146,7 +146,7 @@ export const TOOLS = [
       ]);
       const low = String(query).toLowerCase();
       const results = [
-        ...(Array.isArray(files) ? files : files?.files || []).slice(0, 10).map((f) => ({ id: `file:${f.id}`, title: `${f.name}${f.parent_name ? ` (in ${f.parent_name})` : ''}`, url: fileUrl(f) })), // (the folder it's in, when the person can open it)
+        ...(Array.isArray(files) ? files : files?.files || []).slice(0, 10).map((f) => ({ id: `file:${f.id}`, title: `${f.name}${f.parent_name ? ` (in ${f.parent_name})` : ''}${f.place_line ? ` — line ${f.place_line}` : ''}`, url: `${fileUrl(f)}${f.place_line ? `&line=${f.place_line}` : ''}` })), // (the folder it's in, when the person can open it; a text file, the line the words are on)
         ...(mail?.messages || []).slice(0, 10)
           .map((m) => ({ id: `mail:${m.folder}:${m.uid}`, title: `${m.subject || '(no subject)'} — ${m.sent ? `to ${(m.to || []).map((t) => t.address).join(', ')}` : m.from?.name || m.from?.address || ''}${m.folder !== 'INBOX' && !m.sent ? ` (in ${m.folder_name})` : ''}`, url: link(`/mail/${encodeURIComponent(m.folder)}/${m.uid}`) })),
         ...(chat || []).slice(0, 10).map((m) => ({ id: `chat:${m.channel_id}:${m.id}`, title: `${m.user_name || 'Someone'} in ${m.where}: ${words(m.body, 80)}`, url: link(`/chat/${m.channel_id}?msg=${m.parent_id || m.id}`) })),

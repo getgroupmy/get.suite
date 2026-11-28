@@ -376,7 +376,7 @@ export default function Drive() {
   }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   // /drive?preview=<file id>&comment=<id> (or &line=<n>): a file's preview (e.g. from a comment notification, or a link to a line).
   useEffect(() => {
-    const id = searchParams.get('preview');
+    const id = searchParams.get('preview') || searchParams.get('file'); // (?file=: links given out before, by Email collaborators and the assistant)
     if (!id) return;
     const comment = searchParams.get('comment'), line = lineFrom(searchParams.get('line')); // &line=12: a text file at that line
     setSearchParams({}, { replace: true });
