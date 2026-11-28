@@ -77,3 +77,21 @@ test('a link to a line, in words (for Chat cards): how the line reads now; only 
   assert.equal((await ann('GET', `/api/files/${pic.id}/place?line=1`)).status, 400);
   assert.equal((await ann('GET', `/api/files/${f.id}/place?slide=x`)).status, 400);
 });
+
+test('searching for words inside a text file says which line they’re on, to open it there', async () => {
+  const ann = client(); assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const up = async (name, text) => (await ann('POST', `/api/files/upload?name=${name}`, null, Buffer.from(text))).body;
+  await up('service.yaml', 'name: shop\n\nspec:\n  quokkareplicas: 3\n');
+  await up('quokkareplicas-notes.txt', 'nothing inside');
+  await up('table.csv', 'a,b\nquokkareplicas,1\n');
+  await up('readme.md', '# Title\n\nquokkareplicas here\n');
+  const { indexPending } = await import('../src/search.js');
+  while (await indexPending()) { /* until everything is indexed */ }
+  const found = (await ann('GET', '/api/files?view=search&q=quokkareplicas')).body;
+  const by = Object.fromEntries(found.map((f) => [f.name, f]));
+  assert.deepEqual(Object.keys(by).sort(), ['quokkareplicas-notes.txt', 'readme.md', 'service.yaml', 'table.csv']);
+  assert.deepEqual([by['service.yaml'].place_line, by['service.yaml'].place_words], [4, 'Line 4']);
+  assert.equal(by['quokkareplicas-notes.txt'].place_line, undefined, 'found by its name: opened at the top');
+  assert.equal(by['table.csv'].place_line, undefined, 'shown as a table, not as lines');
+  assert.equal(by['readme.md'].place_line, undefined, 'shown formatted, not as lines');
+});

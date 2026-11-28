@@ -517,7 +517,7 @@ export default function Drive() {
   function open(f) {
     const p = openPath(f);
     if (p) navigate(`${p}${f.place || ''}`); // a search match: at the slide or cell its words are on
-    else setDialog({ type: 'preview', file: f });
+    else setDialog({ type: 'preview', file: f, line: f.place_line || null }); // (a text file: at the line its words are on)
   }
 
   const act = (fn, msg) => async () => {

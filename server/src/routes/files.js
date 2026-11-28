@@ -1,5 +1,5 @@
 import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
-import { placeOfMatch } from '../matchplace.js';
+import { placeOfMatch, lineOfMatch } from '../matchplace.js';
 import { headingsOfDoc } from '../office/anchors.js';
 import { mediaShowingIn, keepMediaShowing } from '../mediahome.js';
 import { prefsOf } from './docprefs.js';
@@ -796,6 +796,14 @@ export default function fileRoutes({ maxUploadBytes }) {
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
       // A presentation or spreadsheet matched inside: where (the slide, or the sheet and cell), to open it there.
       for (const f of rows) {
+        // A text or code file (shown as its lines): the line the words are on, to open it there.
+        if (f.match && f.kind === 'file' && TEXT_PREVIEW.test(f.name) && !/\.(md|markdown|csv|tsv)$/i.test(f.name)) {
+          try {
+            const at = lineOfMatch(sourceTextOf({ ...f, storage: q('SELECT storage FROM files WHERE id = ?').get(f.id).storage }).text, req.query.q);
+            if (at) { f.place_line = at.line; f.place_words = at.words; }
+          } catch { /* not readable as text: opened at its top */ }
+          continue;
+        }
         if (!f.match || !['slides', 'sheet', 'doc'].includes(f.kind)) continue;
         let json; try { json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { continue; }
         const at = placeOfMatch(f.kind, json, req.query.q);

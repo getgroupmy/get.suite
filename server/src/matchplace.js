@@ -37,3 +37,13 @@ export function placeOfMatch(kind, json, query) {
   }
   return null;
 }
+
+/** { line, words } for where `query` is in a text file: the first line with all its words, or else with the first of them; or null. */
+export function lineOfMatch(text, query) {
+  const words = wordsOf(query);
+  if (!words.length) return null;
+  const lines = String(text || '').split('\n').map(fold);
+  let at = lines.findIndex((l) => words.every((w) => l.includes(w)));
+  if (at < 0) at = lines.findIndex((l) => l.includes(words[0]));
+  return at < 0 ? null : { line: at + 1, words: `Line ${(at + 1).toLocaleString('en')}` };
+}

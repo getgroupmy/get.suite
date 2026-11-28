@@ -188,6 +188,20 @@ await step('the link pasted in Chat shows as a card with the line as it reads; t
   await card.click();
   await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
 });
+await step('searching Drive for words inside a text file says the line, and opens the file there', async () => {
+  await page.goto(`${B}/drive/search?q=${encodeURIComponent('def total')}`);
+  const row = page.locator('.files tbody tr').filter({ hasText: 'report.py' });
+  await until(async () => { if (await row.getByText('Line 7').count()) return true; await page.reload(); await page.waitForTimeout(700); return false; }, 20000);
+  await row.locator('.name-text').dblclick();
+  await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
+  await page.screenshot({ path: `${SP}/shots/line-search.png` });
+  await page.keyboard.press('Escape');
+  // Found by its name: it opens at the top, with no line picked out.
+  await page.goto(`${B}/drive/search?q=report`);
+  await page.locator('.files tbody tr').filter({ hasText: 'report.py' }).locator('.name-text').dblclick();
+  await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
+  if (await dlg().locator('.code-line.target').count()) throw new Error('a line picked out for a name match');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
