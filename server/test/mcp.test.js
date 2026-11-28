@@ -240,6 +240,20 @@ test('comments: on words in a document, a cell, a slide, a whole file; replies; 
   assert.ok(!(await call(rw, 'comment_on_file', { file: deck.id, slide: 2, text: 'Add a chart' })).isError);
   assert.match((await call(rw, 'comment_on_file', { file: deck.id, slide: 3, text: 'x' })).content[0].text, /from 1 to 2/);
   assert.equal((await call(rw, 'list_comments', { file: deck.id })).structuredContent.threads[0].about, 'slide 2');
+  // A line of a text file: by number, or by words found on one line only; listed where the line is now.
+  const py = (await call(rw, 'write_text_file', { name: 'review.py', text: 'a = 1\nb = 2\n\nprint(a + b)\nprint(a)\n' })).structuredContent;
+  const l1 = await call(rw, 'comment_on_file', { file: py.id, line: 2, text: 'Why 2?' });
+  assert.ok(!l1.isError, l1.content[0].text);
+  assert.equal(l1.structuredContent.about, 'line 2');
+  assert.equal((await call(rw, 'comment_on_file', { file: py.id, quote: 'a + b', text: 'Name it' })).structuredContent.about, 'line 4');
+  assert.match((await call(rw, 'comment_on_file', { file: py.id, quote: 'print', text: 'x' })).content[0].text, /is on lines 4, 5: give line/);
+  assert.match((await call(rw, 'comment_on_file', { file: py.id, quote: 'nowhere', text: 'x' })).content[0].text, /isn’t on any line/);
+  assert.match((await call(rw, 'comment_on_file', { file: py.id, line: 9, text: 'x' })).content[0].text, /from 1 to 5/);
+  assert.match((await call(rw, 'comment_on_file', { file: py.id, line: 1, quote: 'b = 2', text: 'x' })).content[0].text, /Line 1 reads “a = 1”, without “b = 2”/);
+  assert.deepEqual((await call(rw, 'list_comments', { file: py.id })).structuredContent.threads.map((t) => t.about).sort(), ['line 2: “b = 2”', 'line 4: “print(a + b)”']);
+  // Lines added above and one rewritten: the first is marked as changed, the second followed to its new number.
+  assert.ok(!(await call(rw, 'write_text_file', { file: py.id, text: '# sums\n\na = 1\nb = 3\n\nprint(a + b)\nprint(a)\n' })).isError);
+  assert.deepEqual((await call(rw, 'list_comments', { file: py.id })).structuredContent.threads.map((t) => t.about).sort(), ['line 2 (since changed: it read “b = 2”)', 'line 6: “print(a + b)”']);
   // Folders: no comments. Read-only tokens can list but not comment.
   const folder = (await call(rw, 'create_folder', { name: 'Review folder' })).structuredContent;
   assert.match((await call(rw, 'comment_on_file', { file: folder.id, text: 'x' })).content[0].text, /Folders don’t have comments/);
