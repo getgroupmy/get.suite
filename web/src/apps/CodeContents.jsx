@@ -32,6 +32,8 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
   const [find, setFind] = useState('');
   const [at, setAt] = useState(0);
   const [wrap, setWrap] = useState(false);
+  const [goTo, setGoTo] = useState(''); // Go to line: what's typed
+  const [target, setTarget] = useState(0); // the line gone to (1-based), highlighted
   const view = useRef(null);
   const [copied, setCopied] = useState('');
   const [draft, setDraft] = useState(null); // the text being edited (onSave: those who may edit it)
@@ -85,6 +87,13 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     if (r.top < box.top || r.bottom > box.bottom) view.current.scrollTop += r.top - box.top - box.height / 3;
     if (r.left < box.left || r.right > box.right) view.current.scrollLeft += r.left - box.left - box.width / 3;
   }, [current, find, wrap]);
+  // Go to line: that line brought into view (a third of the way down the text box).
+  useEffect(() => {
+    const el = target && view.current?.querySelector('.code-line.target');
+    if (!el) return;
+    const box = view.current.getBoundingClientRect(), r = el.getBoundingClientRect();
+    view.current.scrollTop += r.top - box.top - box.height / 3;
+  }, [target]);
   if (error) return <p className="muted" role="alert">{error}</p>;
   if (!d) return <p className="muted">Reading the file…</p>;
   const save = async (anyway = false) => {
@@ -167,12 +176,15 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
           <button type="button" className="icon-btn" aria-label="Previous match" onClick={() => step(-1)}>↑</button>
           <button type="button" className="icon-btn" aria-label="Next match" onClick={() => step(1)}>↓</button>
         </>}
+        <input type="text" inputMode="numeric" className="code-goto" placeholder="Go to line" aria-label="Go to line" value={goTo}
+          onChange={(e) => setGoTo(e.target.value.replace(/\D/g, '').slice(0, 7))}
+          onKeyDown={(e) => { if (e.key === 'Enter' && goTo) { e.preventDefault(); setTarget(Math.min(Math.max(1, Number(goTo)), lines.length)); } }} />
       </div>
       <pre ref={view} className={`code-view ${wrap ? 'wrap' : ''}`} tabIndex={0} aria-label={`Text of ${name}`}>
         {lines.map((l, i) => {
           const hits = byLine.get(i);
           return (
-            <span key={i} className="code-line"><span className="code-num" aria-hidden="true">{i + 1}</span>
+            <span key={i} className={`code-line${i + 1 === target ? ' target' : ''}`}><span className="code-num" aria-hidden="true">{i + 1}</span>
               {hits ? piecesOf(l, hits.list, hits.first).map((p, k) => (p.hit < 0 ? p.text : <mark key={k} className={p.hit === current ? 'current' : undefined}>{p.text}</mark>))
                 : colours ? colours[i].map((p, k) => (p.k ? <span key={k} className={`tok-${p.k}`}>{p.text}</span> : p.text)) : l}{'\n'}</span>
           );

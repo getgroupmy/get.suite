@@ -2832,6 +2832,8 @@ p.doc-email-fields { margin: 0; }
 .code-view mark { background: #fde68a; color: #1f1f1f; border-radius: 2px; }
 .code-view mark.current { background: #f59e0b; outline: 2px solid #b45309; }
 .code-find input { min-width: 0; }
+.code-find .code-goto { width: 7.5em; flex: none; }
+.code-view .code-line.target { background: var(--accent-soft); outline: 1px solid var(--accent); }
 .code-view .tok-comment { color: #5f6b7a; font-style: italic; }
 .code-view .tok-string { color: #0b6b2e; }
 .code-view .tok-number { color: #9a4a00; }

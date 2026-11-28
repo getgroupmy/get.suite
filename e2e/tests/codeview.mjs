@@ -85,6 +85,18 @@ await step('Find in this file marks every match, counts them, and Enter / ↓ / 
   await v.getByText('3 of 3').waitFor();
   await box.fill('durian');
   await v.getByText('Not found').waitFor();
+  // Go to line: typed, Enter, and that line is in view and marked; a number past the end goes to the last line.
+  await box.fill('');
+  const go = v.getByLabel('Go to line');
+  await go.fill('300');
+  await go.press('Enter');
+  const tgt = pre.locator('.code-line.target');
+  if (await tgt.locator('.code-num').textContent() !== '300') throw new Error('not line 300');
+  const seen = await pre.evaluate((el) => { const m = el.querySelector('.code-line.target'); const a = el.getBoundingClientRect(), b = m.getBoundingClientRect(); return b.top >= a.top && b.bottom <= a.bottom; });
+  if (!seen) throw new Error('line 300 not scrolled into view');
+  await go.fill('99999');
+  await go.press('Enter');
+  if (await pre.locator('.code-line.target .code-num').textContent() !== '400') throw new Error('past the end: not the last line');
   await page.screenshot({ path: `${SP}/shots/code-find.png` });
   await page.keyboard.press('Escape');
 });
