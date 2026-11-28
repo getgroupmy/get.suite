@@ -11,7 +11,10 @@ test('previewKind: by the file name, safe kinds only', () => {
   assert.equal(previewKind('Report.DOCX'), 'office');
   assert.equal(previewKind('deck.pptx'), 'office');
   assert.equal(previewKind('Photos.ZIP'), 'zip');
-  for (const n of ['logo.svg', 'page.html', 'report.doc', 'old.xls', 'a.7z', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
+  // HTML and SVG never render as pages or pictures (their scripts could run): they're shown as their source, as text.
+  assert.equal(previewKind('logo.svg'), 'code');
+  assert.equal(previewKind('page.html'), 'code');
+  for (const n of ['report.doc', 'old.xls', 'a.7z', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
 });
 
 test('stepPreview skips what cannot be shown and wraps round', () => {

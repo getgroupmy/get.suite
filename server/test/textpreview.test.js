@@ -311,3 +311,19 @@ test('a new text file: named as asked (.txt added when the name has no ending), 
   const folder = (await ann('POST', '/api/files/folder', { name: 'Ops' })).body;
   assert.equal((await ann('POST', '/api/files/new-text', { name: 'notes.md', parent_id: folder.id })).body.parent_id, folder.id);
 });
+
+test('an HTML page and an SVG picture read as their source (for their preview and editing); search finds their words, not their tags', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const html = '<!doctype html>\n<h1>Opening hours</h1>\n<script>alert("hi")</script>\n';
+  const h = (await ann('POST', '/api/files/upload?name=hours.html', null, Buffer.from(html))).body;
+  assert.equal((await ann('GET', `/api/files/${h.id}/source-text`)).body.text, html);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><title>Kumquat logo</title></svg>';
+  const v = (await ann('POST', '/api/files/upload?name=logo.svg', null, Buffer.from(svg))).body;
+  assert.equal((await ann('GET', `/api/files/${v.id}/source-text`)).body.text, svg);
+  const opened = (await ann('GET', `/api/files/${h.id}/source-text`)).body;
+  assert.equal((await ann('PUT', `/api/files/${h.id}/source-text`, { text: html.replace('Opening', 'Shop'), version: opened.version })).status, 200);
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.ok((await ann('GET', '/api/files?view=search&q=kumquat')).body.some((f) => f.name === 'logo.svg'));
+  assert.ok(!(await ann('GET', '/api/files?view=search&q=xmlns')).body.some((f) => f.name === 'logo.svg'), 'tags aren’t words');
+});

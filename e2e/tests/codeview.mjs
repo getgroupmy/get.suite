@@ -394,6 +394,30 @@ await step('unsaved changes survive a closed tab: reopening offers Restore and e
   await page.getByLabel('Find in this file').fill('oak');
   await page.getByText('1 of 1').waitFor();
 });
+await step('an HTML page opens as its source (it used to say there was no preview), and its script doesn’t run', async () => {
+  await page.keyboard.press('Escape');
+  const html = '<!doctype html>\n<!-- shop page -->\n<h1 class="t">Opening hours</h1>\n<script>alert("ran")</script>\n';
+  const f = await page.evaluate(async (t) => (await fetch('/api/files/upload?name=hours.html', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: t })).json(), html);
+  let alerted = false;
+  const onDialog = async (d) => { alerted = true; await d.dismiss(); };
+  page.on('dialog', onDialog);
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  const pre = page.getByLabel('Text of hours.html');
+  await pre.waitFor({ timeout: 15000 });
+  if (!(await pre.innerText()).includes('<script>alert("ran")</script>')) throw new Error(await pre.innerText());
+  if (await pre.locator('.tok-comment').first().textContent() !== '<!-- shop page -->') throw new Error('comment not coloured');
+  await page.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  if (await page.getByText('This kind of file has no preview').count()) throw new Error('no preview');
+  await page.waitForTimeout(500);
+  page.off('dialog', onDialog);
+  if (alerted) throw new Error('the page’s script ran');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.locator('.files tbody tr').filter({ hasText: 'prices.json' }).getByText('prices.json').dblclick(); // for the accessibility check next
+  await page.getByLabel('Text of prices.json').waitFor({ timeout: 15000 });
+  await page.getByLabel('Find in this file').fill('oak');
+  await page.getByText('1 of 1').waitFor();
+});
 await step('the text view passes an accessibility check (it can be scrolled with the keyboard)', async () => {
   await page.evaluate(AXE);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector('[role=dialog]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(' ')).join(', ')}`));

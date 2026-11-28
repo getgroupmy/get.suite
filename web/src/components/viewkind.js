@@ -11,7 +11,7 @@ const KINDS = {
   // code and data files shown as their text (the server's TEXT_EXTS, server/src/textexts.js, has these and csv/tsv)
   code: ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'sql', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx',
     'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'bash', 'ps1', 'bat', 'css', 'scss', 'less', 'vue', 'svelte',
-    'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch'],
+    'r', 'lua', 'pl', 'dart', 'gradle', 'properties', 'gitignore', 'dockerfile', 'tex', 'srt', 'vtt', 'diff', 'patch', 'html', 'htm', 'xhtml', 'svg'], // (HTML and SVG as their source: nothing in them runs)
   cards: ['ics', 'vcf'], // a calendar file's events or contact cards' people, to add to Calendar or Contacts
   zip: ['zip'], // a list of what's inside // converted on the server and shown as Docs, Sheets or Slides would
 };
