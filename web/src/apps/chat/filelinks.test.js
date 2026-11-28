@@ -59,6 +59,12 @@ test('form links: /f/<token> on this server, each once', async () => {
   assert.deepEqual(formLinksIn('/f/short /f/AbC_dEf-123456/pictures/x', 'h'), [], 'too short, or a picture in it');
 });
 
+test('file links: a link to a line of a text file keeps the line', () => {
+  assert.deepEqual(fileLinksIn('see https://ws.example/drive?preview=f1le123&line=12 please', 'ws.example'), [{ id: 'f1le123', kind: 'file', line: 12, place: 'Line 12' }]);
+  assert.deepEqual(fileLinksIn('/drive?line=7&preview=f1le123', 'h'), [{ id: 'f1le123', kind: 'file', line: 7, place: 'Line 7' }]);
+  assert.deepEqual(fileLinksIn('(/drive?preview=f1le123&line=3).', 'h'), [{ id: 'f1le123', kind: 'file', line: 3, place: 'Line 3' }]);
+  for (const bad of ['line=0', 'line=abc', 'line=-2', 'comment=c1']) assert.deepEqual(fileLinksIn(`/drive?preview=f1le123&${bad}`, 'h'), [{ id: 'f1le123', kind: 'file' }], bad);
+});
 test('file links: an uploaded file’s “/drive?preview=…” (as Copy link gives) is a file card too', () => {
   assert.deepEqual(fileLinksIn('the scan: https://ws.example/drive?preview=f1le123 ok', 'ws.example'), [{ id: 'f1le123', kind: 'file' }]);
   assert.deepEqual(fileLinksIn('/drive?comment=c1&preview=f1le123', 'h'), [{ id: 'f1le123', kind: 'file' }]);

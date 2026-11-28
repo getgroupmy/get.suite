@@ -176,6 +176,18 @@ await step('a link to a line: click a line’s number (or Go to line), “Copy l
   await page.goto(`${B}/drive?preview=${f.id}&line=abc`);
   await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
 });
+await step('the link pasted in Chat shows as a card with the line as it reads; the card opens the file at that line', async () => {
+  const kim = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com');
+  const dm = (await api(page, 'POST', '/chat/dm', { user_id: kim.id })).body.id;
+  const sent = await api(page, 'POST', `/chat/channels/${dm}/messages`, { body: `Look at this: ${B}/drive?preview=${f.id}&line=7` });
+  if (sent.status >= 300) throw new Error(JSON.stringify(sent.body));
+  await page.goto(`${B}/chat/${dm}`);
+  const card = page.locator('.file-card').filter({ hasText: 'report.py' });
+  await card.getByText('Line 7: “def total():”').waitFor({ timeout: 15000 });
+  await page.screenshot({ path: `${SP}/shots/line-card.png` });
+  await card.click();
+  await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -59,3 +59,21 @@ test('a comment on a line of a text file keeps the line’s number and how it re
   assert.deepEqual((await ann('POST', `/api/comments/${f.id}`, { body: 'All of it', anchor: {} })).body.comment.anchor, {});
   assert.deepEqual((await ann('POST', `/api/comments/${f.id}`, { body: 'Spot', anchor: { x: 10, y: 20 } })).body.comment.anchor, { x: 10, y: 20 });
 });
+
+test('a link to a line, in words (for Chat cards): how the line reads now; only for those who can open the file', async () => {
+  const ann = client(); assert.equal((await ann('POST', '/api/auth/login', { username: 'ann@acme.com', password: 'password123' })).status, 200);
+  const ben = client(); assert.equal((await ben('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' })).status, 200);
+  const f = (await ann('POST', '/api/files/upload?name=deploy.yaml', null, Buffer.from(`replicas: 2\n\n  image: "shop:1.4"  \n${'x'.repeat(200)}\n`))).body;
+  const place = async (who, line) => (await who('GET', `/api/files/${f.id}/place?line=${line}`));
+  assert.deepEqual((await place(ann, 1)).body, { words: 'Line 1: “replicas: 2”' });
+  assert.deepEqual((await place(ann, 2)).body, { words: 'Line 2' }, 'a blank line is just its number');
+  assert.deepEqual((await place(ann, 3)).body, { words: 'Line 3: “image: "shop:1.4"”' }, 'without the spaces around it');
+  assert.deepEqual((await place(ann, 4)).body, { words: `Line 4: “${'x'.repeat(120)}…”` });
+  assert.deepEqual((await place(ann, 5)).body, { words: 'A line no longer there' });
+  for (const bad of ['0', 'abc', '-1', '1.5', '']) assert.equal((await place(ann, bad)).status, 400, `line=${bad}`);
+  assert.equal((await place(ben, 1)).status, 404, 'not for someone it isn’t shared with');
+  // A file that isn't text has no lines; the other places are refused for an uploaded file as before.
+  const pic = (await ann('POST', '/api/files/upload?name=dot.png', null, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))).body;
+  assert.equal((await ann('GET', `/api/files/${pic.id}/place?line=1`)).status, 400);
+  assert.equal((await ann('GET', `/api/files/${f.id}/place?slide=x`)).status, 400);
+});

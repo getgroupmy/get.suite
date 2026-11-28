@@ -2207,6 +2207,15 @@ export default function fileRoutes({ maxUploadBytes }) {
   // ?heading=<anchor> → the heading's words. For anyone who can open it; a place that's gone says so.
   r.get('/:id/place', (req, res) => {
     const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'file' && req.query.line !== undefined) { // a link to a line of a text file: how that line reads now
+      if (!/^[1-9][0-9]{0,6}$/.test(String(req.query.line))) throw bad('Give a line number');
+      const n = Number(req.query.line);
+      const lines = sourceTextOf(f).text.split('\n');
+      if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+      if (n > lines.length) return res.json({ words: 'A line no longer there' });
+      const text = lines[n - 1].trim();
+      return res.json({ words: `Line ${n}${text ? `: “${text.length > 120 ? `${text.slice(0, 120)}…` : text}”` : ''}` });
+    }
     saveNow(f.id);
     const json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     const { slide, tab, heading } = req.query;
@@ -2223,7 +2232,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       const h = headingsOfDoc(json).find((x) => x.anchor === String(heading));
       return res.json({ words: h ? `“${h.text.slice(0, 120)}”` : 'A heading since changed' });
     }
-    throw bad('Give a slide, a tab or a heading');
+    throw bad('Give a slide, a tab, a heading or a line');
   });
 
   // Pictures in a presentation, document or spreadsheet: anyone who can open it sees them, even if the

@@ -1784,7 +1784,7 @@ function FileCards({ text }) {
     let alive = true;
     for (const l of links) infoOf(l.id).then((f) => { if (alive) setInfo((x) => ({ ...x, [l.id]: f || false })); });
     for (const l of links) {
-      const qs = placeQuery(l.hash);
+      const qs = l.line ? `line=${l.line}` : placeQuery(l.hash); // (a line of a text file: how it reads)
       if (qs) get(`/files/${l.id}/place?${qs}`).then((r) => { if (alive) setPlaces((x) => ({ ...x, [l.id]: r.words })); }).catch(() => {});
     }
     return () => { alive = false; };
@@ -1805,7 +1805,7 @@ function FileCards({ text }) {
           );
         }
         return (
-          <Link key={l.id} className="file-card" to={OPEN[f.kind] ? `${OPEN[f.kind](f.id)}${l.hash || ''}` : `/drive?preview=${f.id}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}${place ? ` (${place})` : ''}`}>
+          <Link key={l.id} className="file-card" to={OPEN[f.kind] ? `${OPEN[f.kind](f.id)}${l.hash || ''}` : `/drive?preview=${f.id}${l.line ? `&line=${l.line}` : ''}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}${place ? ` (${place})` : ''}`}>
             <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
             <span className="grow"><strong>{f.name}</strong>{place && <span className="small file-card-place">{place}</span>}<span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'commenter' ? ' · you can comment' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
           </Link>

@@ -1,7 +1,9 @@
 // Links to Workspace files in a message ("/docs/abc", "https://this-server/sheets/xyz", a folder's
 // "/drive/folder/…"), for showing them as cards: [{ id, kind, hash, place }], each file once, at most three. A link to a
-// place in it (#slide=…, #sheet=…&range=…, #tab=…, a heading) keeps its hash, with words for it (place).
-const RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/(?:(docs|sheets|slides|drive\/folder)\/([\w-]{6,})(#[^\s<>"')]+)?|drive\/?\?(?:[^\s#]*&)?preview=([\w-]{6,}))/g; // and an uploaded file's "/drive?preview=…" 
+// place in it (#slide=…, #sheet=…&range=…, #tab=…, a heading) keeps its hash, with words for it (place); a link to a
+// line of a text file (/drive?preview=…&line=12) keeps the line.
+const RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/(?:(docs|sheets|slides|drive\/folder)\/([\w-]{6,})(#[^\s<>"')]+)?|drive\/?\?(?:[^\s#]*&)?preview=([\w-]{6,})((?:&[\w-]+=[\w-]*)*))/g; // and an uploaded file's "/drive?preview=…" 
+import { lineFrom } from '../linelink.js';
 const KIND = { docs: 'doc', sheets: 'sheet', slides: 'slides', 'drive/folder': 'folder' };
 
 /** Words for a place a link points at: "Sheet “Plan”, A1:B1", "a slide", "a tab", "a place in it", or null. */
@@ -22,7 +24,8 @@ export function fileLinksIn(text, host = typeof window !== 'undefined' ? window.
     const id = m[3] || m[5];
     if (out.some((x) => x.id === id)) continue;
     const hash = m[4] || '';
-    out.push({ id, kind: m[5] ? 'file' : KIND[m[2]], ...(hash && { hash, place: placeWords(hash) }) });
+    const line = m[5] ? lineFrom(new URLSearchParams(`${m[0].slice(m[0].indexOf('?') + 1)}`).get('line')) : null;
+    out.push({ id, kind: m[5] ? 'file' : KIND[m[2]], ...(hash && { hash, place: placeWords(hash) }), ...(line && { line, place: `Line ${line}` }) });
     if (out.length === 3) break;
   }
   return out;
