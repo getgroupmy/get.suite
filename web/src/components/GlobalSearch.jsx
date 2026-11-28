@@ -58,7 +58,7 @@ export async function searchAll(text, me = null) { // me: your user id (whose a 
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
       sub: [f.place_words, f.parent_name && `in ${f.parent_name}`, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),
-      to: FILE_LINK[f.kind] ? `${FILE_LINK[f.kind](f)}${f.place || ''}` : `/drive/search?q=${encodeURIComponent(f.name)}` }))], // (at the slide or cell the words are on)
+      to: FILE_LINK[f.kind] ? `${FILE_LINK[f.kind](f)}${f.place || ''}` : f.place_line ? `/drive?preview=${f.id}&line=${f.place_line}` : `/drive/search?q=${encodeURIComponent(f.name)}` }))], // (at the slide or cell the words are on; a text file, at the line)
     ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
       sub: [m.sent ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || ''), m.folder !== 'INBOX' && !m.sent ? m.folder_name : null, m.date ? when(m.date) : null,
         // and what the list shows: unread, starred, with attachments

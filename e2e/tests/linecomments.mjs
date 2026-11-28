@@ -202,6 +202,15 @@ await step('searching Drive for words inside a text file says the line, and open
   await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
   if (await dlg().locator('.code-line.target').count()) throw new Error('a line picked out for a name match');
 });
+await step('“Search everything” at the top: a match inside a text file says the line and opens the file there', async () => {
+  await page.goto(`${B}/drive`);
+  const box = page.getByRole('combobox', { name: 'Search everything' }).or(page.getByPlaceholder('Search everything')).first();
+  await box.fill('def total');
+  const hit = page.getByRole('option').filter({ hasText: 'report.py' }).first();
+  await hit.getByText(/Line 7/).waitFor({ timeout: 15000 });
+  await hit.click();
+  await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
