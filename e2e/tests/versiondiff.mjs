@@ -118,6 +118,24 @@ await step('Compare with picks another earlier version instead of now', async ()
   await view.locator('.diff-line.add .diff-text', { hasText: 'mode: live' }).waitFor();
   await page.keyboard.press('Escape');
 });
+await step('Restore this version, from the comparison: confirmed, then the file is as it was and the list is back', async () => {
+  const r = await put('/api/files/upload?name=rates.yaml', 'rate: 10\n');
+  await put(`/api/files/${r.id}/versions`, 'rate: 99\n');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for rates.yaml' }).click();
+  await page.getByRole('menuitem', { name: 'Version history' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Version history: rates.yaml' });
+  await dlg.getByRole('button', { name: /^Compare the version from/ }).click();
+  await dlg.getByRole('region', { name: 'Differences, line by line' }).waitFor({ timeout: 15000 });
+  await dlg.getByRole('button', { name: 'Restore this version' }).click();
+  await page.getByRole('dialog', { name: 'Restore this version?' }).getByRole('button', { name: 'Restore' }).click();
+  await page.getByText(/^Restored the version from/).waitFor();
+  await page.getByRole('dialog', { name: 'Version history: rates.yaml' }).getByRole('list', { name: 'Versions' }).waitFor();
+  const raw = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/raw?download`)).text(), r.id);
+  if (raw !== 'rate: 10\n') throw new Error(JSON.stringify(raw));
+  await page.keyboard.press('Escape');
+});
 await step('an AI assistant (MCP compare_file_versions) lists the versions and says what changed since the previous one', async () => {
   await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
   const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Files helper', scope: 'read', days: 30 })).body.token;

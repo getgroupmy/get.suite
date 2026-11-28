@@ -2098,7 +2098,7 @@ function VersionsDialog({ file, onClose, onChanged }) {
   const when = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
   async function restore(v) {
-    try { await post(`/files/${file.id}/versions/${v.id}/restore`); toast(`Restored the version from ${when(v.saved_at)}`); load(); onChanged?.(); }
+    try { await post(`/files/${file.id}/versions/${v.id}/restore`); toast(`Restored the version from ${when(v.saved_at)}`); setComparing(null); load(); onChanged?.(); }
     catch (e) { toast(e.message, 'error'); }
     setConfirm(null);
   }
@@ -2119,7 +2119,8 @@ function VersionsDialog({ file, onClose, onChanged }) {
   const binary = file.kind === 'file';
   if (comparing) return (
     <Modal wide title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
-      <VersionDiff fileId={file.id} name={file.name} version={comparing} versions={list || []} when={when} onBack={() => setComparing(null)} />
+      <VersionDiff fileId={file.id} name={file.name} version={comparing} versions={list || []} when={when} onBack={() => setComparing(null)}
+        onRestore={canEdit && !file.locked_at ? () => setConfirm({ kind: 'restore', version: comparing }) : null} />
     </Modal>
   );
   return (
