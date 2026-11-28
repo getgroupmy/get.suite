@@ -5,6 +5,8 @@
 // file as it was as an earlier version. Comments on lines (Drive): `marks` are the comments ({ id, line, text }), each
 // shown as a marker on its line (onMark opens it; onPlaced tells where each one is now); `picking` makes a click on a
 // line (or Enter in Go to line) choose it for a new comment (onPick); `showLine` ({ line, n }) brings a line into view.
+// `linkTo(line)` gives the address of a line: with it, the line gone to (by Go to line, or a click on its number) has
+// “Copy link to line N”.
 // `load` gives { text, truncated } (the first 512 KB). Shown as text: nothing in it runs.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { findInLines, piecesOf, countIn, replaceAllIn } from './codefind.js';
@@ -29,7 +31,7 @@ export function readable(name, text) {
   try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
 }
 
-export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null, draftId = null, marks = null, activeMark = null, onMark = null, onPlaced = null, picking = false, onPick = null, showLine = null }) {
+export default function CodeContents({ name, load, canCopy = true, onSave = null, startEditing = false, onDirty = null, draftId = null, marks = null, activeMark = null, onMark = null, onPlaced = null, picking = false, onPick = null, showLine = null, linkTo = null }) {
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [laid, setLaid] = useState(true);
@@ -98,7 +100,7 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
     if (!el) return;
     const box = view.current.getBoundingClientRect(), r = el.getBoundingClientRect();
     view.current.scrollTop += r.top - box.top - box.height / 3;
-  }, [target, jump]);
+  }, [target, jump, !!d]); // eslint-disable-line react-hooks/exhaustive-deps
   // Comments on lines: shown on the text as written (line numbers are of the file itself, not of the laid-out JSON).
   const marksKey = JSON.stringify(marks || []);
   const { placed, byLine: markedLines } = useMemo(() => placeMarks(lines, d && text === d.text ? marks : null), [lines, marksKey, d, text]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -197,6 +199,10 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
             setTarget(n);
             if (picking && onPick && lines.length) onPick(lineAnchor(n, lines[n - 1]));
           }} />
+        {linkTo && target > 0 && target <= lines.length && <button type="button" className="btn small" title="A link that opens this file at this line: paste it in Chat or an email" onClick={async () => {
+          try { await navigator.clipboard.writeText(linkTo(target)); setCopied(`Link to line ${target.toLocaleString()} copied`); } catch { setCopied('Couldn’t copy the link'); }
+          setTimeout(() => setCopied(''), 2500);
+        }}>Copy link to line {target.toLocaleString()}</button>}
       </div>
       <pre ref={view} className={`code-view ${wrap ? 'wrap' : ''}${picking ? ' picking' : ''}`} tabIndex={0} aria-label={`Text of ${name}`}>
         {lines.map((l, i) => {
@@ -204,7 +210,7 @@ export default function CodeContents({ name, load, canCopy = true, onSave = null
           return (
             <span key={i} className={`code-line${i + 1 === target ? ' target' : ''}${on ? ' commented' : ''}`} onClick={picking && onPick ? () => { setTarget(i + 1); onPick(lineAnchor(i + 1, l)); } : undefined}>
               {on && <button type="button" className={`code-mark${on.includes(activeMark) ? ' on' : ''}`} aria-label={`${on.length === 1 ? 'Comment' : `${on.length} comments`} on line ${i + 1}`} title={`${on.length === 1 ? 'A comment' : `${on.length} comments`} on this line`}
-                onClick={(e) => { e.stopPropagation(); onMark?.(on.includes(activeMark) ? on[(on.indexOf(activeMark) + 1) % on.length] : on[0]); }} />}<span className="code-num" aria-hidden="true">{i + 1}</span>
+                onClick={(e) => { e.stopPropagation(); onMark?.(on.includes(activeMark) ? on[(on.indexOf(activeMark) + 1) % on.length] : on[0]); }} />}<span className="code-num" aria-hidden="true" onClick={picking ? undefined : () => setTarget(target === i + 1 ? 0 : i + 1)}>{i + 1}</span>
               {hits ? piecesOf(l, hits.list, hits.first).map((p, k) => (p.hit < 0 ? p.text : <mark key={k} className={p.hit === current ? 'current' : undefined}>{p.text}</mark>))
                 : colours ? colours[i].map((p, k) => (p.k ? <span key={k} className={`tok-${p.k}`}>{p.text}</span> : p.text)) : l}{'\n'}</span>
           );

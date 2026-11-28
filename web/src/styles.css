@@ -2836,6 +2836,7 @@ p.doc-email-fields { margin: 0; }
 .code-view .code-line.target { background: var(--accent-soft); outline: 1px solid var(--accent); }
 .code-view .code-line { position: relative; }
 .code-view.picking .code-line { cursor: pointer; }
+.code-view:not(.picking) .code-num { cursor: pointer; }
 .code-view.picking .code-line:hover { background: var(--accent-soft); }
 .code-view .code-line.commented { box-shadow: inset 3px 0 0 #e37400; }
 .code-mark { position: absolute; left: 5px; top: 3px; width: 13px; height: 13px; padding: 0; border: 0; border-radius: 7px 7px 7px 2px; background: #e37400; cursor: pointer; text-indent: 0; }

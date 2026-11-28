@@ -26,6 +26,7 @@ import EmlContents from '../EmlContents.jsx';
 import CardFileContents from '../CardFileContents.jsx';
 import CodeContents from '../CodeContents.jsx';
 import { lineLabel } from '../linemarks.js';
+import { lineLink, lineFrom } from '../linelink.js';
 import { dropDraft } from '../textdrafts.js';
 import TableContents from '../TableContents.jsx';
 import { previewKind } from '../../components/viewkind.js';
@@ -373,13 +374,13 @@ export default function Drive() {
     setSearchParams({}, { replace: true });
     get(`/files/${id}`).then((f) => setDialog({ type: 'share', file: f })).catch((e) => toast(e.message, 'error'));
   }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
-  // /drive?preview=<file id>&comment=<id>: a file's preview (e.g. from a comment notification).
+  // /drive?preview=<file id>&comment=<id> (or &line=<n>): a file's preview (e.g. from a comment notification, or a link to a line).
   useEffect(() => {
     const id = searchParams.get('preview');
     if (!id) return;
-    const comment = searchParams.get('comment');
+    const comment = searchParams.get('comment'), line = lineFrom(searchParams.get('line')); // &line=12: a text file at that line
     setSearchParams({}, { replace: true });
-    get(`/files/${id}`).then((f) => setDialog({ type: 'preview', file: f, comment })).catch((e) => toast(e.message, 'error'));
+    get(`/files/${id}`).then((f) => setDialog({ type: 'preview', file: f, comment, line })).catch((e) => toast(e.message, 'error'));
   }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parentId = route.view === 'mine' ? route.folderId : null;
@@ -962,7 +963,7 @@ export default function Drive() {
       {dialog?.type === 'chat' && <SendInChat items={dialog.files.map((f) => ({ name: f.name, url: linkTo(f) }))} what={dialog.files.length === 1 ? `“${dialog.files[0].name}”` : `${dialog.files.length} files`} onClose={() => setDialog(null)} />}
       {dialog?.type === 'copyto' && <MoveDialog copy files={dialog.files} onClose={() => setDialog(null)} onCopy={(to) => copyMany(dialog.files, to)} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
-      {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} edit={!!dialog.edit} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
+      {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} line={dialog.line} edit={!!dialog.edit} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
       {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
         try {
@@ -1481,7 +1482,7 @@ export function officeAs(f) {
   return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, txt: { what: 'document', icon: 'doc' }, rtf: { what: 'document', icon: 'doc' }, html: { what: 'document', icon: 'doc' }, htm: { what: 'document', icon: 'doc' }, csv: { what: 'spreadsheet', icon: 'sheet' }, tsv: { what: 'spreadsheet', icon: 'sheet' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, ods: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' }, odp: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
-function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false }) {
+function Preview({ file, onClose: close, onOpenAs, comment = null, line = null, edit = false }) {
   // A text file being edited with changes not saved: closing asks first.
   const unsaved = useRef(false);
   const [askDiscard, setAskDiscard] = useState(false);
@@ -1513,7 +1514,7 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
   const isText = previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name);
   const lineMarks = isText ? threads.filter((t) => !t.resolved && t.anchor?.line).map((t) => ({ id: t.id, line: t.anchor.line, text: t.anchor.text })) : null;
   const [placed, setPlaced] = useState({});
-  const [showLine, setShowLine] = useState(null);
+  const [showLine, setShowLine] = useState(() => (line ? { line, n: 1 } : null));
   const linked = useRef(false); // a link to a comment on a line: that line brought into view, once the file is read
   useEffect(() => { if (comment && !linked.current && placed[comment]) { linked.current = true; setShowLine({ line: placed[comment].line, n: Date.now() }); } }, [placed, comment]);
   const newComment = (anchor, label) => { setPanel(true); setPending({ anchor, label, onCreated: () => setPending(null), onCancel: () => setPending(null) }); };
@@ -1537,7 +1538,7 @@ function Preview({ file, onClose: close, onOpenAs, comment = null, edit = false 
   else if (/\.(ics|vcf)$/i.test(file.name)) body = <CardFileContents fileId={file.id} canAdd={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'table') body = <TableContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} />;
   else if (previewKind(file.name) === 'code' || /\.(txt|log)$/i.test(file.name)) body = <CodeContents name={file.name} load={() => get(`/files/${file.id}/source-text`)} canCopy={!viewOnly(file)} startEditing={edit} onDirty={(v) => { unsaved.current = v; }} draftId={file.id}
-    marks={lineMarks} activeMark={active} onMark={(id) => { setPanel(true); setActive(id); }} onPlaced={setPlaced} showLine={showLine}
+    marks={lineMarks} activeMark={active} onMark={(id) => { setPanel(true); setActive(id); }} onPlaced={setPlaced} showLine={showLine} linkTo={(n) => lineLink(location.origin, file.id, n)}
     picking={pinning} onPick={(a) => { setPinning(false); newComment(a, `line ${a.line.toLocaleString()}`); }}
     onSave={['owner', 'editor'].includes(file.role) && !file.locked_at ? (text, version) => put(`/files/${file.id}/source-text`, { text, version }) : null} />;
   // Only text the server shows in the browser (plain text, CSV); others (.tsv, …) download, and Markdown is shown formatted below.

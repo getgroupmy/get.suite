@@ -146,6 +146,36 @@ await step('someone who may only view sees the markers and comments, but has no 
   await d.locator('.code-line').nth(0).click();
   if (await d.getByLabel('New comment').count()) throw new Error('a viewer started a comment');
 });
+await step('a link to a line: click a line’s number (or Go to line), “Copy link to line 7”; the link opens the file at that line', async () => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
+  await page.goto(`${B}/drive?preview=${f.id}`);
+  const d = dlg();
+  await d.getByLabel('Text of report.py').waitFor({ timeout: 15000 });
+  if (await d.getByRole('button', { name: /Copy link to line/ }).count()) throw new Error('offered before a line is chosen');
+  await d.locator('.code-line').nth(6).locator('.code-num').click();
+  await d.getByRole('button', { name: 'Copy link to line 7' }).click();
+  await d.getByText('Link to line 7 copied').waitFor();
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  if (link !== `${B}/drive?preview=${f.id}&line=7`) throw new Error(link);
+  if (await d.getByLabel('New comment').count()) throw new Error('clicking a number started a comment');
+  // Clicking the number again lets go of the line.
+  await d.locator('.code-line').nth(6).locator('.code-num').click();
+  if (await d.locator('.code-line.target').count()) throw new Error('still picked out');
+  await d.getByLabel('Go to line').fill('2');
+  await d.getByLabel('Go to line').press('Enter');
+  await d.getByRole('button', { name: 'Copy link to line 2' }).waitFor();
+  // Opening the link: the line is the one picked out, and the address is tidied.
+  await page.goto(link);
+  await until(() => dlg().locator('.code-line.target').evaluate((el) => el.textContent.includes('def total')).catch(() => false), 15000);
+  await dlg().getByRole('button', { name: 'Copy link to line 7' }).waitFor();
+  await until(() => !page.url().includes('line='));
+  // A line the file doesn't have, or nonsense: the file just opens.
+  await page.goto(`${B}/drive?preview=${f.id}&line=999`);
+  await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
+  if (await dlg().locator('.code-line.target').count()) throw new Error('a line picked out for line 999');
+  await page.goto(`${B}/drive?preview=${f.id}&line=abc`);
+  await dlg().getByLabel('Text of report.py').waitFor({ timeout: 15000 });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
